@@ -4,10 +4,10 @@
   "minIterations": 1,
   "maxIterations": 50,
   "completionPromise": "COMPLETE",
-  "tasksMode": true,
+  "tasksMode": false,
   "taskPromise": "READY_FOR_NEXT_TASK",
-  "prompt": "Read docs/ROADMAP.md + docs/PROJECT-OUTLINE.md, implement the top unchecked items in small tested increments, and keep ROADMAP/OUTLINE & AGENTS.md in sync as you go. Output <promise>JOB_DONE</promise> when done, tests pass and git commit with all changes is created.",
-  "startedAt": "2026-02-25T23:15:37.991Z",
+  "prompt": "Read docs/ROADMAP.md + docs/PROJECT-OUTLINE.md, implement the top unchecked items in small tested increments, and keep ROADMAP/OUTLINE & AGENTS.md in sync as you go. At the end make sure tests pass and create git commit with all changes made. Output <promise>JOB_FULLY_COMPLETED</promise> only when entire P0 and P1 from roadmap/outliine are implemented, thoroughly covered by tests and are in a verifiebly working state.",
+  "startedAt": "2026-02-25T23:32:08.016Z",
   "model": "",
   "agent": "opencode"
 }
