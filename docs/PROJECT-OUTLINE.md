@@ -393,6 +393,7 @@ Current progress snapshot:
 - stopgap deploy records function-level manifest metadata including artifact hashes and live pointer payloads
 - stopgap deploy now checks caller privileges for source/live schema access and compile API execution
 - stopgap now exposes `stopgap.status(env)` and `stopgap.deployments(env)` introspection APIs
+- plts runtime errors now include stage metadata, JS stack details (when present), and SQL function identity context
 - CI workflow now runs workspace `cargo check`, `cargo test`, and matrixed `cargo pgrx test` jobs per extension crate
 - repository toolchain and lint/format configs are pinned (`rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`)
 

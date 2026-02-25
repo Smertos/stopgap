@@ -73,7 +73,7 @@ Legend:
   - [x] `undefined` -> SQL `NULL`
   - [x] `null` -> SQL `NULL`
   - [x] primitives/object/array -> `jsonb`
-- [ ] Add robust runtime error propagation (message + stack + SQL context)
+- [x] Add robust runtime error propagation (message + stack + SQL context)
 - [x] Include SQL function identity (`schema.name`, oid) in runtime error messages
 
 ### 2.5 Compiler Work (unfinished)

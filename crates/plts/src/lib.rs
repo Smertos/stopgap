@@ -4,6 +4,7 @@ use pgrx::JsonB;
 use serde_json::json;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::fmt;
 
 ::pgrx::pg_module_magic!(name, version);
 
@@ -73,10 +74,7 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
                     return pg_sys::Datum::from(0);
                 }
                 Err(err) => {
-                    error!(
-                        "plts runtime error for {}.{} (oid={}): {}",
-                        program.schema, program.name, program.oid, err
-                    );
+                    error!("{}", format_runtime_error_for_sql(&program, &err));
                 }
             }
         }
@@ -104,6 +102,61 @@ struct FunctionProgram {
     schema: String,
     name: String,
     source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeExecError {
+    stage: &'static str,
+    message: String,
+    stack: Option<String>,
+}
+
+impl RuntimeExecError {
+    fn new(stage: &'static str, message: impl Into<String>) -> Self {
+        Self { stage, message: message.into(), stack: None }
+    }
+
+    #[cfg(any(test, feature = "v8_runtime"))]
+    fn with_stack(
+        stage: &'static str,
+        message: impl Into<String>,
+        stack: impl Into<Option<String>>,
+    ) -> Self {
+        Self { stage, message: message.into(), stack: stack.into() }
+    }
+}
+
+impl fmt::Display for RuntimeExecError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "stage={}; message={}", self.stage, self.message)?;
+        if let Some(stack) = &self.stack {
+            write!(f, "; stack={stack}")?;
+        }
+        Ok(())
+    }
+}
+
+fn format_runtime_error_for_sql(program: &FunctionProgram, err: &RuntimeExecError) -> String {
+    format!(
+        "plts runtime error for {}.{} (oid={}): {}; sql_context={{schema={}, name={}, oid={}}}",
+        program.schema, program.name, program.oid, err, program.schema, program.name, program.oid
+    )
+}
+
+#[cfg(any(test, feature = "v8_runtime"))]
+fn parse_js_error_details(details: &str) -> (String, Option<String>) {
+    let trimmed = details.trim();
+    if let Some((first, rest)) = trimmed.split_once('\n') {
+        let message = first.trim().to_string();
+        let stack = rest.trim();
+        if stack.is_empty() {
+            (message, None)
+        } else {
+            (message, Some(stack.to_string()))
+        }
+    } else {
+        (trimmed.to_string(), None)
+    }
 }
 
 fn build_runtime_context(program: &FunctionProgram, args_payload: &Value) -> Value {
@@ -390,7 +443,7 @@ fn runtime_available() -> bool {
 }
 
 #[cfg(feature = "v8_runtime")]
-fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, String> {
+fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, RuntimeExecError> {
     use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
 
     let mut runtime = JsRuntime::new(RuntimeOptions::default());
@@ -398,19 +451,27 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Strin
 
     runtime
         .execute_script("plts_module.js", rewritten)
-        .map_err(|e| format_js_error("module evaluation failed", &e.to_string()))?;
+        .map_err(|e| format_js_error("module evaluation", &e.to_string()))?;
 
-    let context_json = serde_json::to_string(context)
-        .map_err(|e| format!("failed to serialize runtime context: {e}"))?;
+    let context_json = serde_json::to_string(context).map_err(|e| {
+        RuntimeExecError::new(
+            "context serialize",
+            format!("failed to serialize runtime context: {e}"),
+        )
+    })?;
     let set_ctx_script = format!(
         "globalThis.__plts_ctx = JSON.parse({});",
-        serde_json::to_string(&context_json)
-            .map_err(|e| format!("failed to encode runtime context string: {e}"))?
+        serde_json::to_string(&context_json).map_err(|e| {
+            RuntimeExecError::new(
+                "context encode",
+                format!("failed to encode runtime context string: {e}"),
+            )
+        })?
     );
 
     runtime
         .execute_script("plts_ctx.js", set_ctx_script)
-        .map_err(|e| format_js_error("context setup failed", &e.to_string()))?;
+        .map_err(|e| format_js_error("context setup", &e.to_string()))?;
 
     let invoke_script = r#"
         if (typeof globalThis.__plts_default !== "function") {
@@ -429,22 +490,24 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Strin
 
     runtime
         .execute_script("plts_invoke.js", invoke_script)
-        .map_err(|e| format_js_error("entrypoint invocation failed", &e.to_string()))?;
+        .map_err(|e| format_js_error("entrypoint invocation", &e.to_string()))?;
 
     let value = runtime
         .execute_script("plts_result.js", "globalThis.__plts_result_json")
-        .map_err(|e| format_js_error("result extraction failed", &e.to_string()))?;
+        .map_err(|e| format_js_error("result extraction", &e.to_string()))?;
 
     deno_core::scope!(scope, runtime);
     let local = v8::Local::new(scope, value);
-    let maybe_json = serde_v8::from_v8::<Option<String>>(scope, local)
-        .map_err(|e| format!("failed to decode JS result string: {e}"))?;
+    let maybe_json = serde_v8::from_v8::<Option<String>>(scope, local).map_err(|e| {
+        RuntimeExecError::new("result decode", format!("failed to decode JS result string: {e}"))
+    })?;
 
     match maybe_json {
         None => Ok(None),
         Some(raw) => {
-            let value = serde_json::from_str::<Value>(&raw)
-                .map_err(|e| format!("failed to decode JSON result: {e}"))?;
+            let value = serde_json::from_str::<Value>(&raw).map_err(|e| {
+                RuntimeExecError::new("result parse", format!("failed to decode JSON result: {e}"))
+            })?;
             if value.is_null() {
                 Ok(None)
             } else {
@@ -455,12 +518,12 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Strin
 }
 
 #[cfg(not(feature = "v8_runtime"))]
-fn execute_program(_source: &str, _context: &Value) -> Result<Option<Value>, String> {
-    Err("v8_runtime feature is disabled".to_string())
+fn execute_program(_source: &str, _context: &Value) -> Result<Option<Value>, RuntimeExecError> {
+    Err(RuntimeExecError::new("runtime bootstrap", "v8_runtime feature is disabled"))
 }
 
 #[cfg(any(test, feature = "v8_runtime"))]
-fn rewrite_default_export(source: &str) -> Result<String, String> {
+fn rewrite_default_export(source: &str) -> Result<String, RuntimeExecError> {
     let token = "export default";
     if let Some(idx) = source.find(token) {
         let mut rewritten = String::with_capacity(source.len() + 32);
@@ -469,13 +532,14 @@ fn rewrite_default_export(source: &str) -> Result<String, String> {
         rewritten.push_str(&source[idx + token.len()..]);
         Ok(rewritten)
     } else {
-        Err("module must include `export default`".to_string())
+        Err(RuntimeExecError::new("module rewrite", "module must include `export default`"))
     }
 }
 
 #[cfg(feature = "v8_runtime")]
-fn format_js_error(context: &str, details: &str) -> String {
-    format!("{context}: {details}")
+fn format_js_error(stage: &'static str, details: &str) -> RuntimeExecError {
+    let (message, stack) = parse_js_error_details(details);
+    RuntimeExecError::with_stack(stage, message, stack)
 }
 
 #[cfg(test)]
@@ -505,6 +569,27 @@ mod tests {
         let src = "export default (ctx) => ({ ok: true, args: ctx.args })";
         let rewritten = crate::rewrite_default_export(src).expect("rewrite should succeed");
         assert!(rewritten.contains("globalThis.__plts_default ="));
+    }
+
+    #[test]
+    fn test_parse_js_error_details_with_stack() {
+        let details = "Uncaught Error: boom\n    at default (plts_module.js:1:1)\n    at foo";
+        let (message, stack) = crate::parse_js_error_details(details);
+        assert_eq!(message, "Uncaught Error: boom");
+        assert_eq!(stack.as_deref(), Some("at default (plts_module.js:1:1)\n    at foo"));
+    }
+
+    #[test]
+    fn test_runtime_exec_error_display() {
+        let err = crate::RuntimeExecError::with_stack(
+            "entrypoint invocation",
+            "Uncaught Error: boom",
+            Some("at default (plts_module.js:1:1)".to_string()),
+        );
+        let rendered = err.to_string();
+        assert!(rendered.contains("stage=entrypoint invocation"));
+        assert!(rendered.contains("message=Uncaught Error: boom"));
+        assert!(rendered.contains("stack=at default"));
     }
 }
 
