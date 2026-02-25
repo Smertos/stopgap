@@ -60,7 +60,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 ## Near-term technical debt to remember
 
 - `plts` runtime handler executes sync default-export JS only when built with `v8_runtime`; full module/import support and async execution are still pending, but runtime errors now surface stage/message/stack with SQL function identity context.
-- `plts.compile_ts` now transpiles TS->JS via `deno_ast` and reports structured diagnostics, but compiler fingerprint metadata and artifact source-map persistence are still pending.
+- `plts.compile_ts` now transpiles TS->JS via `deno_ast`, reports structured diagnostics, and records compiler fingerprint metadata from lockfile-resolved dependency versions; artifact source-map persistence is still pending.
 - Stopgap function kind (`query` vs `mutation`) is currently convention-based, not wrapper-enforced.
 - Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, checks deploy caller privileges, and ships rollback/status/deployments APIs.
 - Most deploy SQL value binding uses argumentized SPI; remaining interpolation is primarily constrained identifier/DDL construction.

@@ -12,10 +12,12 @@ use serde_json::json;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fmt;
+use std::sync::OnceLock;
 
 ::pgrx::pg_module_magic!(name, version);
 
-const TS_COMPILER_FINGERPRINT: &str = "deno_ast-tsc-p0";
+const CARGO_LOCK_CONTENT: &str = include_str!("../../../Cargo.lock");
+static TS_COMPILER_FINGERPRINT: OnceLock<String> = OnceLock::new();
 
 extension_sql!(
     r#"
@@ -279,7 +281,7 @@ mod plts {
     > {
         bootstrap_v8_isolate();
         let (compiled_js, diagnostics) = transpile_typescript(source_ts, &compiler_opts.0);
-        TableIterator::once((compiled_js, JsonB(diagnostics), TS_COMPILER_FINGERPRINT.to_string()))
+        TableIterator::once((compiled_js, JsonB(diagnostics), compiler_fingerprint().to_string()))
     }
 
     #[pg_extern]
@@ -288,7 +290,7 @@ mod plts {
         compiled_js: &str,
         compiler_opts: default!(JsonB, "'{}'::jsonb"),
     ) -> String {
-        let compiler_fingerprint = TS_COMPILER_FINGERPRINT;
+        let compiler_fingerprint = compiler_fingerprint();
         let hash =
             compute_artifact_hash(source_ts, compiled_js, &compiler_opts.0, compiler_fingerprint);
 
@@ -376,6 +378,44 @@ fn compute_artifact_hash(
     hasher.update([0]);
     hasher.update(compiler_opts.to_string().as_bytes());
     format!("sha256:{}", hex::encode(hasher.finalize()))
+}
+
+fn compiler_fingerprint() -> &'static str {
+    TS_COMPILER_FINGERPRINT
+        .get_or_init(|| {
+            let deno_ast = dependency_version_from_lock("deno_ast").unwrap_or("unknown");
+            let deno_core = dependency_version_from_lock("deno_core").unwrap_or("disabled");
+            format!("deno_ast@{};deno_core@{}", deno_ast, deno_core)
+        })
+        .as_str()
+}
+
+fn dependency_version_from_lock(crate_name: &str) -> Option<&'static str> {
+    let mut in_package = false;
+    for line in CARGO_LOCK_CONTENT.lines() {
+        let trimmed = line.trim();
+
+        if trimmed == "[[package]]" {
+            in_package = false;
+            continue;
+        }
+
+        if let Some(name) = trimmed.strip_prefix("name = ") {
+            in_package = name.trim_matches('"') == crate_name;
+            continue;
+        }
+
+        if in_package {
+            if let Some(version) = trimmed.strip_prefix("version = ") {
+                return Some(version.trim_matches('"'));
+            }
+            if trimmed.starts_with("checksum = ") {
+                in_package = false;
+            }
+        }
+    }
+
+    None
 }
 
 fn transpile_typescript(source_ts: &str, compiler_opts: &Value) -> (String, Value) {
@@ -706,6 +746,19 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("error")
         );
+    }
+
+    #[test]
+    fn test_dependency_version_from_lock_finds_known_crate() {
+        let version = crate::dependency_version_from_lock("serde_json");
+        assert!(version.is_some());
+    }
+
+    #[test]
+    fn test_compiler_fingerprint_includes_dependency_versions() {
+        let fingerprint = crate::compiler_fingerprint();
+        assert!(fingerprint.contains("deno_ast@"));
+        assert!(fingerprint.contains("deno_core@"));
     }
 }
 
