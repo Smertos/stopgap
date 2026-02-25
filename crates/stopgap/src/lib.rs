@@ -132,12 +132,98 @@ mod stopgap {
     fn deployments(env: &str) -> JsonB {
         JsonB(load_deployments(env))
     }
+
+    #[pg_extern]
+    fn rollback(env: &str, steps: default!(i32, "1"), to_id: default!(Option<i64>, "NULL")) -> i64 {
+        rollback_steps_to_offset(steps).unwrap_or_else(|err| error!("{err}"));
+
+        let lock_key = hash_lock_key(env);
+        run_sql_with_args(
+            "SELECT pg_advisory_xact_lock($1)",
+            &[lock_key.into()],
+            "failed to acquire rollback lock",
+        )
+        .unwrap_or_else(|err| error!("{err}"));
+
+        let (live_schema, current_active) =
+            load_environment_state(env).unwrap_or_else(|err| error!("{err}"));
+
+        let target_deployment_id = match to_id {
+            Some(explicit_id) => {
+                ensure_deployment_belongs_to_env(env, explicit_id)
+                    .unwrap_or_else(|err| error!("{err}"));
+                explicit_id
+            }
+            None => find_rollback_target_by_steps(env, current_active, steps)
+                .unwrap_or_else(|err| error!("{err}")),
+        };
+
+        if target_deployment_id == current_active {
+            error!(
+                "stopgap rollback target {} is already active for env {}",
+                target_deployment_id, env
+            );
+        }
+
+        let target_status =
+            load_deployment_status(target_deployment_id).unwrap_or_else(|err| error!("{err}"));
+        if target_status != DeploymentStatus::Active
+            && target_status != DeploymentStatus::RolledBack
+        {
+            error!(
+                "stopgap rollback target {} has invalid status {}; expected active or rolled_back",
+                target_deployment_id,
+                target_status.as_str()
+            );
+        }
+
+        reactivate_deployment(live_schema.as_str(), target_deployment_id)
+            .unwrap_or_else(|err| error!("{err}"));
+
+        transition_if_active(current_active, DeploymentStatus::RolledBack)
+            .unwrap_or_else(|err| error!("{err}"));
+        if target_status == DeploymentStatus::RolledBack {
+            transition_deployment_status(target_deployment_id, DeploymentStatus::Active)
+                .unwrap_or_else(|err| error!("{err}"));
+        }
+
+        run_sql_with_args(
+            "
+            UPDATE stopgap.environment
+            SET active_deployment_id = $1,
+                updated_at = now()
+            WHERE env = $2
+            ",
+            &[target_deployment_id.into(), env.into()],
+            "failed to update active deployment during rollback",
+        )
+        .unwrap_or_else(|err| error!("{err}"));
+
+        run_sql_with_args(
+            "
+            INSERT INTO stopgap.activation_log (env, from_deployment_id, to_deployment_id)
+            VALUES ($1, $2, $3)
+            ",
+            &[env.into(), current_active.into(), target_deployment_id.into()],
+            "failed to write rollback activation log",
+        )
+        .unwrap_or_else(|err| error!("{err}"));
+
+        target_deployment_id
+    }
 }
 
 #[derive(Debug)]
 struct DeployableFn {
     fn_name: String,
     prosrc: String,
+}
+
+#[derive(Debug)]
+struct FnVersionRow {
+    fn_name: String,
+    live_fn_schema: String,
+    artifact_hash: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -384,6 +470,152 @@ fn load_deployments(env: &str) -> Value {
         .unwrap_or_else(|| json!([]))
 }
 
+fn load_environment_state(env: &str) -> Result<(String, i64), String> {
+    Spi::connect(|client| {
+        let mut rows = client.select(
+            "
+            SELECT live_schema::text AS live_schema,
+                   active_deployment_id
+            FROM stopgap.environment
+            WHERE env = $1
+            ",
+            None,
+            &[env.into()],
+        )?;
+
+        let row = rows.next().ok_or_else(|| pgrx::spi::Error::NoTupleTable)?;
+
+        let live_schema = row
+            .get_by_name::<String, _>("live_schema")?
+            .ok_or_else(|| pgrx::spi::Error::NoTupleTable)?;
+
+        let active = row
+            .get_by_name::<i64, _>("active_deployment_id")?
+            .ok_or_else(|| pgrx::spi::Error::NoTupleTable)?;
+
+        Ok::<(String, i64), pgrx::spi::Error>((live_schema, active))
+    })
+    .map_err(|_| {
+        format!("cannot rollback env {}: environment missing or has no active deployment", env)
+    })
+}
+
+fn find_rollback_target_by_steps(
+    env: &str,
+    current_active: i64,
+    steps: i32,
+) -> Result<i64, String> {
+    let offset = rollback_steps_to_offset(steps)?;
+    Spi::get_one_with_args::<i64>(
+        "
+        SELECT id
+        FROM stopgap.deployment
+        WHERE env = $1
+          AND id < $2
+          AND status IN ('active', 'rolled_back')
+        ORDER BY id DESC
+        OFFSET $3
+        LIMIT 1
+        ",
+        &[env.into(), current_active.into(), offset.into()],
+    )
+    .map_err(|e| format!("failed to find rollback target for env {}: {e}", env))?
+    .ok_or_else(|| {
+        format!("cannot rollback env {} by {} step(s): no prior deployment available", env, steps)
+    })
+}
+
+fn rollback_steps_to_offset(steps: i32) -> Result<i64, String> {
+    if steps < 1 {
+        return Err("stopgap.rollback requires steps >= 1".to_string());
+    }
+
+    Ok(i64::from(steps - 1))
+}
+
+fn ensure_deployment_belongs_to_env(env: &str, deployment_id: i64) -> Result<(), String> {
+    let exists = Spi::get_one_with_args::<bool>(
+        "SELECT EXISTS (SELECT 1 FROM stopgap.deployment WHERE id = $1 AND env = $2)",
+        &[deployment_id.into(), env.into()],
+    )
+    .map_err(|e| format!("failed to validate rollback target deployment {}: {e}", deployment_id))?
+    .unwrap_or(false);
+
+    if exists {
+        Ok(())
+    } else {
+        Err(format!("rollback target deployment {} does not belong to env {}", deployment_id, env))
+    }
+}
+
+fn load_deployment_status(deployment_id: i64) -> Result<DeploymentStatus, String> {
+    let status = Spi::get_one_with_args::<String>(
+        "SELECT status FROM stopgap.deployment WHERE id = $1",
+        &[deployment_id.into()],
+    )
+    .map_err(|e| format!("failed to load deployment status for id {}: {e}", deployment_id))?
+    .ok_or_else(|| format!("deployment id {} does not exist", deployment_id))?;
+
+    DeploymentStatus::from_str(&status)
+        .ok_or_else(|| format!("deployment id {} has unknown status {}", deployment_id, status))
+}
+
+fn transition_if_active(deployment_id: i64, to: DeploymentStatus) -> Result<(), String> {
+    let status = load_deployment_status(deployment_id)?;
+    if status == DeploymentStatus::Active {
+        transition_deployment_status(deployment_id, to)?;
+    }
+    Ok(())
+}
+
+fn reactivate_deployment(live_schema: &str, deployment_id: i64) -> Result<(), String> {
+    let rows = fetch_fn_versions(deployment_id)?;
+    for row in rows {
+        let schema =
+            if row.live_fn_schema.is_empty() { live_schema } else { row.live_fn_schema.as_str() };
+        materialize_live_pointer(schema, row.fn_name.as_str(), row.artifact_hash.as_str())?;
+    }
+
+    Ok(())
+}
+
+fn fetch_fn_versions(deployment_id: i64) -> Result<Vec<FnVersionRow>, String> {
+    Spi::connect(|client| {
+        let rows = client.select(
+            "
+            SELECT fn_name::text AS fn_name,
+                   live_fn_schema::text AS live_fn_schema,
+                   artifact_hash::text AS artifact_hash
+            FROM stopgap.fn_version
+            WHERE deployment_id = $1
+            ORDER BY fn_name
+            ",
+            None,
+            &[deployment_id.into()],
+        )?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let fn_name = row
+                .get_by_name::<String, _>("fn_name")
+                .expect("fn_name must be text")
+                .expect("fn_name cannot be null");
+            let live_fn_schema = row
+                .get_by_name::<String, _>("live_fn_schema")
+                .expect("live_fn_schema must be text")
+                .expect("live_fn_schema cannot be null");
+            let artifact_hash = row
+                .get_by_name::<String, _>("artifact_hash")
+                .expect("artifact_hash must be text")
+                .expect("artifact_hash cannot be null");
+            out.push(FnVersionRow { fn_name, live_fn_schema, artifact_hash });
+        }
+
+        Ok::<Vec<FnVersionRow>, pgrx::spi::Error>(out)
+    })
+    .map_err(|e| format!("failed to load function versions for deployment {}: {e}", deployment_id))
+}
+
 fn fetch_deployable_functions(from_schema: &str) -> Result<Vec<DeployableFn>, String> {
     Spi::connect(|client| {
         let rows = client.select(
@@ -525,15 +757,7 @@ fn update_failed_manifest(deployment_id: i64, err: &str) -> Result<(), String> {
 }
 
 fn transition_deployment_status(deployment_id: i64, to: DeploymentStatus) -> Result<(), String> {
-    let current = Spi::get_one_with_args::<String>(
-        "SELECT status FROM stopgap.deployment WHERE id = $1",
-        &[deployment_id.into()],
-    )
-    .map_err(|e| format!("failed to load deployment status for id {}: {e}", deployment_id))?
-    .ok_or_else(|| format!("deployment id {} does not exist", deployment_id))?;
-
-    let from = DeploymentStatus::from_str(&current)
-        .ok_or_else(|| format!("deployment id {} has unknown status {current}", deployment_id))?;
+    let from = load_deployment_status(deployment_id)?;
 
     if !is_allowed_transition(from, to) {
         return Err(format!(
@@ -641,6 +865,13 @@ mod tests {
             item.get("pointer").and_then(|v| v.get("kind")).and_then(|v| v.as_str()),
             Some("artifact_ptr")
         );
+    }
+
+    #[test]
+    fn test_rollback_steps_must_be_positive() {
+        assert_eq!(crate::rollback_steps_to_offset(1).expect("steps=1 should be valid"), 0);
+        assert_eq!(crate::rollback_steps_to_offset(2).expect("steps=2 should be valid"), 1);
+        assert!(crate::rollback_steps_to_offset(0).is_err());
     }
 }
 

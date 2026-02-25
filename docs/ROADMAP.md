@@ -125,7 +125,7 @@ Legend:
 
 ### 3.4 Rollback / Status / Introspection (P1+)
 
-- [ ] `stopgap.rollback(env, steps|to_id)`
+- [x] `stopgap.rollback(env, steps|to_id)`
 - [x] `stopgap.status(env)`
 - [x] `stopgap.deployments(env)`
 - [ ] `stopgap.diff` supporting API (optional)
@@ -231,7 +231,7 @@ Legend:
 2. [x] Implement real TS transpilation for `plts.compile_ts`
 3. [ ] Add integration tests for runtime execution + null normalization
 4. [ ] Harden `stopgap.deploy` error handling and state transitions
-5. [ ] Implement rollback/status APIs
+5. [x] Implement rollback/status APIs
 6. [ ] Add permissions model for live schema and deploy APIs
 7. [ ] Introduce wrapper package (`@stopgap/runtime`) and schema validation
 
@@ -240,5 +240,5 @@ Legend:
 ## 11) Current Snapshot
 
 - **P0 status:** Partially complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, live pointer materialization, overload rejection, baseline tests, and feature-gated sync default-export JS execution in `plts`.
-- **Biggest missing piece:** full module runtime support (imports/async/DB API bindings) in `plts` plus runtime DB API binding and P1 rollback/read-only features.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments APIs, live pointer materialization, overload rejection, baseline tests, and feature-gated sync default-export JS execution in `plts`.
+- **Biggest missing piece:** full module runtime support (imports/async/DB API bindings) in `plts` plus runtime DB API binding and P1 read-only/wrapper features.

@@ -393,7 +393,7 @@ Current progress snapshot:
 - stopgap deploy records function-level manifest metadata including artifact hashes and live pointer payloads
 - stopgap deploy now checks caller privileges for source/live schema access and compile API execution
 - stopgap deploy/status/deployments SQL paths now bind runtime values with argumentized SPI calls
-- stopgap now exposes `stopgap.status(env)` and `stopgap.deployments(env)` introspection APIs
+- stopgap now exposes `stopgap.status(env)`, `stopgap.deployments(env)`, and `stopgap.rollback(env, steps, to_id)` APIs
 - plts runtime errors now include stage metadata, JS stack details (when present), and SQL function identity context
 - CI workflow now runs workspace `cargo check`, `cargo test`, and matrixed `cargo pgrx test` jobs per extension crate
 - repository toolchain and lint/format configs are pinned (`rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`)
@@ -406,7 +406,7 @@ Current progress snapshot:
   - sets active deployment id
 
 ## P1 (DX + correctness)
-- `stopgap.rollback`
+- `stopgap.rollback` (implemented SQL API with `steps`/`to_id` targeting)
 - read-only enforcement for queries
 - `stopgap.query/mutation` wrappers available in runtime + TS types package
 - better error messages + stack traces
