@@ -117,9 +117,9 @@ Legend:
 
 ### 3.3 P0 Gaps
 
-- [ ] Add explicit deployment state machine validation and transitions
-- [ ] Wrap deploy logic in hardened error handling with `failed` state writes
-- [ ] Add detailed manifest generation (full function + artifact metadata)
+- [x] Add explicit deployment state machine validation and transitions
+- [x] Wrap deploy logic in hardened error handling with `failed` state writes
+- [x] Add detailed manifest generation (full function + artifact metadata)
 - [ ] Add strict role/permission checks for deploy caller
 - [ ] Move dynamic SQL-heavy paths to stronger argumentized SPI patterns
 

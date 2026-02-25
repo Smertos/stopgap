@@ -389,6 +389,8 @@ Current progress snapshot:
 - full module/import support and async handler execution are still pending
 - real TS transpilation is still pending
 - basic arg conversion work has started
+- stopgap deploy now validates deployment status transitions (`open -> sealed -> active`, with failure paths)
+- stopgap deploy records function-level manifest metadata including artifact hashes and live pointer payloads
 - CI workflow now runs workspace `cargo check`, `cargo test`, and matrixed `cargo pgrx test` jobs per extension crate
 - repository toolchain and lint/format configs are pinned (`rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`)
 

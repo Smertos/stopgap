@@ -1,5 +1,6 @@
 use pgrx::prelude::*;
 use serde_json::json;
+use serde_json::Value;
 
 ::pgrx::pg_module_magic!(name, version);
 
@@ -64,29 +65,43 @@ mod stopgap {
     #[pg_extern]
     fn deploy(env: &str, from_schema: &str, label: default!(Option<&str>, "NULL")) -> i64 {
         let lock_key = hash_lock_key(env);
-        let _ = Spi::run(&format!("SELECT pg_advisory_xact_lock({})", lock_key));
+        run_sql(
+            &format!("SELECT pg_advisory_xact_lock({})", lock_key),
+            "failed to acquire deploy lock",
+        )
+        .unwrap_or_else(|err| error!("{err}"));
 
         let live_schema = resolve_live_schema();
-        let label_sql = label
-            .map(quote_literal)
-            .unwrap_or_else(|| "NULL".to_string());
+        let label_sql = label.map(quote_literal).unwrap_or_else(|| "NULL".to_string());
 
-        let _ = Spi::run(&format!(
-            "
+        run_sql(
+            &format!(
+                "
             INSERT INTO stopgap.environment (env, live_schema)
             VALUES ({}, {})
             ON CONFLICT (env) DO UPDATE
             SET live_schema = EXCLUDED.live_schema,
                 updated_at = now()
             ",
-            quote_literal(env),
-            quote_literal(&live_schema)
-        ));
+                quote_literal(env),
+                quote_literal(&live_schema)
+            ),
+            "failed to upsert stopgap.environment",
+        )
+        .unwrap_or_else(|err| error!("{err}"));
 
         ensure_no_overloaded_plts_functions(from_schema);
 
-        let manifest_sql =
-            quote_literal(&json!({ "env": env, "source_schema": from_schema }).to_string());
+        let manifest_sql = quote_literal(
+            &json!({
+                "env": env,
+                "source_schema": from_schema,
+                "live_schema": live_schema,
+                "label": label,
+                "functions": []
+            })
+            .to_string(),
+        );
         let deployment_id = Spi::get_one::<i64>(&format!(
             "
             INSERT INTO stopgap.deployment (env, label, source_schema, status, manifest)
@@ -102,76 +117,14 @@ mod stopgap {
         .flatten()
         .expect("failed to create deployment");
 
-        let fns = fetch_deployable_functions(from_schema);
-        let _ = Spi::run(&format!(
-            "CREATE SCHEMA IF NOT EXISTS {}",
-            quote_ident(&live_schema)
-        ));
-
-        for item in &fns {
-            let artifact_hash = Spi::get_one::<String>(&format!(
-                "SELECT plts.compile_and_store({}::text, '{{}}'::jsonb)",
-                quote_literal(&item.prosrc)
-            ))
-            .ok()
-            .flatten()
-            .expect("plts.compile_and_store returned no hash");
-
-            let _ = Spi::run(&format!(
-                "
-                INSERT INTO stopgap.fn_version
-                    (deployment_id, fn_name, fn_schema, live_fn_schema, kind, artifact_hash)
-                VALUES ({}, {}, {}, {}, 'mutation', {})
-                ",
-                deployment_id,
-                quote_literal(&item.fn_name),
-                quote_literal(from_schema),
-                quote_literal(&live_schema),
-                quote_literal(&artifact_hash)
-            ));
-
-            materialize_live_pointer(&live_schema, &item.fn_name, &artifact_hash);
+        if let Err(err) = run_deploy_flow(deployment_id, env, from_schema, &live_schema) {
+            let _ = transition_deployment_status(deployment_id, DeploymentStatus::Failed);
+            let _ = update_failed_manifest(deployment_id, &err);
+            error!(
+                "stopgap deploy failed for env={} schema={} deployment_id={}: {}",
+                env, from_schema, deployment_id, err
+            );
         }
-
-        let previous_active = Spi::get_one::<i64>(&format!(
-            "SELECT active_deployment_id FROM stopgap.environment WHERE env = {}",
-            quote_literal(env)
-        ))
-        .ok()
-        .flatten();
-
-        let _ = Spi::run(&format!(
-            "UPDATE stopgap.deployment SET status = 'sealed' WHERE id = {}",
-            deployment_id
-        ));
-
-        let _ = Spi::run(&format!(
-            "
-            UPDATE stopgap.environment
-            SET active_deployment_id = {},
-                updated_at = now()
-            WHERE env = {}
-            ",
-            deployment_id,
-            quote_literal(env)
-        ));
-
-        let _ = Spi::run(&format!(
-            "UPDATE stopgap.deployment SET status = 'active' WHERE id = {}",
-            deployment_id
-        ));
-
-        let _ = Spi::run(&format!(
-            "
-            INSERT INTO stopgap.activation_log (env, from_deployment_id, to_deployment_id)
-            VALUES ({}, {}, {})
-            ",
-            quote_literal(env),
-            previous_active
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "NULL".to_string()),
-            deployment_id
-        ));
 
         deployment_id
     }
@@ -183,7 +136,134 @@ struct DeployableFn {
     prosrc: String,
 }
 
-fn fetch_deployable_functions(from_schema: &str) -> Vec<DeployableFn> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeploymentStatus {
+    Open,
+    Sealed,
+    Active,
+    RolledBack,
+    Failed,
+}
+
+impl DeploymentStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Sealed => "sealed",
+            Self::Active => "active",
+            Self::RolledBack => "rolled_back",
+            Self::Failed => "failed",
+        }
+    }
+
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "open" => Some(Self::Open),
+            "sealed" => Some(Self::Sealed),
+            "active" => Some(Self::Active),
+            "rolled_back" => Some(Self::RolledBack),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+
+fn run_deploy_flow(
+    deployment_id: i64,
+    env: &str,
+    from_schema: &str,
+    live_schema: &str,
+) -> Result<(), String> {
+    let fns = fetch_deployable_functions(from_schema)?;
+    run_sql(
+        &format!("CREATE SCHEMA IF NOT EXISTS {}", quote_ident(live_schema)),
+        "failed to create live schema",
+    )?;
+
+    let mut manifest_functions: Vec<Value> = Vec::with_capacity(fns.len());
+
+    for item in &fns {
+        let artifact_hash = Spi::get_one::<String>(&format!(
+            "SELECT plts.compile_and_store({}::text, '{{}}'::jsonb)",
+            quote_literal(&item.prosrc)
+        ))
+        .map_err(|e| format!("compile_and_store SPI error for {}: {e}", item.fn_name))?
+        .ok_or_else(|| {
+            format!(
+                "compile_and_store returned no artifact hash for {}.{}",
+                from_schema, item.fn_name
+            )
+        })?;
+
+        run_sql(
+            &format!(
+                "
+                INSERT INTO stopgap.fn_version
+                    (deployment_id, fn_name, fn_schema, live_fn_schema, kind, artifact_hash)
+                VALUES ({}, {}, {}, {}, 'mutation', {})
+                ",
+                deployment_id,
+                quote_literal(&item.fn_name),
+                quote_literal(from_schema),
+                quote_literal(live_schema),
+                quote_literal(&artifact_hash)
+            ),
+            "failed to insert stopgap.fn_version",
+        )?;
+
+        materialize_live_pointer(live_schema, &item.fn_name, &artifact_hash)?;
+        manifest_functions.push(fn_manifest_item(
+            from_schema,
+            live_schema,
+            &item.fn_name,
+            "mutation",
+            &artifact_hash,
+        ));
+    }
+
+    update_deployment_manifest(deployment_id, json!({ "functions": manifest_functions }))?;
+
+    let previous_active = Spi::get_one::<i64>(&format!(
+        "SELECT active_deployment_id FROM stopgap.environment WHERE env = {}",
+        quote_literal(env)
+    ))
+    .map_err(|e| format!("failed to read environment active deployment: {e}"))?;
+
+    transition_deployment_status(deployment_id, DeploymentStatus::Sealed)?;
+
+    run_sql(
+        &format!(
+            "
+            UPDATE stopgap.environment
+            SET active_deployment_id = {},
+                updated_at = now()
+            WHERE env = {}
+            ",
+            deployment_id,
+            quote_literal(env)
+        ),
+        "failed to set active deployment",
+    )?;
+
+    transition_deployment_status(deployment_id, DeploymentStatus::Active)?;
+
+    run_sql(
+        &format!(
+            "
+            INSERT INTO stopgap.activation_log (env, from_deployment_id, to_deployment_id)
+            VALUES ({}, {}, {})
+            ",
+            quote_literal(env),
+            previous_active.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string()),
+            deployment_id
+        ),
+        "failed to insert activation log",
+    )?;
+
+    Ok(())
+}
+
+fn fetch_deployable_functions(from_schema: &str) -> Result<Vec<DeployableFn>, String> {
     Spi::connect(|client| {
         let rows = client.select(
             &format!(
@@ -220,7 +300,7 @@ fn fetch_deployable_functions(from_schema: &str) -> Vec<DeployableFn> {
 
         Ok::<Vec<DeployableFn>, pgrx::spi::Error>(out)
     })
-    .expect("failed to scan deployable functions")
+    .map_err(|e| format!("failed to scan deployable functions in schema {from_schema}: {e}"))
 }
 
 fn ensure_no_overloaded_plts_functions(from_schema: &str) {
@@ -249,7 +329,11 @@ fn ensure_no_overloaded_plts_functions(from_schema: &str) {
     }
 }
 
-fn materialize_live_pointer(live_schema: &str, fn_name: &str, artifact_hash: &str) {
+fn materialize_live_pointer(
+    live_schema: &str,
+    fn_name: &str,
+    artifact_hash: &str,
+) -> Result<(), String> {
     let body = json!({
         "plts": 1,
         "kind": "artifact_ptr",
@@ -272,7 +356,104 @@ fn materialize_live_pointer(live_schema: &str, fn_name: &str, artifact_hash: &st
         body
     );
 
-    let _ = Spi::run(&sql);
+    run_sql(&sql, "failed to materialize live pointer function")
+}
+
+fn fn_manifest_item(
+    source_schema: &str,
+    live_schema: &str,
+    fn_name: &str,
+    kind: &str,
+    artifact_hash: &str,
+) -> Value {
+    json!({
+        "fn_name": fn_name,
+        "source_schema": source_schema,
+        "live_schema": live_schema,
+        "kind": kind,
+        "artifact_hash": artifact_hash,
+        "pointer": {
+            "plts": 1,
+            "kind": "artifact_ptr",
+            "artifact_hash": artifact_hash,
+            "export": "default",
+            "mode": "stopgap_deployed"
+        }
+    })
+}
+
+fn update_deployment_manifest(deployment_id: i64, patch: Value) -> Result<(), String> {
+    run_sql(
+        &format!(
+            "
+            UPDATE stopgap.deployment
+            SET manifest = manifest || {}::jsonb
+            WHERE id = {}
+            ",
+            quote_literal(&patch.to_string()),
+            deployment_id
+        ),
+        "failed to update deployment manifest",
+    )
+}
+
+fn update_failed_manifest(deployment_id: i64, err: &str) -> Result<(), String> {
+    update_deployment_manifest(
+        deployment_id,
+        json!({
+            "error": {
+                "message": err,
+                "at": "stopgap.deploy"
+            }
+        }),
+    )
+}
+
+fn transition_deployment_status(deployment_id: i64, to: DeploymentStatus) -> Result<(), String> {
+    let current = Spi::get_one::<String>(&format!(
+        "SELECT status FROM stopgap.deployment WHERE id = {}",
+        deployment_id
+    ))
+    .map_err(|e| format!("failed to load deployment status for id {}: {e}", deployment_id))?
+    .ok_or_else(|| format!("deployment id {} does not exist", deployment_id))?;
+
+    let from = DeploymentStatus::from_str(&current)
+        .ok_or_else(|| format!("deployment id {} has unknown status {current}", deployment_id))?;
+
+    if !is_allowed_transition(from, to) {
+        return Err(format!(
+            "invalid deployment status transition {} -> {} for id {}",
+            from.as_str(),
+            to.as_str(),
+            deployment_id
+        ));
+    }
+
+    run_sql(
+        &format!(
+            "UPDATE stopgap.deployment SET status = {} WHERE id = {}",
+            quote_literal(to.as_str()),
+            deployment_id
+        ),
+        "failed to update deployment status",
+    )
+}
+
+fn is_allowed_transition(from: DeploymentStatus, to: DeploymentStatus) -> bool {
+    matches!(
+        (from, to),
+        (DeploymentStatus::Open, DeploymentStatus::Sealed)
+            | (DeploymentStatus::Open, DeploymentStatus::Failed)
+            | (DeploymentStatus::Sealed, DeploymentStatus::Active)
+            | (DeploymentStatus::Sealed, DeploymentStatus::Failed)
+            | (DeploymentStatus::Active, DeploymentStatus::RolledBack)
+            | (DeploymentStatus::Active, DeploymentStatus::Failed)
+            | (DeploymentStatus::RolledBack, DeploymentStatus::Active)
+    )
+}
+
+fn run_sql(sql: &str, context: &str) -> Result<(), String> {
+    Spi::run(sql).map_err(|e| format!("{context}: {e}"))
 }
 
 fn quote_ident(ident: &str) -> String {
@@ -306,6 +487,44 @@ mod tests {
     #[test]
     fn test_lock_hash_is_stable() {
         assert_eq!(crate::hash_lock_key("prod"), crate::hash_lock_key("prod"));
+    }
+
+    #[test]
+    fn test_allowed_deployment_status_transitions() {
+        assert!(crate::is_allowed_transition(
+            crate::DeploymentStatus::Open,
+            crate::DeploymentStatus::Sealed
+        ));
+        assert!(crate::is_allowed_transition(
+            crate::DeploymentStatus::Open,
+            crate::DeploymentStatus::Failed
+        ));
+        assert!(crate::is_allowed_transition(
+            crate::DeploymentStatus::Sealed,
+            crate::DeploymentStatus::Active
+        ));
+        assert!(!crate::is_allowed_transition(
+            crate::DeploymentStatus::Open,
+            crate::DeploymentStatus::Active
+        ));
+        assert!(!crate::is_allowed_transition(
+            crate::DeploymentStatus::Failed,
+            crate::DeploymentStatus::Active
+        ));
+    }
+
+    #[test]
+    fn test_fn_manifest_item_shape() {
+        let item =
+            crate::fn_manifest_item("app", "live_deployment", "do_work", "mutation", "sha256:abc");
+        assert_eq!(item.get("fn_name").and_then(|v| v.as_str()), Some("do_work"));
+        assert_eq!(item.get("source_schema").and_then(|v| v.as_str()), Some("app"));
+        assert_eq!(item.get("live_schema").and_then(|v| v.as_str()), Some("live_deployment"));
+        assert_eq!(item.get("artifact_hash").and_then(|v| v.as_str()), Some("sha256:abc"));
+        assert_eq!(
+            item.get("pointer").and_then(|v| v.get("kind")).and_then(|v| v.as_str()),
+            Some("artifact_ptr")
+        );
     }
 }
 
