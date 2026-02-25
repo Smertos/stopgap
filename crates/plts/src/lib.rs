@@ -1,3 +1,10 @@
+use deno_ast::EmitOptions;
+use deno_ast::MediaType;
+use deno_ast::ModuleSpecifier;
+use deno_ast::ParseParams;
+use deno_ast::SourceMapOption;
+use deno_ast::TranspileModuleOptions;
+use deno_ast::TranspileOptions;
 use pgrx::iter::TableIterator;
 use pgrx::prelude::*;
 use pgrx::JsonB;
@@ -7,6 +14,8 @@ use sha2::{Digest, Sha256};
 use std::fmt;
 
 ::pgrx::pg_module_magic!(name, version);
+
+const TS_COMPILER_FINGERPRINT: &str = "deno_ast-tsc-p0";
 
 extension_sql!(
     r#"
@@ -269,10 +278,8 @@ mod plts {
         ),
     > {
         bootstrap_v8_isolate();
-        let _opts = compiler_opts.0;
-        let diagnostics = JsonB(json!([]));
-        let compiler_fingerprint = "v8-deno_core-p0".to_string();
-        TableIterator::once((source_ts.to_string(), diagnostics, compiler_fingerprint))
+        let (compiled_js, diagnostics) = transpile_typescript(source_ts, &compiler_opts.0);
+        TableIterator::once((compiled_js, JsonB(diagnostics), TS_COMPILER_FINGERPRINT.to_string()))
     }
 
     #[pg_extern]
@@ -281,7 +288,7 @@ mod plts {
         compiled_js: &str,
         compiler_opts: default!(JsonB, "'{}'::jsonb"),
     ) -> String {
-        let compiler_fingerprint = "v8-deno_core-p0";
+        let compiler_fingerprint = TS_COMPILER_FINGERPRINT;
         let hash =
             compute_artifact_hash(source_ts, compiled_js, &compiler_opts.0, compiler_fingerprint);
 
@@ -311,8 +318,24 @@ mod plts {
     fn compile_and_store(source_ts: &str, compiler_opts: default!(JsonB, "'{}'::jsonb")) -> String {
         let opts = compiler_opts.0;
         let mut rows = compile_ts(source_ts, JsonB(opts.clone()));
-        let (compiled_js, _diagnostics, _compiler_fingerprint) =
+        let (compiled_js, diagnostics, _compiler_fingerprint) =
             rows.next().expect("compile_ts must always return one row");
+
+        if diagnostics
+            .0
+            .as_array()
+            .map(|entries| {
+                entries
+                    .iter()
+                    .any(|entry| entry.get("severity").and_then(|v| v.as_str()) == Some("error"))
+            })
+            .unwrap_or(false)
+        {
+            error!(
+                "plts.compile_and_store aborted due to TypeScript diagnostics: {}",
+                diagnostics.0
+            );
+        }
 
         upsert_artifact(source_ts, &compiled_js, JsonB(opts))
     }
@@ -353,6 +376,74 @@ fn compute_artifact_hash(
     hasher.update([0]);
     hasher.update(compiler_opts.to_string().as_bytes());
     format!("sha256:{}", hex::encode(hasher.finalize()))
+}
+
+fn transpile_typescript(source_ts: &str, compiler_opts: &Value) -> (String, Value) {
+    let source_map = compiler_opts.get("source_map").and_then(Value::as_bool).unwrap_or(false);
+
+    let specifier = ModuleSpecifier::parse("file:///plts_module.ts")
+        .expect("static module specifier must parse");
+
+    let parsed = deno_ast::parse_module(ParseParams {
+        specifier,
+        text: source_ts.to_string().into(),
+        media_type: MediaType::TypeScript,
+        capture_tokens: false,
+        scope_analysis: false,
+        maybe_syntax: None,
+    });
+
+    let parsed = match parsed {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            let diagnostics = json!([diagnostic_from_message("error", &err.to_string())]);
+            return (String::new(), diagnostics);
+        }
+    };
+
+    let transpiled = parsed.transpile(
+        &TranspileOptions::default(),
+        &TranspileModuleOptions::default(),
+        &EmitOptions {
+            source_map: if source_map { SourceMapOption::Inline } else { SourceMapOption::None },
+            inline_sources: source_map,
+            ..Default::default()
+        },
+    );
+
+    match transpiled {
+        Ok(result) => (result.into_source().text, json!([])),
+        Err(err) => {
+            let diagnostics = json!([diagnostic_from_message("error", &err.to_string())]);
+            (String::new(), diagnostics)
+        }
+    }
+}
+
+fn diagnostic_from_message(severity: &str, message: &str) -> Value {
+    let mut line = Value::Null;
+    let mut column = Value::Null;
+    if let Some((parsed_line, parsed_column)) = extract_line_column(message) {
+        line = json!(parsed_line);
+        column = json!(parsed_column);
+    }
+
+    json!({
+        "severity": severity,
+        "message": message,
+        "line": line,
+        "column": column
+    })
+}
+
+fn extract_line_column(message: &str) -> Option<(u32, u32)> {
+    let open = message.rfind('(')?;
+    let close = message[open..].find(')')? + open;
+    let coords = &message[(open + 1)..close];
+    let mut pieces = coords.rsplitn(3, ':');
+    let col = pieces.next()?.parse::<u32>().ok()?;
+    let line = pieces.next()?.parse::<u32>().ok()?;
+    Some((line, col))
 }
 
 #[cfg(feature = "v8_runtime")]
@@ -590,6 +681,31 @@ mod tests {
         assert!(rendered.contains("stage=entrypoint invocation"));
         assert!(rendered.contains("message=Uncaught Error: boom"));
         assert!(rendered.contains("stack=at default"));
+    }
+
+    #[test]
+    fn test_transpile_typescript_emits_js() {
+        let source =
+            "export default (ctx: { args: { id: number } }) => ({ id: ctx.args.id as number });";
+        let (compiled, diagnostics) = crate::transpile_typescript(source, &serde_json::json!({}));
+        assert!(diagnostics.as_array().is_some_and(|items| items.is_empty()));
+        assert!(compiled.contains("export default"));
+        assert!(!compiled.contains(": { args:"));
+    }
+
+    #[test]
+    fn test_transpile_typescript_returns_diagnostic_on_parse_error() {
+        let (compiled, diagnostics) =
+            crate::transpile_typescript("export default (ctx => ctx", &serde_json::json!({}));
+        assert!(compiled.is_empty());
+        assert_eq!(
+            diagnostics
+                .as_array()
+                .and_then(|items| items.first())
+                .and_then(|entry| entry.get("severity"))
+                .and_then(|value| value.as_str()),
+            Some("error")
+        );
     }
 }
 

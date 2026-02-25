@@ -78,8 +78,8 @@ Legend:
 
 ### 2.5 Compiler Work (unfinished)
 
-- [ ] Replace placeholder `compile_ts` with real TS->JS transpilation
-- [ ] Return diagnostics payload with line/column and severity
+- [x] Replace placeholder `compile_ts` with real TS->JS transpilation
+- [x] Return diagnostics payload with line/column and severity
 - [ ] Persist compiler metadata/fingerprint from real toolchain versions
 - [ ] Optionally persist source maps in `plts.artifact`
 
@@ -228,7 +228,7 @@ Legend:
 ## 10) Suggested Execution Order from Here
 
 1. [ ] Implement real `deno_core` runtime execution in `plts_call_handler`
-2. [ ] Implement real TS transpilation for `plts.compile_ts`
+2. [x] Implement real TS transpilation for `plts.compile_ts`
 3. [ ] Add integration tests for runtime execution + null normalization
 4. [ ] Harden `stopgap.deploy` error handling and state transitions
 5. [ ] Implement rollback/status APIs
@@ -241,4 +241,4 @@ Legend:
 
 - **P0 status:** Partially complete.
 - **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, live pointer materialization, overload rejection, baseline tests, and feature-gated sync default-export JS execution in `plts`.
-- **Biggest missing piece:** real TS transpilation + full module runtime support (imports/async/DB API bindings) in `plts`.
+- **Biggest missing piece:** full module runtime support (imports/async/DB API bindings) in `plts` plus runtime DB API binding and P1 rollback/read-only features.
