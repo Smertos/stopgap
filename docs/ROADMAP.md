@@ -65,14 +65,16 @@ Legend:
 ### 2.4 Runtime Engine Work (core unfinished)
 
 - [x] Add `deno_core` dependency and isolate bootstrap
-- [ ] Implement TS/JS module execution inside V8 isolate
-- [ ] Resolve and invoke default export entrypoint
-- [ ] Build runtime call contract: `ctx.db`, `ctx.args`, `ctx.fn`, `ctx.now`
-- [ ] Normalize JS return values to SQL/jsonb semantics:
-  - [ ] `undefined` -> SQL `NULL`
-  - [ ] `null` -> SQL `NULL`
-  - [ ] primitives/object/array -> `jsonb`
+- [x] Add feature-gated V8 script execution path for default-export handlers (source or artifact pointer)
+- [ ] Implement full TS/JS module execution inside V8 isolate (module loader/imports)
+- [x] Resolve and invoke default export entrypoint (sync handlers)
+- [x] Build initial runtime call contract: `ctx.db`, `ctx.args`, `ctx.fn`, `ctx.now`
+- [x] Normalize JS return values to SQL/jsonb semantics:
+  - [x] `undefined` -> SQL `NULL`
+  - [x] `null` -> SQL `NULL`
+  - [x] primitives/object/array -> `jsonb`
 - [ ] Add robust runtime error propagation (message + stack + SQL context)
+- [x] Include SQL function identity (`schema.name`, oid) in runtime error messages
 
 ### 2.5 Compiler Work (unfinished)
 
@@ -238,5 +240,5 @@ Legend:
 ## 11) Current Snapshot
 
 - **P0 status:** Partially complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, live pointer materialization, overload rejection, baseline tests.
-- **Biggest missing piece:** actual JS runtime execution and TS transpilation in `plts`.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, live pointer materialization, overload rejection, baseline tests, and feature-gated sync default-export JS execution in `plts`.
+- **Biggest missing piece:** real TS transpilation + full module runtime support (imports/async/DB API bindings) in `plts`.

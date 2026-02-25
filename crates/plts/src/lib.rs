@@ -57,8 +57,32 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
     }
 
     let fn_oid = (*flinfo).fn_oid;
-    let is_jsonb_single_arg = is_single_jsonb_arg_function(fn_oid);
+    let args_payload = build_args_payload(fcinfo, fn_oid);
 
+    if runtime_available() {
+        if let Some(program) = load_function_program(fn_oid) {
+            let context = build_runtime_context(&program, &args_payload);
+            match execute_program(&program.source, &context) {
+                Ok(Some(value)) => {
+                    if let Some(datum) = JsonB(value).into_datum() {
+                        return datum;
+                    }
+                }
+                Ok(None) => {
+                    (*fcinfo).isnull = true;
+                    return pg_sys::Datum::from(0);
+                }
+                Err(err) => {
+                    error!(
+                        "plts runtime error for {}.{} (oid={}): {}",
+                        program.schema, program.name, program.oid, err
+                    );
+                }
+            }
+        }
+    }
+
+    let is_jsonb_single_arg = is_single_jsonb_arg_function(fn_oid);
     if is_jsonb_single_arg && (*fcinfo).nargs == 1 {
         let arg0 = (*fcinfo).args.as_ptr();
         if !arg0.is_null() && !(*arg0).isnull {
@@ -66,12 +90,103 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
         }
     }
 
-    if let Some(datum) = build_args_jsonb_datum(fcinfo, fn_oid) {
+    if let Some(datum) = JsonB(args_payload).into_datum() {
         return datum;
     }
 
     (*fcinfo).isnull = true;
     pg_sys::Datum::from(0)
+}
+
+#[derive(Debug)]
+struct FunctionProgram {
+    oid: pg_sys::Oid,
+    schema: String,
+    name: String,
+    source: String,
+}
+
+fn build_runtime_context(program: &FunctionProgram, args_payload: &Value) -> Value {
+    json!({
+        "db": {
+            "mode": "rw",
+            "api": ["query", "exec"]
+        },
+        "args": args_payload,
+        "fn": {
+            "oid": program.oid.to_u32(),
+            "name": program.name,
+            "schema": program.schema
+        },
+        "now": current_timestamp_text()
+    })
+}
+
+fn current_timestamp_text() -> String {
+    Spi::get_one::<String>("SELECT now()::text").ok().flatten().unwrap_or_default()
+}
+
+fn load_function_program(fn_oid: pg_sys::Oid) -> Option<FunctionProgram> {
+    let sql = format!(
+        "
+        SELECT n.nspname::text AS fn_schema,
+               p.proname::text AS fn_name,
+               p.prosrc::text AS prosrc
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE p.oid = {}
+        ",
+        fn_oid
+    );
+
+    let row = Spi::connect(|client| {
+        let mut rows = client.select(&sql, None, &[])?;
+        if let Some(row) = rows.next() {
+            let schema = row.get_by_name::<String, _>("fn_schema")?.unwrap_or_default();
+            let name = row.get_by_name::<String, _>("fn_name")?.unwrap_or_default();
+            let prosrc = row.get_by_name::<String, _>("prosrc")?.unwrap_or_default();
+            Ok::<Option<(String, String, String)>, pgrx::spi::Error>(Some((schema, name, prosrc)))
+        } else {
+            Ok::<Option<(String, String, String)>, pgrx::spi::Error>(None)
+        }
+    })
+    .ok()
+    .flatten()?;
+
+    let source = resolve_program_source(&row.2)?;
+    Some(FunctionProgram { oid: fn_oid, schema: row.0, name: row.1, source })
+}
+
+fn resolve_program_source(prosrc: &str) -> Option<String> {
+    if let Some(ptr) = parse_artifact_ptr(prosrc) {
+        let sql = format!(
+            "SELECT compiled_js FROM plts.artifact WHERE artifact_hash = {}",
+            quote_literal(&ptr.artifact_hash)
+        );
+        return Spi::get_one::<String>(&sql).ok().flatten();
+    }
+
+    Some(prosrc.to_string())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ArtifactPtr {
+    artifact_hash: String,
+}
+
+fn parse_artifact_ptr(prosrc: &str) -> Option<ArtifactPtr> {
+    let parsed = serde_json::from_str::<Value>(prosrc).ok()?;
+    let kind = parsed.get("kind")?.as_str()?;
+    if kind != "artifact_ptr" {
+        return None;
+    }
+
+    let artifact_hash = parsed.get("artifact_hash")?.as_str()?.to_string();
+    if artifact_hash.is_empty() {
+        return None;
+    }
+
+    Some(ArtifactPtr { artifact_hash })
 }
 
 #[pg_guard]
@@ -208,13 +323,10 @@ fn is_single_jsonb_arg_function(fn_oid: pg_sys::Oid) -> bool {
     Spi::get_one::<bool>(&sql).ok().flatten().unwrap_or(false)
 }
 
-unsafe fn build_args_jsonb_datum(
-    fcinfo: pg_sys::FunctionCallInfo,
-    fn_oid: pg_sys::Oid,
-) -> Option<pg_sys::Datum> {
+unsafe fn build_args_payload(fcinfo: pg_sys::FunctionCallInfo, fn_oid: pg_sys::Oid) -> Value {
     let arg_oids = get_arg_type_oids(fn_oid);
     if arg_oids.is_empty() {
-        return JsonB(json!({ "positional": [], "named": {} })).into_datum();
+        return json!({ "positional": [], "named": {} });
     }
 
     let nargs = (*fcinfo).nargs as usize;
@@ -230,7 +342,7 @@ unsafe fn build_args_jsonb_datum(
         named.insert(i.to_string(), value);
     }
 
-    JsonB(json!({ "positional": positional, "named": named })).into_datum()
+    json!({ "positional": positional, "named": named })
 }
 
 unsafe fn datum_to_json_value(datum: pg_sys::Datum, oid: pg_sys::Oid) -> Value {
@@ -267,6 +379,105 @@ fn quote_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
+#[cfg(feature = "v8_runtime")]
+fn runtime_available() -> bool {
+    true
+}
+
+#[cfg(not(feature = "v8_runtime"))]
+fn runtime_available() -> bool {
+    false
+}
+
+#[cfg(feature = "v8_runtime")]
+fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, String> {
+    use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
+
+    let mut runtime = JsRuntime::new(RuntimeOptions::default());
+    let rewritten = rewrite_default_export(source)?;
+
+    runtime
+        .execute_script("plts_module.js", rewritten)
+        .map_err(|e| format_js_error("module evaluation failed", &e.to_string()))?;
+
+    let context_json = serde_json::to_string(context)
+        .map_err(|e| format!("failed to serialize runtime context: {e}"))?;
+    let set_ctx_script = format!(
+        "globalThis.__plts_ctx = JSON.parse({});",
+        serde_json::to_string(&context_json)
+            .map_err(|e| format!("failed to encode runtime context string: {e}"))?
+    );
+
+    runtime
+        .execute_script("plts_ctx.js", set_ctx_script)
+        .map_err(|e| format_js_error("context setup failed", &e.to_string()))?;
+
+    let invoke_script = r#"
+        if (typeof globalThis.__plts_default !== "function") {
+            throw new Error("default export must be a function");
+        }
+        const __plts_out = globalThis.__plts_default(globalThis.__plts_ctx);
+        if (__plts_out && typeof __plts_out.then === "function") {
+            throw new Error("async default export is not supported yet");
+        }
+        if (__plts_out === undefined || __plts_out === null) {
+            globalThis.__plts_result_json = null;
+        } else {
+            globalThis.__plts_result_json = JSON.stringify(__plts_out);
+        }
+    "#;
+
+    runtime
+        .execute_script("plts_invoke.js", invoke_script)
+        .map_err(|e| format_js_error("entrypoint invocation failed", &e.to_string()))?;
+
+    let value = runtime
+        .execute_script("plts_result.js", "globalThis.__plts_result_json")
+        .map_err(|e| format_js_error("result extraction failed", &e.to_string()))?;
+
+    deno_core::scope!(scope, runtime);
+    let local = v8::Local::new(scope, value);
+    let maybe_json = serde_v8::from_v8::<Option<String>>(scope, local)
+        .map_err(|e| format!("failed to decode JS result string: {e}"))?;
+
+    match maybe_json {
+        None => Ok(None),
+        Some(raw) => {
+            let value = serde_json::from_str::<Value>(&raw)
+                .map_err(|e| format!("failed to decode JSON result: {e}"))?;
+            if value.is_null() {
+                Ok(None)
+            } else {
+                Ok(Some(value))
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "v8_runtime"))]
+fn execute_program(_source: &str, _context: &Value) -> Result<Option<Value>, String> {
+    Err("v8_runtime feature is disabled".to_string())
+}
+
+#[cfg(any(test, feature = "v8_runtime"))]
+fn rewrite_default_export(source: &str) -> Result<String, String> {
+    let token = "export default";
+    if let Some(idx) = source.find(token) {
+        let mut rewritten = String::with_capacity(source.len() + 32);
+        rewritten.push_str(&source[..idx]);
+        rewritten.push_str("globalThis.__plts_default =");
+        rewritten.push_str(&source[idx + token.len()..]);
+        Ok(rewritten)
+    } else {
+        Err("module must include `export default`".to_string())
+    }
+}
+
+#[cfg(feature = "v8_runtime")]
+fn format_js_error(context: &str, details: &str) -> String {
+    format!("{context}: {details}")
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -278,6 +489,22 @@ mod tests {
             "v8-deno_core-p0",
         );
         assert!(hash.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn test_parse_artifact_ptr() {
+        let ptr = crate::parse_artifact_ptr(
+            r#"{"plts":1,"kind":"artifact_ptr","artifact_hash":"sha256:abc"}"#,
+        )
+        .expect("expected pointer metadata");
+        assert_eq!(ptr.artifact_hash, "sha256:abc");
+    }
+
+    #[test]
+    fn test_rewrite_default_export() {
+        let src = "export default (ctx) => ({ ok: true, args: ctx.args })";
+        let rewritten = crate::rewrite_default_export(src).expect("rewrite should succeed");
+        assert!(rewritten.contains("globalThis.__plts_default ="));
     }
 }
 

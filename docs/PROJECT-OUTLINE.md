@@ -382,9 +382,12 @@ This gives you “deny updates to live schema” without fancy event triggers.
 
 Current progress snapshot:
 - artifact table + compile/store APIs are in place
-- handler scaffold is in place with minimal return behavior
+- handler now has a feature-gated V8 execution path for sync `export default` handlers
+- handler resolves artifact-pointer stubs by loading compiled JS from `plts.artifact`
+- runtime context now includes initial `ctx` shape (`db`, `args`, `fn`, `now`)
 - deno_core dependency and feature-gated isolate bootstrap scaffolding are in place
-- full V8 execution + transpilation are still pending
+- full module/import support and async handler execution are still pending
+- real TS transpilation is still pending
 - basic arg conversion work has started
 - CI workflow now runs workspace `cargo check`, `cargo test`, and matrixed `cargo pgrx test` jobs per extension crate
 - repository toolchain and lint/format configs are pinned (`rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`)

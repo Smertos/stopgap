@@ -59,7 +59,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 
 ## Near-term technical debt to remember
 
-- `plts` runtime handler has isolate bootstrap scaffolding but does not execute JS in V8 yet.
+- `plts` runtime handler executes sync default-export JS only when built with `v8_runtime`; full module/import support and async execution are still pending.
 - `plts.compile_ts` is still a placeholder.
 - Stopgap function kind (`query` vs `mutation`) is currently convention-based, not wrapper-enforced.
 - Some deploy SQL paths use interpolated SQL and should migrate to stricter SPI argumentization over time.
