@@ -383,8 +383,11 @@ This gives you “deny updates to live schema” without fancy event triggers.
 Current progress snapshot:
 - artifact table + compile/store APIs are in place
 - handler scaffold is in place with minimal return behavior
+- deno_core dependency and feature-gated isolate bootstrap scaffolding are in place
 - full V8 execution + transpilation are still pending
 - basic arg conversion work has started
+- CI workflow now runs workspace `cargo check`, `cargo test`, and matrixed `cargo pgrx test` jobs per extension crate
+- repository toolchain and lint/format configs are pinned (`rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`)
 
 **In `stopgap`:**
 - Create catalog tables + minimal `stopgap.deploy` that:

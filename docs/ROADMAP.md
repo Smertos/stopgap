@@ -33,8 +33,8 @@ Legend:
 
 ### Follow-ups
 
-- [ ] Add CI workflow (check + test + pgrx test matrix)
-- [ ] Add pinned toolchain/rustfmt/clippy configs
+- [x] Add CI workflow (check + test + pgrx test matrix)
+- [x] Add pinned toolchain/rustfmt/clippy configs
 
 ---
 
@@ -64,7 +64,7 @@ Legend:
 
 ### 2.4 Runtime Engine Work (core unfinished)
 
-- [ ] Add `deno_core` dependency and isolate bootstrap
+- [x] Add `deno_core` dependency and isolate bootstrap
 - [ ] Implement TS/JS module execution inside V8 isolate
 - [ ] Resolve and invoke default export entrypoint
 - [ ] Build runtime call contract: `ctx.db`, `ctx.args`, `ctx.fn`, `ctx.now`

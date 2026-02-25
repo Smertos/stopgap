@@ -100,6 +100,7 @@ mod plts {
             name!(compiler_fingerprint, String),
         ),
     > {
+        bootstrap_v8_isolate();
         let _opts = compiler_opts.0;
         let diagnostics = JsonB(json!([]));
         let compiler_fingerprint = "v8-deno_core-p0".to_string();
@@ -113,12 +114,8 @@ mod plts {
         compiler_opts: default!(JsonB, "'{}'::jsonb"),
     ) -> String {
         let compiler_fingerprint = "v8-deno_core-p0";
-        let hash = compute_artifact_hash(
-            source_ts,
-            compiled_js,
-            &compiler_opts.0,
-            compiler_fingerprint,
-        );
+        let hash =
+            compute_artifact_hash(source_ts, compiled_js, &compiler_opts.0, compiler_fingerprint);
 
         let sql = format!(
             "
@@ -190,6 +187,14 @@ fn compute_artifact_hash(
     format!("sha256:{}", hex::encode(hasher.finalize()))
 }
 
+#[cfg(feature = "v8_runtime")]
+fn bootstrap_v8_isolate() {
+    let _runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions::default());
+}
+
+#[cfg(not(feature = "v8_runtime"))]
+fn bootstrap_v8_isolate() {}
+
 fn is_single_jsonb_arg_function(fn_oid: pg_sys::Oid) -> bool {
     let sql = format!(
         "
@@ -219,11 +224,7 @@ unsafe fn build_args_jsonb_datum(
     for i in 0..nargs {
         let arg = *(*fcinfo).args.as_ptr().add(i);
         let oid = arg_oids.get(i).copied().unwrap_or(pg_sys::UNKNOWNOID);
-        let value = if arg.isnull {
-            Value::Null
-        } else {
-            datum_to_json_value(arg.value, oid)
-        };
+        let value = if arg.isnull { Value::Null } else { datum_to_json_value(arg.value, oid) };
 
         positional.push(value.clone());
         named.insert(i.to_string(), value);
@@ -234,18 +235,12 @@ unsafe fn build_args_jsonb_datum(
 
 unsafe fn datum_to_json_value(datum: pg_sys::Datum, oid: pg_sys::Oid) -> Value {
     match oid {
-        pg_sys::TEXTOID => String::from_datum(datum, false)
-            .map(Value::String)
-            .unwrap_or(Value::Null),
-        pg_sys::INT4OID => i32::from_datum(datum, false)
-            .map(|v| json!(v))
-            .unwrap_or(Value::Null),
-        pg_sys::BOOLOID => bool::from_datum(datum, false)
-            .map(|v| json!(v))
-            .unwrap_or(Value::Null),
-        pg_sys::JSONBOID => JsonB::from_datum(datum, false)
-            .map(|v| v.0)
-            .unwrap_or(Value::Null),
+        pg_sys::TEXTOID => {
+            String::from_datum(datum, false).map(Value::String).unwrap_or(Value::Null)
+        }
+        pg_sys::INT4OID => i32::from_datum(datum, false).map(|v| json!(v)).unwrap_or(Value::Null),
+        pg_sys::BOOLOID => bool::from_datum(datum, false).map(|v| json!(v)).unwrap_or(Value::Null),
+        pg_sys::JSONBOID => JsonB::from_datum(datum, false).map(|v| v.0).unwrap_or(Value::Null),
         _ => Value::Null,
     }
 }
@@ -260,18 +255,12 @@ fn get_arg_type_oids(fn_oid: pg_sys::Oid) -> Vec<pg_sys::Oid> {
         fn_oid
     );
 
-    let csv = Spi::get_one::<String>(&sql)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    let csv = Spi::get_one::<String>(&sql).ok().flatten().unwrap_or_default();
     if csv.is_empty() {
         return Vec::new();
     }
 
-    csv.split(',')
-        .filter_map(|raw| raw.trim().parse::<u32>().ok())
-        .map(pg_sys::Oid::from)
-        .collect()
+    csv.split(',').filter_map(|raw| raw.trim().parse::<u32>().ok()).map(pg_sys::Oid::from).collect()
 }
 
 fn quote_literal(value: &str) -> String {

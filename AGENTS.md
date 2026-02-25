@@ -11,6 +11,12 @@ This file captures how to work effectively in this repository.
 - Docs:
   - `docs/PROJECT-OUTLINE.md`: product/architecture source of truth
 
+## Tooling baseline
+
+- Rust toolchain is pinned in `rust-toolchain.toml`.
+- Formatting/lint config is tracked in `rustfmt.toml` and `clippy.toml`.
+- CI workflow lives at `.github/workflows/ci.yml` and runs workspace check/test plus per-crate `cargo pgrx test` matrix jobs.
+
 ## Current architecture assumptions (locked)
 
 - Engine target for P0+: **V8 via `deno_core`**.
@@ -53,7 +59,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 
 ## Near-term technical debt to remember
 
-- `plts` runtime handler currently does not execute JS in a V8 isolate yet.
+- `plts` runtime handler has isolate bootstrap scaffolding but does not execute JS in V8 yet.
 - `plts.compile_ts` is still a placeholder.
 - Stopgap function kind (`query` vs `mutation`) is currently convention-based, not wrapper-enforced.
 - Some deploy SQL paths use interpolated SQL and should migrate to stricter SPI argumentization over time.

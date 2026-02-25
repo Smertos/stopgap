@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.1
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo check
+        run: cargo check --workspace --all-targets
+
+      - name: Cargo test
+        run: cargo test --workspace --all-targets
+
+  pgrx-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [plts, stopgap]
+    env:
+      PGRX_HOME: ${{ github.workspace }}/.pgrx
+      PGRX_DEFAULT_PG_VERSION: pg16
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.1
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install PostgreSQL 16 development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+
+      - name: Install cargo-pgrx
+        run: cargo install cargo-pgrx --version 0.17.0 --locked
+
+      - name: Initialize cargo-pgrx
+        run: cargo pgrx init --pg16 /usr/lib/postgresql/16/bin/pg_config
+
+      - name: Run pgrx tests
+        run: cargo pgrx test -p ${{ matrix.package }} --features pg16
