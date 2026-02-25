@@ -1,0 +1,34 @@
+CREATE EXTENSION IF NOT EXISTS plts;
+CREATE EXTENSION
+CREATE EXTENSION IF NOT EXISTS stopgap;
+CREATE EXTENSION
+CREATE SCHEMA workspace;
+CREATE SCHEMA
+CREATE OR REPLACE FUNCTION workspace.echo(args jsonb)
+RETURNS jsonb
+LANGUAGE plts
+AS $$
+export default (ctx) => ctx.args;
+$$;
+CREATE FUNCTION
+SELECT stopgap.deploy('prod', 'workspace', 'demo') > 0 AS deployed;
+ deployed 
+----------
+ t
+(1 row)
+
+SELECT p.proname
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'live_deployment'
+ORDER BY p.proname;
+ proname 
+---------
+ echo
+(1 row)
+
+SELECT live_deployment.echo('{"ok":true}'::jsonb);
+      echo      
+----------------
+ {"ok": true}
+(1 row)
