@@ -1,3 +1,4 @@
+use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
 use pgrx::JsonB;
 use serde_json::json;
@@ -66,55 +67,46 @@ mod stopgap {
     #[pg_extern]
     fn deploy(env: &str, from_schema: &str, label: default!(Option<&str>, "NULL")) -> i64 {
         let lock_key = hash_lock_key(env);
-        run_sql(
-            &format!("SELECT pg_advisory_xact_lock({})", lock_key),
+        run_sql_with_args(
+            "SELECT pg_advisory_xact_lock($1)",
+            &[lock_key.into()],
             "failed to acquire deploy lock",
         )
         .unwrap_or_else(|err| error!("{err}"));
 
         let live_schema = resolve_live_schema();
         ensure_deploy_permissions(from_schema, &live_schema).unwrap_or_else(|err| error!("{err}"));
-        let label_sql = label.map(quote_literal).unwrap_or_else(|| "NULL".to_string());
 
-        run_sql(
-            &format!(
-                "
+        run_sql_with_args(
+            "
             INSERT INTO stopgap.environment (env, live_schema)
-            VALUES ({}, {})
+            VALUES ($1, $2)
             ON CONFLICT (env) DO UPDATE
             SET live_schema = EXCLUDED.live_schema,
                 updated_at = now()
             ",
-                quote_literal(env),
-                quote_literal(&live_schema)
-            ),
+            &[env.into(), live_schema.as_str().into()],
             "failed to upsert stopgap.environment",
         )
         .unwrap_or_else(|err| error!("{err}"));
 
         ensure_no_overloaded_plts_functions(from_schema);
 
-        let manifest_sql = quote_literal(
-            &json!({
-                "env": env,
-                "source_schema": from_schema,
-                "live_schema": live_schema,
-                "label": label,
-                "functions": []
-            })
-            .to_string(),
-        );
-        let deployment_id = Spi::get_one::<i64>(&format!(
+        let manifest = JsonB(json!({
+            "env": env,
+            "source_schema": from_schema,
+            "live_schema": live_schema,
+            "label": label,
+            "functions": []
+        }));
+        let deployment_id = Spi::get_one_with_args::<i64>(
             "
             INSERT INTO stopgap.deployment (env, label, source_schema, status, manifest)
-            VALUES ({}, {}, {}, 'open', {}::jsonb)
+            VALUES ($1, $2, $3, 'open', $4)
             RETURNING id
             ",
-            quote_literal(env),
-            label_sql,
-            quote_literal(from_schema),
-            manifest_sql
-        ))
+            &[env.into(), label.into(), from_schema.into(), manifest.into()],
+        )
         .ok()
         .flatten()
         .expect("failed to create deployment");
@@ -195,10 +187,10 @@ fn run_deploy_flow(
     let mut manifest_functions: Vec<Value> = Vec::with_capacity(fns.len());
 
     for item in &fns {
-        let artifact_hash = Spi::get_one::<String>(&format!(
-            "SELECT plts.compile_and_store({}::text, '{{}}'::jsonb)",
-            quote_literal(&item.prosrc)
-        ))
+        let artifact_hash = Spi::get_one_with_args::<String>(
+            "SELECT plts.compile_and_store($1::text, '{}'::jsonb)",
+            &[item.prosrc.as_str().into()],
+        )
         .map_err(|e| format!("compile_and_store SPI error for {}: {e}", item.fn_name))?
         .ok_or_else(|| {
             format!(
@@ -207,19 +199,19 @@ fn run_deploy_flow(
             )
         })?;
 
-        run_sql(
-            &format!(
-                "
+        run_sql_with_args(
+            "
                 INSERT INTO stopgap.fn_version
                     (deployment_id, fn_name, fn_schema, live_fn_schema, kind, artifact_hash)
-                VALUES ({}, {}, {}, {}, 'mutation', {})
+                VALUES ($1, $2, $3, $4, 'mutation', $5)
                 ",
-                deployment_id,
-                quote_literal(&item.fn_name),
-                quote_literal(from_schema),
-                quote_literal(live_schema),
-                quote_literal(&artifact_hash)
-            ),
+            &[
+                deployment_id.into(),
+                item.fn_name.as_str().into(),
+                from_schema.into(),
+                live_schema.into(),
+                artifact_hash.as_str().into(),
+            ],
             "failed to insert stopgap.fn_version",
         )?;
 
@@ -235,40 +227,33 @@ fn run_deploy_flow(
 
     update_deployment_manifest(deployment_id, json!({ "functions": manifest_functions }))?;
 
-    let previous_active = Spi::get_one::<i64>(&format!(
-        "SELECT active_deployment_id FROM stopgap.environment WHERE env = {}",
-        quote_literal(env)
-    ))
+    let previous_active = Spi::get_one_with_args::<i64>(
+        "SELECT active_deployment_id FROM stopgap.environment WHERE env = $1",
+        &[env.into()],
+    )
     .map_err(|e| format!("failed to read environment active deployment: {e}"))?;
 
     transition_deployment_status(deployment_id, DeploymentStatus::Sealed)?;
 
-    run_sql(
-        &format!(
-            "
+    run_sql_with_args(
+        "
             UPDATE stopgap.environment
-            SET active_deployment_id = {},
+            SET active_deployment_id = $1,
                 updated_at = now()
-            WHERE env = {}
+            WHERE env = $2
             ",
-            deployment_id,
-            quote_literal(env)
-        ),
+        &[deployment_id.into(), env.into()],
         "failed to set active deployment",
     )?;
 
     transition_deployment_status(deployment_id, DeploymentStatus::Active)?;
 
-    run_sql(
-        &format!(
-            "
+    run_sql_with_args(
+        "
             INSERT INTO stopgap.activation_log (env, from_deployment_id, to_deployment_id)
-            VALUES ({}, {}, {})
+            VALUES ($1, $2, $3)
             ",
-            quote_literal(env),
-            previous_active.map(|v| v.to_string()).unwrap_or_else(|| "NULL".to_string()),
-            deployment_id
-        ),
+        &[env.into(), previous_active.into(), deployment_id.into()],
         "failed to insert activation log",
     )?;
 
@@ -276,10 +261,10 @@ fn run_deploy_flow(
 }
 
 fn ensure_deploy_permissions(from_schema: &str, live_schema: &str) -> Result<(), String> {
-    let can_use_source = Spi::get_one::<bool>(&format!(
-        "SELECT has_schema_privilege(current_user, {}, 'USAGE')",
-        quote_literal(from_schema)
-    ))
+    let can_use_source = Spi::get_one_with_args::<bool>(
+        "SELECT has_schema_privilege(current_user, $1, 'USAGE')",
+        &[from_schema.into()],
+    )
     .map_err(|e| format!("failed to check source schema privileges: {e}"))?
     .unwrap_or(false);
 
@@ -290,18 +275,18 @@ fn ensure_deploy_permissions(from_schema: &str, live_schema: &str) -> Result<(),
         ));
     }
 
-    let live_schema_exists = Spi::get_one::<bool>(&format!(
-        "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = {})",
-        quote_literal(live_schema)
-    ))
+    let live_schema_exists = Spi::get_one_with_args::<bool>(
+        "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)",
+        &[live_schema.into()],
+    )
     .map_err(|e| format!("failed to check live schema existence: {e}"))?
     .unwrap_or(false);
 
     if live_schema_exists {
-        let can_write_live = Spi::get_one::<bool>(&format!(
-            "SELECT has_schema_privilege(current_user, {}, 'USAGE,CREATE')",
-            quote_literal(live_schema)
-        ))
+        let can_write_live = Spi::get_one_with_args::<bool>(
+            "SELECT has_schema_privilege(current_user, $1, 'USAGE,CREATE')",
+            &[live_schema.into()],
+        )
         .map_err(|e| format!("failed to check live schema privileges: {e}"))?
         .unwrap_or(false);
 
@@ -343,8 +328,7 @@ fn ensure_deploy_permissions(from_schema: &str, live_schema: &str) -> Result<(),
 }
 
 fn load_status(env: &str) -> Option<Value> {
-    let sql = format!(
-        "
+    let sql = "
         SELECT jsonb_build_object(
             'env', e.env,
             'live_schema', e.live_schema,
@@ -365,17 +349,14 @@ fn load_status(env: &str) -> Option<Value> {
         )
         FROM stopgap.environment e
         LEFT JOIN stopgap.deployment d ON d.id = e.active_deployment_id
-        WHERE e.env = {}
-        ",
-        quote_literal(env)
-    );
+        WHERE e.env = $1
+        ";
 
-    Spi::get_one::<JsonB>(&sql).ok().flatten().map(|json| json.0)
+    Spi::get_one_with_args::<JsonB>(sql, &[env.into()]).ok().flatten().map(|json| json.0)
 }
 
 fn load_deployments(env: &str) -> Value {
-    let sql = format!(
-        "
+    let sql = "
         SELECT COALESCE(jsonb_agg(deploy_row ORDER BY created_at DESC), '[]'::jsonb)
         FROM (
             SELECT jsonb_build_object(
@@ -392,35 +373,34 @@ fn load_deployments(env: &str) -> Value {
             d.created_at
             FROM stopgap.deployment d
             JOIN stopgap.environment e ON e.env = d.env
-            WHERE d.env = {}
+            WHERE d.env = $1
         ) rows
-        ",
-        quote_literal(env)
-    );
+        ";
 
-    Spi::get_one::<JsonB>(&sql).ok().flatten().map(|json| json.0).unwrap_or_else(|| json!([]))
+    Spi::get_one_with_args::<JsonB>(sql, &[env.into()])
+        .ok()
+        .flatten()
+        .map(|json| json.0)
+        .unwrap_or_else(|| json!([]))
 }
 
 fn fetch_deployable_functions(from_schema: &str) -> Result<Vec<DeployableFn>, String> {
     Spi::connect(|client| {
         let rows = client.select(
-            &format!(
-                "
+            "
                 SELECT p.proname::text AS fn_name, p.prosrc
                 FROM pg_proc p
                 JOIN pg_namespace n ON n.oid = p.pronamespace
                 JOIN pg_language l ON l.oid = p.prolang
-                WHERE n.nspname = {}
+                WHERE n.nspname = $1
                   AND l.lanname = 'plts'
                   AND p.prorettype = 'jsonb'::regtype::oid
                   AND array_length(p.proargtypes::oid[], 1) = 1
                   AND p.proargtypes[0] = 'jsonb'::regtype::oid
                 ORDER BY p.proname
                 ",
-                quote_literal(from_schema)
-            ),
             None,
-            &[],
+            &[from_schema.into()],
         )?;
 
         let mut out = Vec::new();
@@ -442,20 +422,20 @@ fn fetch_deployable_functions(from_schema: &str) -> Result<Vec<DeployableFn>, St
 }
 
 fn ensure_no_overloaded_plts_functions(from_schema: &str) {
-    let overloaded = Spi::get_one::<String>(&format!(
+    let overloaded = Spi::get_one_with_args::<String>(
         "
         SELECT proname::text
         FROM pg_proc p
         JOIN pg_namespace n ON n.oid = p.pronamespace
         JOIN pg_language l ON l.oid = p.prolang
-        WHERE n.nspname = {}
+        WHERE n.nspname = $1
           AND l.lanname = 'plts'
         GROUP BY proname
         HAVING count(*) > 1
         LIMIT 1
         ",
-        quote_literal(from_schema)
-    ))
+        &[from_schema.into()],
+    )
     .ok()
     .flatten();
 
@@ -521,16 +501,13 @@ fn fn_manifest_item(
 }
 
 fn update_deployment_manifest(deployment_id: i64, patch: Value) -> Result<(), String> {
-    run_sql(
-        &format!(
-            "
+    run_sql_with_args(
+        "
             UPDATE stopgap.deployment
-            SET manifest = manifest || {}::jsonb
-            WHERE id = {}
+            SET manifest = manifest || $1::jsonb
+            WHERE id = $2
             ",
-            quote_literal(&patch.to_string()),
-            deployment_id
-        ),
+        &[JsonB(patch).into(), deployment_id.into()],
         "failed to update deployment manifest",
     )
 }
@@ -548,10 +525,10 @@ fn update_failed_manifest(deployment_id: i64, err: &str) -> Result<(), String> {
 }
 
 fn transition_deployment_status(deployment_id: i64, to: DeploymentStatus) -> Result<(), String> {
-    let current = Spi::get_one::<String>(&format!(
-        "SELECT status FROM stopgap.deployment WHERE id = {}",
-        deployment_id
-    ))
+    let current = Spi::get_one_with_args::<String>(
+        "SELECT status FROM stopgap.deployment WHERE id = $1",
+        &[deployment_id.into()],
+    )
     .map_err(|e| format!("failed to load deployment status for id {}: {e}", deployment_id))?
     .ok_or_else(|| format!("deployment id {} does not exist", deployment_id))?;
 
@@ -567,12 +544,9 @@ fn transition_deployment_status(deployment_id: i64, to: DeploymentStatus) -> Res
         ));
     }
 
-    run_sql(
-        &format!(
-            "UPDATE stopgap.deployment SET status = {} WHERE id = {}",
-            quote_literal(to.as_str()),
-            deployment_id
-        ),
+    run_sql_with_args(
+        "UPDATE stopgap.deployment SET status = $1 WHERE id = $2",
+        &[to.as_str().into(), deployment_id.into()],
         "failed to update deployment status",
     )
 }
@@ -594,12 +568,16 @@ fn run_sql(sql: &str, context: &str) -> Result<(), String> {
     Spi::run(sql).map_err(|e| format!("{context}: {e}"))
 }
 
-fn quote_ident(ident: &str) -> String {
-    format!("\"{}\"", ident.replace('"', "\"\""))
+fn run_sql_with_args<'a>(
+    sql: &str,
+    args: &[DatumWithOid<'a>],
+    context: &str,
+) -> Result<(), String> {
+    Spi::run_with_args(sql, args).map_err(|e| format!("{context}: {e}"))
 }
 
-fn quote_literal(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
+fn quote_ident(ident: &str) -> String {
+    format!("\"{}\"", ident.replace('"', "\"\""))
 }
 
 fn resolve_live_schema() -> String {

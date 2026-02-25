@@ -121,7 +121,7 @@ Legend:
 - [x] Wrap deploy logic in hardened error handling with `failed` state writes
 - [x] Add detailed manifest generation (full function + artifact metadata)
 - [x] Add strict role/permission checks for deploy caller
-- [ ] Move dynamic SQL-heavy paths to stronger argumentized SPI patterns
+- [x] Move dynamic SQL-heavy paths to stronger argumentized SPI patterns
 
 ### 3.4 Rollback / Status / Introspection (P1+)
 

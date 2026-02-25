@@ -392,6 +392,7 @@ Current progress snapshot:
 - stopgap deploy now validates deployment status transitions (`open -> sealed -> active`, with failure paths)
 - stopgap deploy records function-level manifest metadata including artifact hashes and live pointer payloads
 - stopgap deploy now checks caller privileges for source/live schema access and compile API execution
+- stopgap deploy/status/deployments SQL paths now bind runtime values with argumentized SPI calls
 - stopgap now exposes `stopgap.status(env)` and `stopgap.deployments(env)` introspection APIs
 - plts runtime errors now include stage metadata, JS stack details (when present), and SQL function identity context
 - CI workflow now runs workspace `cargo check`, `cargo test`, and matrixed `cargo pgrx test` jobs per extension crate

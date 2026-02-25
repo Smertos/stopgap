@@ -63,7 +63,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - `plts.compile_ts` is still a placeholder.
 - Stopgap function kind (`query` vs `mutation`) is currently convention-based, not wrapper-enforced.
 - Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, and checks deploy caller privileges; rollback APIs are still pending.
-- Some deploy SQL paths use interpolated SQL and should migrate to stricter SPI argumentization over time.
+- Most deploy SQL value binding uses argumentized SPI; remaining interpolation is primarily constrained identifier/DDL construction.
 
 ## Do not do without explicit direction
 
