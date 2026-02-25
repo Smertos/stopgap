@@ -1,4 +1,5 @@
 use pgrx::prelude::*;
+use pgrx::JsonB;
 use serde_json::json;
 use serde_json::Value;
 
@@ -72,6 +73,7 @@ mod stopgap {
         .unwrap_or_else(|err| error!("{err}"));
 
         let live_schema = resolve_live_schema();
+        ensure_deploy_permissions(from_schema, &live_schema).unwrap_or_else(|err| error!("{err}"));
         let label_sql = label.map(quote_literal).unwrap_or_else(|| "NULL".to_string());
 
         run_sql(
@@ -127,6 +129,16 @@ mod stopgap {
         }
 
         deployment_id
+    }
+
+    #[pg_extern]
+    fn status(env: &str) -> Option<JsonB> {
+        load_status(env).map(JsonB)
+    }
+
+    #[pg_extern]
+    fn deployments(env: &str) -> JsonB {
+        JsonB(load_deployments(env))
     }
 }
 
@@ -261,6 +273,132 @@ fn run_deploy_flow(
     )?;
 
     Ok(())
+}
+
+fn ensure_deploy_permissions(from_schema: &str, live_schema: &str) -> Result<(), String> {
+    let can_use_source = Spi::get_one::<bool>(&format!(
+        "SELECT has_schema_privilege(current_user, {}, 'USAGE')",
+        quote_literal(from_schema)
+    ))
+    .map_err(|e| format!("failed to check source schema privileges: {e}"))?
+    .unwrap_or(false);
+
+    if !can_use_source {
+        return Err(format!(
+            "permission denied for stopgap deploy: current_user lacks USAGE on source schema {}",
+            from_schema
+        ));
+    }
+
+    let live_schema_exists = Spi::get_one::<bool>(&format!(
+        "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = {})",
+        quote_literal(live_schema)
+    ))
+    .map_err(|e| format!("failed to check live schema existence: {e}"))?
+    .unwrap_or(false);
+
+    if live_schema_exists {
+        let can_write_live = Spi::get_one::<bool>(&format!(
+            "SELECT has_schema_privilege(current_user, {}, 'USAGE,CREATE')",
+            quote_literal(live_schema)
+        ))
+        .map_err(|e| format!("failed to check live schema privileges: {e}"))?
+        .unwrap_or(false);
+
+        if !can_write_live {
+            return Err(format!(
+                "permission denied for stopgap deploy: current_user lacks USAGE,CREATE on live schema {}",
+                live_schema
+            ));
+        }
+    } else {
+        let can_create_schema = Spi::get_one::<bool>(
+            "SELECT has_database_privilege(current_user, current_database(), 'CREATE')",
+        )
+        .map_err(|e| format!("failed to check database CREATE privilege: {e}"))?
+        .unwrap_or(false);
+
+        if !can_create_schema {
+            return Err(format!(
+                "permission denied for stopgap deploy: current_user cannot create live schema {}",
+                live_schema
+            ));
+        }
+    }
+
+    let can_compile = Spi::get_one::<bool>(
+        "SELECT has_function_privilege(current_user, 'plts.compile_and_store(text, jsonb)', 'EXECUTE')",
+    )
+    .map_err(|e| format!("failed to check plts.compile_and_store execute privilege: {e}"))?
+    .unwrap_or(false);
+
+    if !can_compile {
+        return Err(
+            "permission denied for stopgap deploy: current_user lacks EXECUTE on plts.compile_and_store(text, jsonb)"
+                .to_string(),
+        );
+    }
+
+    Ok(())
+}
+
+fn load_status(env: &str) -> Option<Value> {
+    let sql = format!(
+        "
+        SELECT jsonb_build_object(
+            'env', e.env,
+            'live_schema', e.live_schema,
+            'active_deployment_id', e.active_deployment_id,
+            'updated_at', e.updated_at,
+            'active_deployment', CASE
+                WHEN d.id IS NULL THEN NULL
+                ELSE jsonb_build_object(
+                    'id', d.id,
+                    'label', d.label,
+                    'status', d.status,
+                    'created_at', d.created_at,
+                    'created_by', d.created_by,
+                    'source_schema', d.source_schema,
+                    'manifest', d.manifest
+                )
+            END
+        )
+        FROM stopgap.environment e
+        LEFT JOIN stopgap.deployment d ON d.id = e.active_deployment_id
+        WHERE e.env = {}
+        ",
+        quote_literal(env)
+    );
+
+    Spi::get_one::<JsonB>(&sql).ok().flatten().map(|json| json.0)
+}
+
+fn load_deployments(env: &str) -> Value {
+    let sql = format!(
+        "
+        SELECT COALESCE(jsonb_agg(deploy_row ORDER BY created_at DESC), '[]'::jsonb)
+        FROM (
+            SELECT jsonb_build_object(
+                'id', d.id,
+                'env', d.env,
+                'label', d.label,
+                'status', d.status,
+                'created_at', d.created_at,
+                'created_by', d.created_by,
+                'source_schema', d.source_schema,
+                'manifest', d.manifest,
+                'is_active', (e.active_deployment_id = d.id)
+            ) AS deploy_row,
+            d.created_at
+            FROM stopgap.deployment d
+            JOIN stopgap.environment e ON e.env = d.env
+            WHERE d.env = {}
+        ) rows
+        ",
+        quote_literal(env)
+    );
+
+    Spi::get_one::<JsonB>(&sql).ok().flatten().map(|json| json.0).unwrap_or_else(|| json!([]))
 }
 
 fn fetch_deployable_functions(from_schema: &str) -> Result<Vec<DeployableFn>, String> {

@@ -120,14 +120,14 @@ Legend:
 - [x] Add explicit deployment state machine validation and transitions
 - [x] Wrap deploy logic in hardened error handling with `failed` state writes
 - [x] Add detailed manifest generation (full function + artifact metadata)
-- [ ] Add strict role/permission checks for deploy caller
+- [x] Add strict role/permission checks for deploy caller
 - [ ] Move dynamic SQL-heavy paths to stronger argumentized SPI patterns
 
 ### 3.4 Rollback / Status / Introspection (P1+)
 
 - [ ] `stopgap.rollback(env, steps|to_id)`
-- [ ] `stopgap.status(env)`
-- [ ] `stopgap.deployments(env)`
+- [x] `stopgap.status(env)`
+- [x] `stopgap.deployments(env)`
 - [ ] `stopgap.diff` supporting API (optional)
 - [ ] Activation/audit-focused introspection views
 

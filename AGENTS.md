@@ -62,7 +62,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - `plts` runtime handler executes sync default-export JS only when built with `v8_runtime`; full module/import support and async execution are still pending.
 - `plts.compile_ts` is still a placeholder.
 - Stopgap function kind (`query` vs `mutation`) is currently convention-based, not wrapper-enforced.
-- Stopgap deploy now enforces deployment status transitions and writes richer manifest metadata, but rollback/status APIs are still pending.
+- Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, and checks deploy caller privileges; rollback APIs are still pending.
 - Some deploy SQL paths use interpolated SQL and should migrate to stricter SPI argumentization over time.
 
 ## Do not do without explicit direction

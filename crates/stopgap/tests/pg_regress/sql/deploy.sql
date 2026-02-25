@@ -12,6 +12,12 @@ $$;
 
 SELECT stopgap.deploy('prod', 'workspace', 'demo') > 0 AS deployed;
 
+SELECT (stopgap.status('prod')->>'active_deployment_id')::bigint > 0 AS has_active;
+
+SELECT jsonb_array_length(stopgap.deployments('prod')) = 1 AS one_deployment;
+
+SELECT (stopgap.deployments('prod')->0->>'is_active')::boolean AS first_is_active;
+
 SELECT p.proname
 FROM pg_proc p
 JOIN pg_namespace n ON n.oid = p.pronamespace

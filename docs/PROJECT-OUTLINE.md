@@ -391,6 +391,8 @@ Current progress snapshot:
 - basic arg conversion work has started
 - stopgap deploy now validates deployment status transitions (`open -> sealed -> active`, with failure paths)
 - stopgap deploy records function-level manifest metadata including artifact hashes and live pointer payloads
+- stopgap deploy now checks caller privileges for source/live schema access and compile API execution
+- stopgap now exposes `stopgap.status(env)` and `stopgap.deployments(env)` introspection APIs
 - CI workflow now runs workspace `cargo check`, `cargo test`, and matrixed `cargo pgrx test` jobs per extension crate
 - repository toolchain and lint/format configs are pinned (`rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`)
 
