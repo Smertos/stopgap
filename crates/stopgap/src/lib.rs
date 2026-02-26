@@ -7,6 +7,7 @@ use std::collections::BTreeSet;
 mod deployment_utils;
 mod domain;
 mod runtime_config;
+mod security;
 
 pub(crate) use deployment_utils::{
     ensure_no_overloaded_plts_functions, fetch_deployable_functions,
@@ -19,6 +20,9 @@ pub(crate) use domain::{
 };
 pub(crate) use runtime_config::{
     quote_ident, resolve_live_schema, resolve_prune_enabled, run_sql, run_sql_with_args,
+};
+pub(crate) use security::{
+    ensure_deploy_permissions, ensure_diff_permissions, ensure_role_membership,
 };
 
 ::pgrx::pg_module_magic!(name, version);
@@ -472,30 +476,6 @@ fn prune_stale_live_functions(
     Ok(PruneReport { enabled: true, dropped, skipped_with_dependents })
 }
 
-fn ensure_deploy_permissions(from_schema: &str, live_schema: &str) -> Result<(), String> {
-    ensure_required_role_exists(STOPGAP_OWNER_ROLE)?;
-    ensure_required_role_exists(STOPGAP_DEPLOYER_ROLE)?;
-    ensure_required_role_exists(APP_RUNTIME_ROLE)?;
-
-    let can_use_source = Spi::get_one_with_args::<bool>(
-        "SELECT has_schema_privilege(session_user, $1, 'USAGE')",
-        &[from_schema.into()],
-    )
-    .map_err(|e| format!("failed to check source schema privileges: {e}"))?
-    .unwrap_or(false);
-
-    if !can_use_source {
-        return Err(format!(
-            "permission denied for stopgap deploy: current_user lacks USAGE on source schema {}",
-            from_schema
-        ));
-    }
-
-    let _ = live_schema;
-
-    Ok(())
-}
-
 fn load_status(env: &str) -> Option<Value> {
     let sql = "
         SELECT jsonb_build_object(
@@ -586,26 +566,6 @@ fn load_diff(env: &str, from_schema: &str) -> Result<Value, String> {
         },
         "functions": functions
     }))
-}
-
-fn ensure_diff_permissions(from_schema: &str) -> Result<(), String> {
-    ensure_required_role_exists(STOPGAP_DEPLOYER_ROLE)?;
-
-    let can_use_source = Spi::get_one_with_args::<bool>(
-        "SELECT has_schema_privilege(session_user, $1, 'USAGE')",
-        &[from_schema.into()],
-    )
-    .map_err(|e| format!("failed to check source schema privileges: {e}"))?
-    .unwrap_or(false);
-
-    if !can_use_source {
-        return Err(format!(
-            "permission denied for stopgap diff: current_user lacks USAGE on source schema {}",
-            from_schema
-        ));
-    }
-
-    Ok(())
 }
 
 fn compile_candidate_functions(from_schema: &str) -> Result<Vec<CandidateFn>, String> {
@@ -766,44 +726,6 @@ fn fetch_fn_versions(deployment_id: i64) -> Result<Vec<FnVersionRow>, String> {
         Ok::<Vec<FnVersionRow>, pgrx::spi::Error>(out)
     })
     .map_err(|e| format!("failed to load function versions for deployment {}: {e}", deployment_id))
-}
-
-fn ensure_required_role_exists(role_name: &str) -> Result<(), String> {
-    let exists = Spi::get_one_with_args::<bool>(
-        "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)",
-        &[role_name.into()],
-    )
-    .map_err(|e| format!("failed to check role {} existence: {e}", role_name))?
-    .unwrap_or(false);
-
-    if exists {
-        Ok(())
-    } else {
-        Err(format!(
-            "stopgap security model requires role {} to exist; install/update extension as a role that can create required roles",
-            role_name
-        ))
-    }
-}
-
-fn ensure_role_membership(required_role: &str, operation: &str) -> Result<(), String> {
-    ensure_required_role_exists(required_role)?;
-
-    let member = Spi::get_one_with_args::<bool>(
-        "SELECT pg_has_role(session_user, oid, 'MEMBER') FROM pg_roles WHERE rolname = $1",
-        &[required_role.into()],
-    )
-    .map_err(|e| format!("failed to check {} role membership: {e}", required_role))?
-    .unwrap_or(false);
-
-    if member {
-        Ok(())
-    } else {
-        Err(format!(
-            "permission denied for {}: session_user must be a member of role {}",
-            operation, required_role
-        ))
-    }
 }
 
 fn update_deployment_manifest(deployment_id: i64, patch: Value) -> Result<(), String> {

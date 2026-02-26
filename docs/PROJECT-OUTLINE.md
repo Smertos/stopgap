@@ -55,7 +55,7 @@ Near-term structure direction:
 - expand `crates/common` usage for shared utility code used by both extensions
 - keep split-extension ownership strict (`plts` runtime/language concerns stay in `plts`; deploy/materialization concerns stay in `stopgap`)
 - keep PG integration tests outside extension source and keep suites behavior-focused (`crates/*/tests/pg/*.rs`)
-- module-splitting is in progress: `plts` compile/fingerprint/source-map helpers now live in `crates/plts/src/compiler.rs`, while stopgap pure domain/state-transition helpers live in `crates/stopgap/src/domain.rs`, runtime config/SPI helpers in `crates/stopgap/src/runtime_config.rs`, and deploy scan/materialization helpers in `crates/stopgap/src/deployment_utils.rs`
+- module-splitting is in progress: `plts` compile/fingerprint/source-map helpers now live in `crates/plts/src/compiler.rs` and runtime SPI/query-binding helpers now live in `crates/plts/src/runtime_spi.rs`, while stopgap pure domain/state-transition helpers live in `crates/stopgap/src/domain.rs`, runtime config/SPI helpers in `crates/stopgap/src/runtime_config.rs`, deploy scan/materialization helpers in `crates/stopgap/src/deployment_utils.rs`, and role/permission checks in `crates/stopgap/src/security.rs`
 
 ---
 
@@ -464,7 +464,7 @@ Current progress snapshot:
 ## P1.5 (structure + interop)
 - introduce and expand `crates/common` for shared helper logic across extensions (workspace + initial helper migration in place)
 - split large single-file crate implementations into cohesive modules
-- status: `plts` compiler/transpile helpers and stopgap deploy/materialization helpers are now extracted into dedicated modules; broader `lib.rs` thinning is still pending
+- status: `plts` compiler/transpile helpers plus runtime SPI/query-binding helpers and stopgap deploy/materialization plus role/permission helpers are now extracted into dedicated modules; broader `lib.rs` thinning is still pending
 - move PG integration tests out of extension source and keep suites granular
   - status: pg_test suites now live under `crates/*/tests/pg/` and are split into behavior-focused files; `pg_regress` scenario splitting remains
 - add Drizzle-style SQL object / `toSQL()` interop while keeping SPI SQL+params execution model
