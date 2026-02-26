@@ -54,7 +54,7 @@ stopgap/
 Near-term structure direction:
 - expand `crates/common` usage for shared utility code used by both extensions
 - keep split-extension ownership strict (`plts` runtime/language concerns stay in `plts`; deploy/materialization concerns stay in `stopgap`)
-- keep PG integration tests outside extension source and continue splitting them by behavior
+- keep PG integration tests outside extension source and keep suites behavior-focused (`crates/*/tests/pg/*.rs`)
 - stopgap module-splitting is in progress, with pure domain/state-transition helpers extracted into `crates/stopgap/src/domain.rs`
 
 ---
@@ -465,7 +465,7 @@ Current progress snapshot:
 - introduce and expand `crates/common` for shared helper logic across extensions (workspace + initial helper migration in place)
 - split large single-file crate implementations into cohesive modules
 - move PG integration tests out of extension source and keep suites granular
-  - status: pg_test suites now live under `crates/*/tests/pg/`; finer behavioral splitting remains
+  - status: pg_test suites now live under `crates/*/tests/pg/` and are split into behavior-focused files; `pg_regress` scenario splitting remains
 - add Drizzle-style SQL object / `toSQL()` interop while keeping SPI SQL+params execution model
 
 ## P2 (hardening)
