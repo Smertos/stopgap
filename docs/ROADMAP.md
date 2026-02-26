@@ -182,8 +182,8 @@ Legend:
 
 - [x] Re-introduce DB-backed pgrx integration tests for `plts` SQL APIs
 - [x] Add tests for regular args conversion (`text`, `int4`, `bool`, `jsonb`)
-- [ ] Add tests for null normalization behavior in runtime
-- [ ] Add tests for artifact pointer execution path
+- [x] Add tests for null normalization behavior in runtime
+- [x] Add tests for artifact pointer execution path
 - [ ] Add stopgap deploy integration test that validates:
   - [ ] active deployment pointer changes
   - [ ] live schema pointer body payload
@@ -229,7 +229,7 @@ Legend:
 
 1. [ ] Implement real `deno_core` runtime execution in `plts_call_handler`
 2. [x] Implement real TS transpilation for `plts.compile_ts`
-3. [ ] Add integration tests for runtime execution + null normalization
+3. [x] Add integration tests for runtime execution + null normalization
 4. [ ] Harden `stopgap.deploy` error handling and state transitions
 5. [x] Implement rollback/status APIs
 6. [ ] Add permissions model for live schema and deploy APIs
@@ -240,5 +240,5 @@ Legend:
 ## 11) Current Snapshot
 
 - **P0 status:** Partially complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, and feature-gated sync default-export JS execution in `plts`.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, and feature-gated sync default-export JS execution in `plts`.
 - **Biggest missing piece:** full module runtime support (imports/async) in `plts` plus P1 read-only/wrapper features.

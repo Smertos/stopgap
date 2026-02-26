@@ -1087,6 +1087,113 @@ mod tests {
         Spi::run("DROP SCHEMA IF EXISTS plts_it CASCADE;")
             .expect("test teardown SQL should succeed");
     }
+
+    #[cfg(feature = "v8_runtime")]
+    #[pg_test]
+    fn test_runtime_normalizes_null_and_undefined_to_sql_null() {
+        Spi::run(
+            "
+            DROP SCHEMA IF EXISTS plts_runtime_it CASCADE;
+            CREATE SCHEMA plts_runtime_it;
+            CREATE OR REPLACE FUNCTION plts_runtime_it.return_null(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            export default () => null;
+            $$;
+            CREATE OR REPLACE FUNCTION plts_runtime_it.return_undefined(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            export default () => undefined;
+            $$;
+            CREATE OR REPLACE FUNCTION plts_runtime_it.return_object(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            export default () => ({ ok: true });
+            $$;
+            ",
+        )
+        .expect("runtime null-normalization setup SQL should succeed");
+
+        let null_is_sql_null =
+            Spi::get_one::<bool>("SELECT plts_runtime_it.return_null('{}'::jsonb) IS NULL")
+                .expect("return_null query should succeed")
+                .expect("return_null IS NULL predicate should return a row");
+        assert!(null_is_sql_null, "runtime should map JS null to SQL NULL");
+
+        let undefined_is_sql_null =
+            Spi::get_one::<bool>("SELECT plts_runtime_it.return_undefined('{}'::jsonb) IS NULL")
+                .expect("return_undefined query should succeed")
+                .expect("return_undefined IS NULL predicate should return a row");
+        assert!(undefined_is_sql_null, "runtime should map JS undefined to SQL NULL");
+
+        let object = Spi::get_one::<JsonB>("SELECT plts_runtime_it.return_object('{}'::jsonb)")
+            .expect("return_object query should succeed")
+            .expect("return_object should return jsonb for non-null result");
+        assert_eq!(object.0.get("ok").and_then(Value::as_bool), Some(true));
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_runtime_it CASCADE;")
+            .expect("runtime null-normalization teardown SQL should succeed");
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[pg_test]
+    fn test_artifact_pointer_executes_compiled_program() {
+        Spi::run(
+            "
+            DROP SCHEMA IF EXISTS plts_runtime_ptr_it CASCADE;
+            CREATE SCHEMA plts_runtime_ptr_it;
+            ",
+        )
+        .expect("artifact-pointer setup schema SQL should succeed");
+
+        let source =
+            "export default (ctx) => ({ mode: 'artifact', echoed: ctx.args.positional[0] });";
+        let artifact_hash = Spi::get_one_with_args::<String>(
+            "SELECT plts.compile_and_store($1::text, '{}'::jsonb)",
+            &[source.into()],
+        )
+        .expect("compile_and_store query should succeed")
+        .expect("compile_and_store should return artifact hash");
+
+        let pointer = json!({
+            "plts": 1,
+            "kind": "artifact_ptr",
+            "artifact_hash": artifact_hash,
+            "export": "default",
+            "mode": "stopgap_deployed"
+        })
+        .to_string()
+        .replace('\'', "''");
+
+        let create_sql = format!(
+            "
+            CREATE OR REPLACE FUNCTION plts_runtime_ptr_it.ptr_fn(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$ {} $$;
+            ",
+            pointer
+        );
+        Spi::run(create_sql.as_str()).expect("pointer function creation SQL should succeed");
+
+        let payload = Spi::get_one::<JsonB>(
+            "SELECT plts_runtime_ptr_it.ptr_fn('{\"id\": 42, \"tag\": \"ok\"}'::jsonb)",
+        )
+        .expect("pointer function invocation should succeed")
+        .expect("pointer function should return jsonb");
+
+        assert_eq!(payload.0.get("mode").and_then(Value::as_str), Some("artifact"));
+        assert_eq!(
+            payload.0.get("echoed").and_then(|value| value.get("id")).and_then(Value::as_i64),
+            Some(42)
+        );
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_runtime_ptr_it CASCADE;")
+            .expect("artifact-pointer teardown SQL should succeed");
+    }
 }
 
 #[cfg(test)]
