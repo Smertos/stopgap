@@ -59,10 +59,10 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 
 ## Near-term technical debt to remember
 
-- `plts` runtime handler executes sync default-export JS only when built with `v8_runtime`; full module/import support and async execution are still pending, but runtime errors now surface stage/message/stack with SQL function identity context.
+- `plts` runtime handler executes sync + async default-export JS when built with `v8_runtime`; full module/import support is still pending, but runtime errors now surface stage/message/stack with SQL function identity context.
 - `plts` runtime now exposes RW `ctx.db.query/exec` SPI bindings with structured JSON parameter binding; read-only gate enforcement is still pending.
 - `plts.compile_ts` now transpiles TS->JS via `deno_ast`, reports structured diagnostics, records compiler fingerprint metadata from lockfile-resolved dependency versions, and can persist source-map payloads when `compiler_opts.source_map=true`.
-- DB-backed `plts` integration tests cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization, and artifact-pointer execution under `v8_runtime`.
+- DB-backed `plts` integration tests cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization, artifact-pointer execution, and async default-export execution under `v8_runtime`.
 - Stopgap function kind (`query` vs `mutation`) is currently convention-based, not wrapper-enforced.
 - Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, checks deploy caller privileges, and ships rollback/status/deployments/diff APIs plus activation/environment introspection views.
 - DB-backed `stopgap` integration tests now cover deploy pointer updates, live pointer payload correctness, `fn_version` integrity, overloaded-function rejection, and rollback status/pointer rematerialization.

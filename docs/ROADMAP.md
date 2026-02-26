@@ -68,6 +68,7 @@ Legend:
 - [x] Add feature-gated V8 script execution path for default-export handlers (source or artifact pointer)
 - [ ] Implement full TS/JS module execution inside V8 isolate (module loader/imports)
 - [x] Resolve and invoke default export entrypoint (sync handlers)
+- [x] Resolve and invoke async default export entrypoints (Promise-returning handlers)
 - [x] Build initial runtime call contract: `ctx.db`, `ctx.args`, `ctx.fn`, `ctx.now`
 - [x] Normalize JS return values to SQL/jsonb semantics:
   - [x] `undefined` -> SQL `NULL`
@@ -184,6 +185,7 @@ Legend:
 - [x] Add tests for regular args conversion (`text`, `int4`, `bool`, `jsonb`)
 - [x] Add tests for null normalization behavior in runtime
 - [x] Add tests for artifact pointer execution path
+- [x] Add tests for async default-export execution path (`v8_runtime`)
 - [ ] Add stopgap deploy integration test that validates:
   - [x] active deployment pointer changes
   - [x] live schema pointer body payload
@@ -240,5 +242,5 @@ Legend:
 ## 11) Current Snapshot
 
 - **P0 status:** Partially complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync default-export JS execution in `plts`.
-- **Biggest missing piece:** full module runtime support (imports/async) in `plts` plus P1 read-only/wrapper features.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`.
+- **Biggest missing piece:** full module runtime support (imports/loader) in `plts` plus P1 read-only/wrapper features.

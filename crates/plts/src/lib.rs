@@ -765,43 +765,31 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
         if (typeof globalThis.__plts_default !== "function") {
             throw new Error("default export must be a function");
         }
-        const __plts_out = globalThis.__plts_default(globalThis.__plts_ctx);
-        if (__plts_out && typeof __plts_out.then === "function") {
-            throw new Error("async default export is not supported yet");
-        }
-        if (__plts_out === undefined || __plts_out === null) {
-            globalThis.__plts_result_json = null;
-        } else {
-            globalThis.__plts_result_json = JSON.stringify(__plts_out);
-        }
+        globalThis.__plts_default(globalThis.__plts_ctx);
     "#;
 
-    runtime
+    let value = runtime
         .execute_script("plts_invoke.js", invoke_script)
         .map_err(|e| format_js_error("entrypoint invocation", &e.to_string()))?;
 
-    let value = runtime
-        .execute_script("plts_result.js", "globalThis.__plts_result_json")
-        .map_err(|e| format_js_error("result extraction", &e.to_string()))?;
+    #[allow(deprecated)]
+    let value = deno_core::futures::executor::block_on(runtime.resolve_value(value))
+        .map_err(|e| format_js_error("entrypoint await", &e.to_string()))?;
 
     deno_core::scope!(scope, runtime);
     let local = v8::Local::new(scope, value);
-    let maybe_json = serde_v8::from_v8::<Option<String>>(scope, local).map_err(|e| {
-        RuntimeExecError::new("result decode", format!("failed to decode JS result string: {e}"))
+    if local.is_null_or_undefined() {
+        return Ok(None);
+    }
+
+    let value = serde_v8::from_v8::<Value>(scope, local).map_err(|e| {
+        RuntimeExecError::new("result decode", format!("failed to decode JS result value: {e}"))
     })?;
 
-    match maybe_json {
-        None => Ok(None),
-        Some(raw) => {
-            let value = serde_json::from_str::<Value>(&raw).map_err(|e| {
-                RuntimeExecError::new("result parse", format!("failed to decode JSON result: {e}"))
-            })?;
-            if value.is_null() {
-                Ok(None)
-            } else {
-                Ok(Some(value))
-            }
-        }
+    if value.is_null() {
+        Ok(None)
+    } else {
+        Ok(Some(value))
     }
 }
 
@@ -1193,6 +1181,39 @@ mod tests {
 
         Spi::run("DROP SCHEMA IF EXISTS plts_runtime_ptr_it CASCADE;")
             .expect("artifact-pointer teardown SQL should succeed");
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[pg_test]
+    fn test_runtime_supports_async_default_export() {
+        Spi::run(
+            "
+            DROP SCHEMA IF EXISTS plts_runtime_async_it CASCADE;
+            CREATE SCHEMA plts_runtime_async_it;
+            CREATE OR REPLACE FUNCTION plts_runtime_async_it.return_async(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            export default async (ctx) => {
+                const row = await Promise.resolve({ ok: true, id: ctx.args.id });
+                return row;
+            };
+            $$;
+            ",
+        )
+        .expect("runtime async setup SQL should succeed");
+
+        let payload = Spi::get_one::<JsonB>(
+            "SELECT plts_runtime_async_it.return_async('{\"id\": 7}'::jsonb)",
+        )
+        .expect("async function invocation should succeed")
+        .expect("async function should return jsonb");
+
+        assert_eq!(payload.0.get("ok").and_then(Value::as_bool), Some(true));
+        assert_eq!(payload.0.get("id").and_then(Value::as_i64), Some(7));
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_runtime_async_it CASCADE;")
+            .expect("runtime async teardown SQL should succeed");
     }
 }
 

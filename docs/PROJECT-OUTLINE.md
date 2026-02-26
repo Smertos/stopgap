@@ -388,12 +388,13 @@ This gives you “deny updates to live schema” without fancy event triggers.
 
 Current progress snapshot:
 - artifact table + compile/store APIs are in place
-- handler now has a feature-gated V8 execution path for sync `export default` handlers
+- handler now has a feature-gated V8 execution path for sync + async `export default` handlers
 - handler resolves artifact-pointer stubs by loading compiled JS from `plts.artifact`
 - runtime context now includes initial `ctx` shape (`db`, `args`, `fn`, `now`)
 - runtime now wires `ctx.db.query/exec` to SPI with structured JS parameter binding
 - deno_core dependency and feature-gated isolate bootstrap scaffolding are in place
-- full module/import support and async handler execution are still pending
+- async default-export handler execution is now supported in the V8 runtime path
+- full module/import support is still pending
 - `plts.compile_ts` now performs real TS->JS transpilation via `deno_ast` and returns structured diagnostics
 - `plts` compiler fingerprinting now derives from real dependency versions (`deno_ast`/`deno_core`) from workspace lock metadata
 - optional source-map persistence is now supported in `plts.artifact` when `compiler_opts.source_map=true`
