@@ -77,6 +77,7 @@ Legend:
   - [x] primitives/object/array -> `jsonb`
 - [x] Add robust runtime error propagation (message + stack + SQL context)
 - [x] Include SQL function identity (`schema.name`, oid) in runtime error messages
+- [x] Cache artifact-pointer compiled source per backend to reduce repeat catalog lookups
 
 ### 2.5 Compiler Work (unfinished)
 

@@ -428,7 +428,7 @@ Current progress snapshot:
 - read-only enforcement for queries (implemented for `stopgap.query`; SQL classifier hardening can continue iteratively)
 - `stopgap.query/mutation` wrappers available in runtime + TS types package, with JSON Schema arg validation + inferred TS helper types (`InferJsonSchema`)
 - better error messages + stack traces
-- caching compiled artifacts per backend
+- caching compiled artifacts per backend (artifact-pointer source cache now implemented in `plts`)
 
 ## P2 (hardening)
 - cancellation/timeouts wired to Postgres interrupts

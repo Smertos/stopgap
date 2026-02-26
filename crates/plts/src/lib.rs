@@ -14,15 +14,19 @@ use pgrx::JsonB;
 use serde_json::json;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 #[cfg(feature = "v8_runtime")]
 use std::rc::Rc;
+use std::sync::Mutex;
 use std::sync::OnceLock;
 
 ::pgrx::pg_module_magic!(name, version);
 
 const CARGO_LOCK_CONTENT: &str = include_str!("../../../Cargo.lock");
 static TS_COMPILER_FINGERPRINT: OnceLock<String> = OnceLock::new();
+static ARTIFACT_SOURCE_CACHE: OnceLock<Mutex<ArtifactSourceCache>> = OnceLock::new();
+const ARTIFACT_SOURCE_CACHE_CAPACITY: usize = 256;
 
 extension_sql!(
     r#"
@@ -384,19 +388,78 @@ fn load_function_program(fn_oid: pg_sys::Oid) -> Option<FunctionProgram> {
 
 fn resolve_program_source(prosrc: &str) -> Option<String> {
     if let Some(ptr) = parse_artifact_ptr(prosrc) {
-        let sql = format!(
-            "SELECT compiled_js FROM plts.artifact WHERE artifact_hash = {}",
-            quote_literal(&ptr.artifact_hash)
-        );
-        return Spi::get_one::<String>(&sql).ok().flatten();
+        return load_compiled_artifact_from_cache_or_db(&ptr.artifact_hash);
     }
 
     Some(prosrc.to_string())
 }
 
+fn load_compiled_artifact_from_cache_or_db(artifact_hash: &str) -> Option<String> {
+    let cache_mutex =
+        ARTIFACT_SOURCE_CACHE.get_or_init(|| Mutex::new(ArtifactSourceCache::default()));
+
+    if let Ok(mut cache) = cache_mutex.lock() {
+        if let Some(source) = cache.get(artifact_hash) {
+            return Some(source);
+        }
+    }
+
+    let sql = format!(
+        "SELECT compiled_js FROM plts.artifact WHERE artifact_hash = {}",
+        quote_literal(artifact_hash)
+    );
+    let source = Spi::get_one::<String>(&sql).ok().flatten()?;
+
+    if let Ok(mut cache) = cache_mutex.lock() {
+        cache.insert(artifact_hash.to_string(), source.clone());
+    }
+
+    Some(source)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ArtifactPtr {
     artifact_hash: String,
+}
+
+#[derive(Debug, Default)]
+struct ArtifactSourceCache {
+    by_hash: HashMap<String, String>,
+    lru: VecDeque<String>,
+}
+
+impl ArtifactSourceCache {
+    fn get(&mut self, artifact_hash: &str) -> Option<String> {
+        let value = self.by_hash.get(artifact_hash)?.clone();
+        self.promote(artifact_hash);
+        Some(value)
+    }
+
+    fn insert(&mut self, artifact_hash: String, source: String) {
+        if self.by_hash.contains_key(&artifact_hash) {
+            self.by_hash.insert(artifact_hash.clone(), source);
+            self.promote(&artifact_hash);
+            return;
+        }
+
+        if self.by_hash.len() >= ARTIFACT_SOURCE_CACHE_CAPACITY {
+            while let Some(evicted) = self.lru.pop_front() {
+                if self.by_hash.remove(&evicted).is_some() {
+                    break;
+                }
+            }
+        }
+
+        self.lru.push_back(artifact_hash.clone());
+        self.by_hash.insert(artifact_hash, source);
+    }
+
+    fn promote(&mut self, artifact_hash: &str) {
+        if let Some(position) = self.lru.iter().position(|entry| entry == artifact_hash) {
+            let key = self.lru.remove(position).expect("position came from lru index");
+            self.lru.push_back(key);
+        }
+    }
 }
 
 fn parse_artifact_ptr(prosrc: &str) -> Option<ArtifactPtr> {
@@ -1325,6 +1388,21 @@ mod unit_tests {
         let fingerprint = crate::compiler_fingerprint();
         assert!(fingerprint.contains("deno_ast@"));
         assert!(fingerprint.contains("deno_core@"));
+    }
+
+    #[test]
+    fn test_artifact_source_cache_evicts_least_recently_used_entry() {
+        let mut cache = crate::ArtifactSourceCache::default();
+        for i in 0..crate::ARTIFACT_SOURCE_CACHE_CAPACITY {
+            cache.insert(format!("hash-{i}"), format!("src-{i}"));
+        }
+
+        assert_eq!(cache.get("hash-0").as_deref(), Some("src-0"));
+        cache.insert("hash-overflow".to_string(), "src-overflow".to_string());
+
+        assert_eq!(cache.get("hash-1"), None);
+        assert_eq!(cache.get("hash-0").as_deref(), Some("src-0"));
+        assert_eq!(cache.get("hash-overflow").as_deref(), Some("src-overflow"));
     }
 
     #[cfg(feature = "v8_runtime")]
