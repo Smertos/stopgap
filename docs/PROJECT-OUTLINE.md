@@ -466,7 +466,7 @@ Current progress snapshot:
 - split large single-file crate implementations into cohesive modules
 - status: `plts` compiler/transpile helpers plus runtime SPI/query-binding helpers and stopgap deploy/materialization plus role/permission helpers are now extracted into dedicated modules; broader `lib.rs` thinning is still pending
 - move PG integration tests out of extension source and keep suites granular
-  - status: pg_test suites now live under `crates/*/tests/pg/` and are split into behavior-focused files; `pg_regress` scenario splitting remains
+  - status: pg_test suites now live under `crates/*/tests/pg/`, are split into behavior-focused files, and `pg_regress` coverage now includes focused deploy/rollback/prune/diff/security scenario files
 - add Drizzle-style SQL object / `toSQL()` interop while keeping SPI SQL+params execution model
 
 ## P2 (hardening)
