@@ -18,8 +18,16 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 #[cfg(feature = "v8_runtime")]
 use std::rc::Rc;
+#[cfg(feature = "v8_runtime")]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(feature = "v8_runtime")]
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+#[cfg(feature = "v8_runtime")]
+use std::thread::{self, JoinHandle};
+#[cfg(feature = "v8_runtime")]
+use std::time::{Duration, Instant};
 
 ::pgrx::pg_module_magic!(name, version);
 
@@ -208,6 +216,106 @@ fn build_runtime_context(program: &FunctionProgram, args_payload: &Value) -> Val
 
 fn current_timestamp_text() -> String {
     Spi::get_one::<String>("SELECT now()::text").ok().flatten().unwrap_or_default()
+}
+
+#[cfg(feature = "v8_runtime")]
+fn current_statement_timeout_ms() -> Option<u64> {
+    let raw =
+        Spi::get_one::<String>("SELECT current_setting('statement_timeout')").ok().flatten()?;
+    parse_statement_timeout_ms(raw.as_str())
+}
+
+#[cfg_attr(not(any(test, feature = "v8_runtime")), allow(dead_code))]
+fn parse_statement_timeout_ms(raw: &str) -> Option<u64> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "0" {
+        return None;
+    }
+
+    let unit_start =
+        trimmed.find(|ch: char| !(ch.is_ascii_digit() || ch == '.')).unwrap_or(trimmed.len());
+    if unit_start == 0 {
+        return None;
+    }
+
+    let magnitude = trimmed[..unit_start].trim().parse::<f64>().ok()?;
+    if !magnitude.is_finite() || magnitude <= 0.0 {
+        return None;
+    }
+
+    let unit = trimmed[unit_start..].trim().to_ascii_lowercase();
+    let multiplier = match unit.as_str() {
+        "" | "ms" | "msec" | "msecs" | "millisecond" | "milliseconds" => 1.0,
+        "s" | "sec" | "secs" | "second" | "seconds" => 1_000.0,
+        "min" | "mins" | "minute" | "minutes" => 60_000.0,
+        "h" | "hr" | "hour" | "hours" => 3_600_000.0,
+        "d" | "day" | "days" => 86_400_000.0,
+        "us" | "usec" | "usecs" | "microsecond" | "microseconds" => 0.001,
+        _ => return None,
+    };
+
+    let timeout_ms = (magnitude * multiplier).ceil();
+    if !timeout_ms.is_finite() || timeout_ms <= 0.0 {
+        return None;
+    }
+
+    Some(timeout_ms as u64)
+}
+
+#[cfg(feature = "v8_runtime")]
+struct RuntimeInterruptGuard {
+    cancel: Arc<AtomicBool>,
+    timed_out: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[cfg(feature = "v8_runtime")]
+impl RuntimeInterruptGuard {
+    fn with_statement_timeout(
+        runtime: &mut deno_core::JsRuntime,
+        timeout_ms: Option<u64>,
+    ) -> Option<Self> {
+        let timeout_ms = timeout_ms.filter(|value| *value > 0)?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let timed_out = Arc::new(AtomicBool::new(false));
+        let cancel_worker = Arc::clone(&cancel);
+        let timed_out_worker = Arc::clone(&timed_out);
+        let isolate_handle = runtime.v8_isolate().thread_safe_handle();
+        let timeout = Duration::from_millis(timeout_ms);
+
+        let worker = thread::spawn(move || {
+            let start = Instant::now();
+            loop {
+                if cancel_worker.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                if start.elapsed() >= timeout {
+                    timed_out_worker.store(true, Ordering::Relaxed);
+                    isolate_handle.terminate_execution();
+                    return;
+                }
+
+                thread::sleep(Duration::from_millis(5));
+            }
+        });
+
+        Some(Self { cancel, timed_out, worker: Some(worker) })
+    }
+
+    fn timed_out(&self) -> bool {
+        self.timed_out.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(feature = "v8_runtime")]
+impl Drop for RuntimeInterruptGuard {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
 }
 
 #[cfg(feature = "v8_runtime")]
@@ -1167,9 +1275,28 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
         ..Default::default()
     });
 
+    let statement_timeout_ms = current_statement_timeout_ms();
+    let interrupt_guard =
+        RuntimeInterruptGuard::with_statement_timeout(&mut runtime, statement_timeout_ms);
+
+    let map_runtime_error = |stage: &'static str, details: &str| {
+        if interrupt_guard.as_ref().is_some_and(RuntimeInterruptGuard::timed_out) {
+            let configured_ms = statement_timeout_ms.unwrap_or_default();
+            RuntimeExecError::new(
+                "statement timeout",
+                format!(
+                    "execution exceeded current statement_timeout ({}ms) while in stage `{}`",
+                    configured_ms, stage
+                ),
+            )
+        } else {
+            format_js_error(stage, details)
+        }
+    };
+
     runtime
         .execute_script("plts_runtime_lockdown.js", LOCKDOWN_RUNTIME_SURFACE_SCRIPT)
-        .map_err(|e| format_js_error("runtime lockdown", &e.to_string()))?;
+        .map_err(|e| map_runtime_error("runtime lockdown", &e.to_string()))?;
 
     let main_specifier = ModuleSpecifier::parse(MAIN_MODULE_SPECIFIER).map_err(|err| {
         RuntimeExecError::new(
@@ -1181,19 +1308,19 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
     let module_id = deno_core::futures::executor::block_on(
         runtime.load_main_es_module_from_code(&main_specifier, source.to_string()),
     )
-    .map_err(|e| format_js_error("module load", &e.to_string()))?;
+    .map_err(|e| map_runtime_error("module load", &e.to_string()))?;
 
     let module_result = runtime.mod_evaluate(module_id);
     deno_core::futures::executor::block_on(async {
         runtime.run_event_loop(PollEventLoopOptions::default()).await?;
         module_result.await
     })
-    .map_err(|e| format_js_error("module evaluation", &e.to_string()))?;
+    .map_err(|e| map_runtime_error("module evaluation", &e.to_string()))?;
 
     {
         let namespace = runtime
             .get_module_namespace(module_id)
-            .map_err(|e| format_js_error("module namespace", &e.to_string()))?;
+            .map_err(|e| map_runtime_error("module namespace", &e.to_string()))?;
 
         deno_core::scope!(scope, runtime);
         let namespace = v8::Local::new(scope, namespace);
@@ -1234,7 +1361,7 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
                 })();
                 "#,
             )
-            .map_err(|e| format_js_error("handler metadata", &e.to_string()))?;
+            .map_err(|e| map_runtime_error("handler metadata", &e.to_string()))?;
 
         deno_core::scope!(scope, runtime);
         let local = v8::Local::new(scope, handler_kind_value);
@@ -1280,7 +1407,7 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
 
     runtime
         .execute_script("plts_ctx.js", set_ctx_script)
-        .map_err(|e| format_js_error("context setup", &e.to_string()))?;
+        .map_err(|e| map_runtime_error("context setup", &e.to_string()))?;
 
     let invoke_script = r#"
         if (typeof globalThis.__plts_default !== "function") {
@@ -1291,11 +1418,11 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
 
     let value = runtime
         .execute_script("plts_invoke.js", invoke_script)
-        .map_err(|e| format_js_error("entrypoint invocation", &e.to_string()))?;
+        .map_err(|e| map_runtime_error("entrypoint invocation", &e.to_string()))?;
 
     #[allow(deprecated)]
     let value = deno_core::futures::executor::block_on(runtime.resolve_value(value))
-        .map_err(|e| format_js_error("entrypoint await", &e.to_string()))?;
+        .map_err(|e| map_runtime_error("entrypoint await", &e.to_string()))?;
 
     deno_core::scope!(scope, runtime);
     let local = v8::Local::new(scope, value);
@@ -1443,6 +1570,25 @@ mod unit_tests {
         assert_eq!(cache.get("hash-1"), None);
         assert_eq!(cache.get("hash-0").as_deref(), Some("src-0"));
         assert_eq!(cache.get("hash-overflow").as_deref(), Some("src-overflow"));
+    }
+
+    #[test]
+    fn test_parse_statement_timeout_ms_parses_common_postgres_units() {
+        assert_eq!(crate::parse_statement_timeout_ms("0"), None);
+        assert_eq!(crate::parse_statement_timeout_ms("250"), Some(250));
+        assert_eq!(crate::parse_statement_timeout_ms("250ms"), Some(250));
+        assert_eq!(crate::parse_statement_timeout_ms("2s"), Some(2_000));
+        assert_eq!(crate::parse_statement_timeout_ms("1min"), Some(60_000));
+        assert_eq!(crate::parse_statement_timeout_ms("1.5s"), Some(1_500));
+        assert_eq!(crate::parse_statement_timeout_ms("500us"), Some(1));
+    }
+
+    #[test]
+    fn test_parse_statement_timeout_ms_rejects_invalid_values() {
+        assert_eq!(crate::parse_statement_timeout_ms(""), None);
+        assert_eq!(crate::parse_statement_timeout_ms("off"), None);
+        assert_eq!(crate::parse_statement_timeout_ms("-5ms"), None);
+        assert_eq!(crate::parse_statement_timeout_ms("12fortnights"), None);
     }
 
     #[cfg(feature = "v8_runtime")]
