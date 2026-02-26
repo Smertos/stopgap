@@ -63,6 +63,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 ## Near-term technical debt to remember
 
 - `plts` runtime handler executes sync + async default-export JS when built with `v8_runtime`, now via ES module loading (including `data:` imports and bare `@stopgap/runtime`); broader arbitrary import-resolution coverage is still pending, but runtime errors surface stage/message/stack with SQL function identity context.
+- `plts` runtime `ctx.db.query/exec` now accepts SQL string + params, `{ sql, params }` objects, and Drizzle-style `toSQL(): { sql, params }` inputs while keeping execution on SPI SQL text + bound params.
 - `plts` runtime now exposes `ctx.db.query/exec` SPI bindings with structured JSON parameter binding and wrapper-aware DB mode (`stopgap.query` => read-only, `stopgap.mutation`/regular => read-write), with JSON-Schema-based arg validation in runtime wrappers.
 - `plts` runtime now locks down module globals before execution (removing `Deno`, `fetch`, and related web APIs) so handlers only use the explicit `ctx.db` bridge and do not gain filesystem/network runtime surface.
 - `plts` runtime now applies a `statement_timeout`-driven V8 watchdog per call and routes pending Postgres cancel/die interrupt flags into the same V8 termination path.

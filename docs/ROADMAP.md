@@ -171,10 +171,10 @@ Legend:
 
 ### 5.1 Drizzle query-builder interoperability (next)
 
-- [ ] Support `ctx.db.query/exec` input as SQL string + params
-- [ ] Support `ctx.db.query/exec` input as `{ sql, params }` object
-- [ ] Support `ctx.db.query/exec` input as object exposing `toSQL(): { sql, params }` (Drizzle-style interop)
-- [ ] Keep v1 runtime execution contract as SQL text + bound params over SPI
+- [x] Support `ctx.db.query/exec` input as SQL string + params
+- [x] Support `ctx.db.query/exec` input as `{ sql, params }` object
+- [x] Support `ctx.db.query/exec` input as object exposing `toSQL(): { sql, params }` (Drizzle-style interop)
+- [x] Keep v1 runtime execution contract as SQL text + bound params over SPI
 - [ ] Evaluate statement/plan caching after interop baseline is stable
 - [ ] Defer full module-graph/bundling compatibility for arbitrary runtime imports to follow-up work
 
@@ -259,7 +259,7 @@ Legend:
 
 1. [ ] Add `crates/common` and split large extension `lib.rs` files into modules
 2. [ ] Move PG tests out of extension source and make suites granular by behavior
-3. [ ] Implement Drizzle-compatible SQL object / `toSQL()` interop in runtime DB APIs
+3. [x] Implement Drizzle-compatible SQL object / `toSQL()` interop in runtime DB APIs
 4. [ ] Reduce runtime-wrapper duplication between embedded module and `@stopgap/runtime`
 5. [ ] Finish remaining operational hardening (memory caps, deterministic constraints, metrics/GUC tuning)
 6. [ ] Implement CLI surface (`deploy`, `rollback`, `status`, `deployments`, optional `diff`)
@@ -270,5 +270,5 @@ Legend:
 
 - **P0 status:** Complete.
 - **P1 status:** Complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution on both `statement_timeout` expiry and pending Postgres cancel/die signals.
-- **Biggest missing pieces:** structural refactor (module split + shared crate + test extraction), Drizzle interop baseline, operational hardening (memory caps/runtime constraints/metrics/GUC tuning), and CLI implementation.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime DB APIs now support SQL string + params, `{ sql, params }` inputs, and Drizzle-style `toSQL()` objects while preserving SPI SQL + bound params execution. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution on both `statement_timeout` expiry and pending Postgres cancel/die signals.
+- **Biggest missing pieces:** structural refactor (module split + shared crate + test extraction), operational hardening (memory caps/runtime constraints/metrics/GUC tuning), and CLI implementation.

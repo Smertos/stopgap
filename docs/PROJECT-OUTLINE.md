@@ -357,6 +357,9 @@ For the next phase, the interoperability contract is:
 
 This keeps integration deterministic and extension-friendly without requiring immediate full runtime module-graph support for arbitrary package imports.
 
+Current implementation status:
+- Runtime `ctx.db.query/exec` now accepts all three input forms (string+params, `{ sql, params }`, and `toSQL()` objects) and normalizes them to SQL text + bound params before SPI execution.
+
 Follow-up work can expand import/bundling coverage for richer in-DB Drizzle compatibility.
 
 ---
