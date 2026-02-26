@@ -63,7 +63,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - `plts` runtime now exposes RW `ctx.db.query/exec` SPI bindings with structured JSON parameter binding; read-only gate enforcement is still pending.
 - `plts.compile_ts` now transpiles TS->JS via `deno_ast`, reports structured diagnostics, records compiler fingerprint metadata from lockfile-resolved dependency versions, and can persist source-map payloads when `compiler_opts.source_map=true`.
 - Stopgap function kind (`query` vs `mutation`) is currently convention-based, not wrapper-enforced.
-- Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, checks deploy caller privileges, and ships rollback/status/deployments APIs.
+- Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, checks deploy caller privileges, and ships rollback/status/deployments/diff APIs plus activation/environment introspection views.
 - Most deploy SQL value binding uses argumentized SPI; remaining interpolation is primarily constrained identifier/DDL construction.
 
 ## Do not do without explicit direction

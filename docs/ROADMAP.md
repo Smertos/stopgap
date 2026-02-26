@@ -128,8 +128,8 @@ Legend:
 - [x] `stopgap.rollback(env, steps|to_id)`
 - [x] `stopgap.status(env)`
 - [x] `stopgap.deployments(env)`
-- [ ] `stopgap.diff` supporting API (optional)
-- [ ] Activation/audit-focused introspection views
+- [x] `stopgap.diff` supporting API (optional)
+- [x] Activation/audit-focused introspection views
 
 ---
 
@@ -240,5 +240,5 @@ Legend:
 ## 11) Current Snapshot
 
 - **P0 status:** Partially complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments APIs, live pointer materialization, overload rejection, baseline tests, and feature-gated sync default-export JS execution in `plts`.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, baseline tests, and feature-gated sync default-export JS execution in `plts`.
 - **Biggest missing piece:** full module runtime support (imports/async) in `plts` plus P1 read-only/wrapper features.

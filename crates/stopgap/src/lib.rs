@@ -3,6 +3,7 @@ use pgrx::prelude::*;
 use pgrx::JsonB;
 use serde_json::json;
 use serde_json::Value;
+use std::collections::BTreeSet;
 
 ::pgrx::pg_module_magic!(name, version);
 
@@ -46,6 +47,33 @@ extension_sql!(
         activated_at timestamptz NOT NULL DEFAULT now(),
         activated_by name NOT NULL DEFAULT current_user
     );
+
+    CREATE OR REPLACE VIEW stopgap.activation_audit AS
+    SELECT l.id AS activation_id,
+           l.env,
+           l.from_deployment_id,
+           l.to_deployment_id,
+           l.activated_at,
+           l.activated_by,
+           d.status AS to_status,
+           d.label AS to_label,
+           d.source_schema AS to_source_schema,
+           d.created_at AS to_created_at,
+           d.created_by AS to_created_by
+    FROM stopgap.activation_log l
+    JOIN stopgap.deployment d ON d.id = l.to_deployment_id;
+
+    CREATE OR REPLACE VIEW stopgap.environment_overview AS
+    SELECT e.env,
+           e.live_schema,
+           e.active_deployment_id,
+           e.updated_at,
+           d.status AS active_status,
+           d.label AS active_label,
+           d.created_at AS active_created_at,
+           d.created_by AS active_created_by
+    FROM stopgap.environment e
+    LEFT JOIN stopgap.deployment d ON d.id = e.active_deployment_id;
     "#,
     name = "stopgap_sql_bootstrap"
 );
@@ -211,6 +239,11 @@ mod stopgap {
 
         target_deployment_id
     }
+
+    #[pg_extern]
+    fn diff(env: &str, from_schema: &str) -> JsonB {
+        JsonB(load_diff(env, from_schema).unwrap_or_else(|err| error!("{err}")))
+    }
 }
 
 #[derive(Debug)]
@@ -224,6 +257,28 @@ struct FnVersionRow {
     fn_name: String,
     live_fn_schema: String,
     artifact_hash: String,
+}
+
+#[derive(Debug, Clone)]
+struct CandidateFn {
+    fn_name: String,
+    artifact_hash: String,
+}
+
+#[derive(Debug, Clone)]
+struct DiffRow {
+    fn_name: String,
+    change: &'static str,
+    active_artifact_hash: Option<String>,
+    candidate_artifact_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct DiffSummary {
+    added: usize,
+    changed: usize,
+    removed: usize,
+    unchanged: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -468,6 +523,148 @@ fn load_deployments(env: &str) -> Value {
         .flatten()
         .map(|json| json.0)
         .unwrap_or_else(|| json!([]))
+}
+
+fn load_diff(env: &str, from_schema: &str) -> Result<Value, String> {
+    let (live_schema, active_deployment_id) = load_environment_state(env)?;
+    ensure_diff_permissions(from_schema)?;
+
+    let active = fetch_fn_versions(active_deployment_id)?;
+    let candidate = compile_candidate_functions(from_schema)?;
+    let (rows, summary) = compute_diff_rows(&active, &candidate);
+
+    let functions = rows
+        .into_iter()
+        .map(|row| {
+            json!({
+                "fn_name": row.fn_name,
+                "change": row.change,
+                "active_artifact_hash": row.active_artifact_hash,
+                "candidate_artifact_hash": row.candidate_artifact_hash
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(json!({
+        "env": env,
+        "source_schema": from_schema,
+        "live_schema": live_schema,
+        "active_deployment_id": active_deployment_id,
+        "summary": {
+            "added": summary.added,
+            "changed": summary.changed,
+            "removed": summary.removed,
+            "unchanged": summary.unchanged
+        },
+        "functions": functions
+    }))
+}
+
+fn ensure_diff_permissions(from_schema: &str) -> Result<(), String> {
+    let can_use_source = Spi::get_one_with_args::<bool>(
+        "SELECT has_schema_privilege(current_user, $1, 'USAGE')",
+        &[from_schema.into()],
+    )
+    .map_err(|e| format!("failed to check source schema privileges: {e}"))?
+    .unwrap_or(false);
+
+    if !can_use_source {
+        return Err(format!(
+            "permission denied for stopgap diff: current_user lacks USAGE on source schema {}",
+            from_schema
+        ));
+    }
+
+    let can_compile = Spi::get_one::<bool>(
+        "SELECT has_function_privilege(current_user, 'plts.compile_and_store(text, jsonb)', 'EXECUTE')",
+    )
+    .map_err(|e| format!("failed to check plts.compile_and_store execute privilege: {e}"))?
+    .unwrap_or(false);
+
+    if can_compile {
+        Ok(())
+    } else {
+        Err(
+            "permission denied for stopgap diff: current_user lacks EXECUTE on plts.compile_and_store(text, jsonb)"
+                .to_string(),
+        )
+    }
+}
+
+fn compile_candidate_functions(from_schema: &str) -> Result<Vec<CandidateFn>, String> {
+    let deployables = fetch_deployable_functions(from_schema)?;
+    let mut out = Vec::with_capacity(deployables.len());
+
+    for item in deployables {
+        let artifact_hash = Spi::get_one_with_args::<String>(
+            "SELECT plts.compile_and_store($1::text, '{}'::jsonb)",
+            &[item.prosrc.as_str().into()],
+        )
+        .map_err(|e| format!("compile_and_store SPI error for {}: {e}", item.fn_name))?
+        .ok_or_else(|| {
+            format!(
+                "compile_and_store returned no artifact hash for {}.{}",
+                from_schema, item.fn_name
+            )
+        })?;
+        out.push(CandidateFn { fn_name: item.fn_name, artifact_hash });
+    }
+
+    Ok(out)
+}
+
+fn compute_diff_rows(
+    active: &[FnVersionRow],
+    candidate: &[CandidateFn],
+) -> (Vec<DiffRow>, DiffSummary) {
+    let active_by_name = active
+        .iter()
+        .map(|row| (row.fn_name.as_str(), row.artifact_hash.as_str()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let candidate_by_name = candidate
+        .iter()
+        .map(|row| (row.fn_name.as_str(), row.artifact_hash.as_str()))
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    let all_names =
+        active_by_name.keys().chain(candidate_by_name.keys()).copied().collect::<BTreeSet<_>>();
+
+    let mut rows = Vec::with_capacity(all_names.len());
+    let mut summary = DiffSummary::default();
+
+    for fn_name in all_names {
+        let active_hash = active_by_name.get(fn_name).copied();
+        let candidate_hash = candidate_by_name.get(fn_name).copied();
+
+        let change = match (active_hash, candidate_hash) {
+            (None, Some(_)) => {
+                summary.added += 1;
+                "added"
+            }
+            (Some(_), None) => {
+                summary.removed += 1;
+                "removed"
+            }
+            (Some(a), Some(c)) if a != c => {
+                summary.changed += 1;
+                "changed"
+            }
+            (Some(_), Some(_)) => {
+                summary.unchanged += 1;
+                "unchanged"
+            }
+            (None, None) => continue,
+        };
+
+        rows.push(DiffRow {
+            fn_name: fn_name.to_string(),
+            change,
+            active_artifact_hash: active_hash.map(str::to_string),
+            candidate_artifact_hash: candidate_hash.map(str::to_string),
+        });
+    }
+
+    (rows, summary)
 }
 
 fn load_environment_state(env: &str) -> Result<(String, i64), String> {
@@ -872,6 +1069,54 @@ mod tests {
         assert_eq!(crate::rollback_steps_to_offset(1).expect("steps=1 should be valid"), 0);
         assert_eq!(crate::rollback_steps_to_offset(2).expect("steps=2 should be valid"), 1);
         assert!(crate::rollback_steps_to_offset(0).is_err());
+    }
+
+    #[test]
+    fn test_compute_diff_rows_covers_added_changed_removed_and_unchanged() {
+        let active = vec![
+            crate::FnVersionRow {
+                fn_name: "alpha".to_string(),
+                live_fn_schema: "live_deployment".to_string(),
+                artifact_hash: "sha256:1".to_string(),
+            },
+            crate::FnVersionRow {
+                fn_name: "beta".to_string(),
+                live_fn_schema: "live_deployment".to_string(),
+                artifact_hash: "sha256:2".to_string(),
+            },
+            crate::FnVersionRow {
+                fn_name: "delta".to_string(),
+                live_fn_schema: "live_deployment".to_string(),
+                artifact_hash: "sha256:4".to_string(),
+            },
+        ];
+        let candidate = vec![
+            crate::CandidateFn {
+                fn_name: "alpha".to_string(),
+                artifact_hash: "sha256:1".to_string(),
+            },
+            crate::CandidateFn {
+                fn_name: "beta".to_string(),
+                artifact_hash: "sha256:3".to_string(),
+            },
+            crate::CandidateFn {
+                fn_name: "gamma".to_string(),
+                artifact_hash: "sha256:5".to_string(),
+            },
+        ];
+
+        let (rows, summary) = crate::compute_diff_rows(&active, &candidate);
+        assert_eq!(summary, crate::DiffSummary { added: 1, changed: 1, removed: 1, unchanged: 1 });
+
+        let changes = rows
+            .iter()
+            .map(|row| (row.fn_name.as_str(), row.change))
+            .collect::<std::collections::BTreeMap<_, _>>();
+
+        assert_eq!(changes.get("alpha").copied(), Some("unchanged"));
+        assert_eq!(changes.get("beta").copied(), Some("changed"));
+        assert_eq!(changes.get("gamma").copied(), Some("added"));
+        assert_eq!(changes.get("delta").copied(), Some("removed"));
     }
 }
 
