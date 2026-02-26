@@ -9,10 +9,15 @@ This file captures how to work effectively in this repository.
   - `crates/common`: shared pure-Rust helpers used by both extensions
   - `crates/plts`: language/runtime extension (`LANGUAGE plts`, artifact APIs)
   - `crates/stopgap`: deployment/environment extension
+  - `crates/stopgap-cli`: Rust CLI for deploy/rollback/status/deployments/diff flows
 - Packages:
   - `packages/runtime`: `@stopgap/runtime` wrappers + TS schema/type helpers
 - Docs:
   - `docs/PROJECT-OUTLINE.md`: product/architecture source of truth
+  - `docs/DEVELOPER-QUICKSTART.md`: local setup + validation command reference
+  - `docs/RUNTIME-CONTRACT.md`: `plts` runtime context/return contract
+  - `docs/DEPLOYMENT-RUNBOOK.md`: deployment/rollback operational lifecycle
+  - `docs/TROUBLESHOOTING.md`: common setup/test/runtime issue guide
 
 ## Tooling baseline
 

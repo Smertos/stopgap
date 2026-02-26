@@ -242,14 +242,14 @@ Legend:
 
 ## 8) CLI Roadmap (`stopgap-cli`)
 
-- [ ] Scaffold CLI project
-- [ ] Implement `deploy`
-- [ ] Implement `rollback`
-- [ ] Implement `status`
-- [ ] Implement `deployments`
-- [ ] Optional: implement `diff`
-- [ ] Add human-readable + JSON output modes
-- [ ] Add CI/CD-oriented exit codes and failure diagnostics
+- [x] Scaffold CLI project
+- [x] Implement `deploy`
+- [x] Implement `rollback`
+- [x] Implement `status`
+- [x] Implement `deployments`
+- [x] Optional: implement `diff`
+- [x] Add human-readable + JSON output modes
+- [x] Add CI/CD-oriented exit codes and failure diagnostics
 
 ---
 
@@ -258,10 +258,10 @@ Legend:
 - [x] Keep project outline as source-of-truth architecture doc
 - [x] Add repo-level agent guidance (`AGENTS.md`)
 - [x] Add this roadmap with progress tracking
-- [ ] Add developer quickstart (local pgrx setup + commands)
-- [ ] Add runtime contract reference (`ctx` shape and return semantics)
-- [ ] Add deployment lifecycle and operational runbook
-- [ ] Add troubleshooting guide (common pgrx/test/install issues)
+- [x] Add developer quickstart (local pgrx setup + commands)
+- [x] Add runtime contract reference (`ctx` shape and return semantics)
+- [x] Add deployment lifecycle and operational runbook
+- [x] Add troubleshooting guide (common pgrx/test/install issues)
 
 ---
 
@@ -272,7 +272,7 @@ Legend:
 3. [x] Implement Drizzle-compatible SQL object / `toSQL()` interop in runtime DB APIs
 4. [x] Reduce runtime-wrapper duplication between embedded module and `@stopgap/runtime`
 5. [x] Finish remaining operational hardening (deterministic constraints, metrics/GUC tuning)
-6. [ ] Implement CLI surface (`deploy`, `rollback`, `status`, `deployments`, optional `diff`)
+6. [x] Implement CLI surface (`deploy`, `rollback`, `status`, `deployments`, optional `diff`)
 
 ---
 
@@ -284,4 +284,6 @@ Legend:
 - **Module split note:** both extension entrypoints are now thin (`crates/plts/src/lib.rs` and `crates/stopgap/src/lib.rs`), with `plts` split across `api.rs`, `handler.rs`, `runtime.rs`, `compiler.rs`, `runtime_spi.rs`, `function_program.rs`, and `arg_mapping.rs`.
 - **Wrapper parity note:** the in-DB `@stopgap/runtime` module source is now loaded from `packages/runtime/src/embedded.ts`, so wrapper validation/metadata behavior stays aligned between package and runtime.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
-- **Biggest missing pieces:** CLI implementation and docs roadmap items.
+- **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
+- **Docs note:** quickstart, runtime contract, deployment runbook, and troubleshooting guides now live under `docs/`.
+- **Biggest missing pieces:** statement/plan caching evaluation and broader runtime module-graph/bundling import compatibility.

@@ -44,11 +44,14 @@ stopgap/
       tests/pg/           # pgrx integration tests outside extension source
     stopgap/              # Rust extension: deployments, live schema management
       tests/pg/           # pgrx integration tests outside extension source
+    stopgap-cli/          # Rust CLI: deploy/rollback/status/deployments/diff
   packages/
     runtime/              # NPM package: TS types + wrappers (`@stopgap/runtime`)
   docs/
-  # future (planned):
-  # cli/stopgap-cli       # Deploy/rollback tooling (Node/TS or Rust)
+    DEVELOPER-QUICKSTART.md
+    RUNTIME-CONTRACT.md
+    DEPLOYMENT-RUNBOOK.md
+    TROUBLESHOOTING.md
 ```
 
 Near-term structure direction:
@@ -386,6 +389,11 @@ Even if DB-side deploy exists, the CLI is the real product surface.
 - `stopgap deployments --db <dsn> --env prod`
 - `stopgap status --db <dsn> --env prod`
 - (optional) `stopgap diff --db ...` compare workspace vs active
+
+Current implementation status:
+- `crates/stopgap-cli` now implements deploy/rollback/status/deployments and diff commands against the SQL API.
+- CLI supports `--output human|json` for operator and automation workflows.
+- CLI uses explicit non-zero exit codes for connection/query/decode/output failures for CI/CD diagnostics.
 
 ## 6.2 Deploy algorithm (single transaction, atomic)
 1) `pg_advisory_xact_lock(...)` per env

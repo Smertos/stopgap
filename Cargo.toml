@@ -3,6 +3,7 @@ members = [
     "crates/common",
     "crates/plts",
     "crates/stopgap",
+    "crates/stopgap-cli",
 ]
 resolver = "2"
 
