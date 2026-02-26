@@ -198,7 +198,7 @@ Legend:
 - [x] Add per-call memory limits
 - [x] Add deterministic runtime resource constraints
 - [x] Ensure no filesystem/network runtime surface
-- [ ] Add metrics and logs for compile/execute/deploy flows
+- [x] Add metrics and logs for compile/execute/deploy flows
 - [x] Add tunable GUCs for runtime caps and log level
 
 ---
@@ -271,7 +271,7 @@ Legend:
 2. [x] Expand focused scenario coverage in `pg_regress` suites (deploy, rollback, prune, diff, security)
 3. [x] Implement Drizzle-compatible SQL object / `toSQL()` interop in runtime DB APIs
 4. [x] Reduce runtime-wrapper duplication between embedded module and `@stopgap/runtime`
-5. [ ] Finish remaining operational hardening (deterministic constraints, metrics/GUC tuning)
+5. [x] Finish remaining operational hardening (deterministic constraints, metrics/GUC tuning)
 6. [ ] Implement CLI surface (`deploy`, `rollback`, `status`, `deployments`, optional `diff`)
 
 ---
@@ -284,4 +284,4 @@ Legend:
 - **Module split note:** both extension entrypoints are now thin (`crates/plts/src/lib.rs` and `crates/stopgap/src/lib.rs`), with `plts` split across `api.rs`, `handler.rs`, `runtime.rs`, `compiler.rs`, `runtime_spi.rs`, `function_program.rs`, and `arg_mapping.rs`.
 - **Wrapper parity note:** the in-DB `@stopgap/runtime` module source is now loaded from `packages/runtime/src/embedded.ts`, so wrapper validation/metadata behavior stays aligned between package and runtime.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
-- **Biggest missing pieces:** operational hardening (metrics/logging), CLI implementation, and docs roadmap items.
+- **Biggest missing pieces:** CLI implementation and docs roadmap items.

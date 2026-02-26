@@ -1,6 +1,9 @@
 use crate::compiler::{
     compiler_fingerprint, compute_artifact_hash, maybe_extract_source_map, transpile_typescript,
 };
+use crate::observability::{
+    log_info, log_warn, metrics_json, record_compile_error, record_compile_start,
+};
 use crate::runtime::bootstrap_v8_isolate;
 use common::sql::quote_literal;
 use pgrx::iter::TableIterator;
@@ -14,6 +17,11 @@ mod plts {
     #[pg_extern]
     fn version() -> &'static str {
         "0.1.0"
+    }
+
+    #[pg_extern]
+    fn metrics() -> JsonB {
+        JsonB(metrics_json())
     }
 
     #[pg_extern]
@@ -79,19 +87,25 @@ mod plts {
 
     #[pg_extern]
     fn compile_and_store(source_ts: &str, compiler_opts: default!(JsonB, "'{}'::jsonb")) -> String {
+        record_compile_start();
+        log_info("plts.compile_and_store start");
         let opts = compiler_opts.0;
         let mut rows = compile_ts(source_ts, JsonB(opts.clone()));
         let (compiled_js, diagnostics, _compiler_fingerprint) =
             rows.next().expect("compile_ts must always return one row");
 
         if contains_error_diagnostics(&diagnostics.0) {
+            record_compile_error();
+            log_warn("plts.compile_and_store failed due to diagnostics");
             error!(
                 "plts.compile_and_store aborted due to TypeScript diagnostics: {}",
                 diagnostics.0
             );
         }
 
-        upsert_artifact(source_ts, &compiled_js, JsonB(opts))
+        let artifact_hash = upsert_artifact(source_ts, &compiled_js, JsonB(opts));
+        log_info(&format!("plts.compile_and_store success artifact_hash={artifact_hash}"));
+        artifact_hash
     }
 
     #[pg_extern]

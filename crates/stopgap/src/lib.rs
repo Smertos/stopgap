@@ -3,6 +3,7 @@ mod api_ops;
 mod deployment_state;
 mod deployment_utils;
 mod domain;
+mod observability;
 mod runtime_config;
 mod security;
 mod sql_bootstrap;

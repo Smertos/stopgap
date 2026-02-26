@@ -6,6 +6,7 @@ use serde_json::Value;
 
 include!("arg_conversion.rs");
 include!("artifact_catalog.rs");
+include!("metrics.rs");
 #[cfg(feature = "v8_runtime")]
 include!("runtime_artifact_pointer.rs");
 #[cfg(feature = "v8_runtime")]
