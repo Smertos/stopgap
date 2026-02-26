@@ -137,8 +137,8 @@ Legend:
 
 - [x] Create live schema on demand if missing
 - [x] Create/replace pointer functions in live schema
-- [ ] Add prune mode (`stopgap.prune`) to drop stale functions safely
-- [ ] Add dependency-aware prune strategy
+- [x] Add prune mode (`stopgap.prune`) to drop stale functions safely
+- [x] Add dependency-aware prune strategy
 - [ ] Enforce ownership/privilege model for live schema writes:
   - [ ] owner role (`stopgap_owner`)
   - [ ] deployer role (`stopgap_deployer`)
@@ -240,5 +240,5 @@ Legend:
 ## 11) Current Snapshot
 
 - **P0 status:** Partially complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, baseline tests, and feature-gated sync default-export JS execution in `plts`.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, and feature-gated sync default-export JS execution in `plts`.
 - **Biggest missing piece:** full module runtime support (imports/async) in `plts` plus P1 read-only/wrapper features.

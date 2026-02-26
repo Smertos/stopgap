@@ -64,6 +64,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - `plts.compile_ts` now transpiles TS->JS via `deno_ast`, reports structured diagnostics, records compiler fingerprint metadata from lockfile-resolved dependency versions, and can persist source-map payloads when `compiler_opts.source_map=true`.
 - Stopgap function kind (`query` vs `mutation`) is currently convention-based, not wrapper-enforced.
 - Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, checks deploy caller privileges, and ships rollback/status/deployments/diff APIs plus activation/environment introspection views.
+- Stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`; ownership/role hardening for live schema writes is still pending.
 - Most deploy SQL value binding uses argumentized SPI; remaining interpolation is primarily constrained identifier/DDL construction.
 
 ## Do not do without explicit direction

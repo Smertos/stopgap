@@ -259,6 +259,19 @@ struct FnVersionRow {
     artifact_hash: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LiveFnRow {
+    oid: i64,
+    fn_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PruneReport {
+    enabled: bool,
+    dropped: Vec<String>,
+    skipped_with_dependents: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 struct CandidateFn {
     fn_name: String,
@@ -320,6 +333,7 @@ fn run_deploy_flow(
     live_schema: &str,
 ) -> Result<(), String> {
     let fns = fetch_deployable_functions(from_schema)?;
+    let prune_enabled = resolve_prune_enabled();
     run_sql(
         &format!("CREATE SCHEMA IF NOT EXISTS {}", quote_ident(live_schema)),
         "failed to create live schema",
@@ -366,7 +380,20 @@ fn run_deploy_flow(
         ));
     }
 
-    update_deployment_manifest(deployment_id, json!({ "functions": manifest_functions }))?;
+    let deployed_fn_names = fns.iter().map(|item| item.fn_name.clone()).collect::<BTreeSet<_>>();
+    let prune_report = if prune_enabled {
+        prune_stale_live_functions(live_schema, &deployed_fn_names)?
+    } else {
+        PruneReport { enabled: false, dropped: Vec::new(), skipped_with_dependents: Vec::new() }
+    };
+
+    update_deployment_manifest(
+        deployment_id,
+        json!({
+            "functions": manifest_functions,
+            "prune": prune_manifest_item(&prune_report)
+        }),
+    )?;
 
     let previous_active = Spi::get_one_with_args::<i64>(
         "SELECT active_deployment_id FROM stopgap.environment WHERE env = $1",
@@ -399,6 +426,105 @@ fn run_deploy_flow(
     )?;
 
     Ok(())
+}
+
+fn prune_stale_live_functions(
+    live_schema: &str,
+    deployed_fn_names: &BTreeSet<String>,
+) -> Result<PruneReport, String> {
+    let live_rows = fetch_live_deployable_functions(live_schema)?;
+    let mut dropped = Vec::new();
+    let mut skipped_with_dependents = Vec::new();
+
+    for row in live_rows {
+        if deployed_fn_names.contains(row.fn_name.as_str()) {
+            continue;
+        }
+
+        if live_function_has_dependents(row.oid)? {
+            skipped_with_dependents.push(row.fn_name);
+            continue;
+        }
+
+        let drop_sql = format!(
+            "DROP FUNCTION IF EXISTS {}.{}(jsonb)",
+            quote_ident(live_schema),
+            quote_ident(&row.fn_name)
+        );
+        run_sql(&drop_sql, "failed to prune stale live function")?;
+        dropped.push(row.fn_name);
+    }
+
+    dropped.sort();
+    skipped_with_dependents.sort();
+
+    Ok(PruneReport { enabled: true, dropped, skipped_with_dependents })
+}
+
+fn fetch_live_deployable_functions(live_schema: &str) -> Result<Vec<LiveFnRow>, String> {
+    Spi::connect(|client| {
+        let rows = client.select(
+            "
+            SELECT p.oid::bigint AS fn_oid,
+                   p.proname::text AS fn_name
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            JOIN pg_language l ON l.oid = p.prolang
+            WHERE n.nspname = $1
+              AND l.lanname = 'plts'
+              AND p.prorettype = 'jsonb'::regtype::oid
+              AND array_length(p.proargtypes::oid[], 1) = 1
+              AND p.proargtypes[0] = 'jsonb'::regtype::oid
+            ORDER BY p.proname
+            ",
+            None,
+            &[live_schema.into()],
+        )?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let oid = row
+                .get_by_name::<i64, _>("fn_oid")
+                .expect("fn_oid must be bigint")
+                .expect("fn_oid cannot be null");
+            let fn_name = row
+                .get_by_name::<String, _>("fn_name")
+                .expect("fn_name must be text")
+                .expect("fn_name cannot be null");
+            out.push(LiveFnRow { oid, fn_name });
+        }
+
+        Ok::<Vec<LiveFnRow>, pgrx::spi::Error>(out)
+    })
+    .map_err(|e| format!("failed to load live deployable functions in schema {live_schema}: {e}"))
+}
+
+fn live_function_has_dependents(function_oid: i64) -> Result<bool, String> {
+    Spi::get_one_with_args::<bool>(
+        "
+        SELECT EXISTS (
+            SELECT 1
+            FROM pg_depend d
+            WHERE d.refclassid = 'pg_proc'::regclass
+              AND d.refobjid = $1
+              AND d.deptype IN ('n', 'a', 'i')
+              AND NOT (d.classid = 'pg_proc'::regclass AND d.objid = $1)
+        )
+        ",
+        &[function_oid.into()],
+    )
+    .map_err(|e| {
+        format!("failed to inspect dependencies for live function oid {}: {e}", function_oid)
+    })
+    .map(|value| value.unwrap_or(false))
+}
+
+fn prune_manifest_item(report: &PruneReport) -> Value {
+    json!({
+        "enabled": report.enabled,
+        "dropped": report.dropped,
+        "skipped_with_dependents": report.skipped_with_dependents
+    })
 }
 
 fn ensure_deploy_permissions(from_schema: &str, live_schema: &str) -> Result<(), String> {
@@ -1010,6 +1136,25 @@ fn resolve_live_schema() -> String {
     live.unwrap_or_else(|| "live_deployment".to_string())
 }
 
+fn resolve_prune_enabled() -> bool {
+    let raw = Spi::get_one::<String>(
+        "SELECT COALESCE(current_setting('stopgap.prune', true), 'false')::text",
+    )
+    .ok()
+    .flatten();
+
+    raw.as_deref().and_then(parse_bool_setting).unwrap_or(false)
+}
+
+fn parse_bool_setting(value: &str) -> Option<bool> {
+    let normalized = value.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "1" | "on" | "true" | "t" | "yes" | "y" => Some(true),
+        "0" | "off" | "false" | "f" | "no" | "n" => Some(false),
+        _ => None,
+    }
+}
+
 fn hash_lock_key(env: &str) -> i64 {
     let mut hash: i64 = 1469598103934665603;
     for b in env.as_bytes() {
@@ -1117,6 +1262,49 @@ mod tests {
         assert_eq!(changes.get("beta").copied(), Some("changed"));
         assert_eq!(changes.get("gamma").copied(), Some("added"));
         assert_eq!(changes.get("delta").copied(), Some("removed"));
+    }
+
+    #[test]
+    fn test_parse_bool_setting_accepts_common_values() {
+        assert_eq!(crate::parse_bool_setting("true"), Some(true));
+        assert_eq!(crate::parse_bool_setting("on"), Some(true));
+        assert_eq!(crate::parse_bool_setting("1"), Some(true));
+        assert_eq!(crate::parse_bool_setting("false"), Some(false));
+        assert_eq!(crate::parse_bool_setting("off"), Some(false));
+        assert_eq!(crate::parse_bool_setting("0"), Some(false));
+    }
+
+    #[test]
+    fn test_parse_bool_setting_rejects_unknown_values() {
+        assert_eq!(crate::parse_bool_setting("maybe"), None);
+    }
+
+    #[test]
+    fn test_prune_manifest_item_shape() {
+        let report = crate::PruneReport {
+            enabled: true,
+            dropped: vec!["old_fn".to_string()],
+            skipped_with_dependents: vec!["kept_fn".to_string()],
+        };
+
+        let payload = crate::prune_manifest_item(&report);
+        assert_eq!(payload.get("enabled").and_then(|v| v.as_bool()), Some(true));
+        assert_eq!(
+            payload
+                .get("dropped")
+                .and_then(|v| v.as_array())
+                .and_then(|values| values.first())
+                .and_then(|v| v.as_str()),
+            Some("old_fn")
+        );
+        assert_eq!(
+            payload
+                .get("skipped_with_dependents")
+                .and_then(|v| v.as_array())
+                .and_then(|values| values.first())
+                .and_then(|v| v.as_str()),
+            Some("kept_fn")
+        );
     }
 }
 

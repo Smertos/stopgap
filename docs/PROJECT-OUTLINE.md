@@ -271,6 +271,7 @@ No TS in live schema, ever.
 - Default: **no drop** (safer for dependencies).
 - Optional `--prune` or `stopgap.prune=true`:
   - drop live functions not present in new deployment.
+  - prune skips live functions that still have dependencies.
 
 ---
 
@@ -403,6 +404,7 @@ Current progress snapshot:
 - stopgap deploy/status/deployments SQL paths now bind runtime values with argumentized SPI calls
 - stopgap now exposes `stopgap.status(env)`, `stopgap.deployments(env)`, `stopgap.diff(env, from_schema)`, and `stopgap.rollback(env, steps, to_id)` APIs
 - stopgap now exposes `stopgap.activation_audit` and `stopgap.environment_overview` introspection views
+- stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`, dropping stale live pointer functions that have no dependents
 - plts runtime errors now include stage metadata, JS stack details (when present), and SQL function identity context
 - CI workflow now runs workspace `cargo check`, `cargo test`, and matrixed `cargo pgrx test` jobs per extension crate
 - repository toolchain and lint/format configs are pinned (`rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`)
