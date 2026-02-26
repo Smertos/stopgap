@@ -180,8 +180,8 @@ Legend:
 
 ### 7.2 Next
 
-- [ ] Re-introduce DB-backed pgrx integration tests for `plts` SQL APIs
-- [ ] Add tests for regular args conversion (`text`, `int4`, `bool`, `jsonb`)
+- [x] Re-introduce DB-backed pgrx integration tests for `plts` SQL APIs
+- [x] Add tests for regular args conversion (`text`, `int4`, `bool`, `jsonb`)
 - [ ] Add tests for null normalization behavior in runtime
 - [ ] Add tests for artifact pointer execution path
 - [ ] Add stopgap deploy integration test that validates:
@@ -240,5 +240,5 @@ Legend:
 ## 11) Current Snapshot
 
 - **P0 status:** Partially complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, and feature-gated sync default-export JS execution in `plts`.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, and feature-gated sync default-export JS execution in `plts`.
 - **Biggest missing piece:** full module runtime support (imports/async) in `plts` plus P1 read-only/wrapper features.

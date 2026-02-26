@@ -1,3 +1,1 @@
-fn main() {
-    pgrx::pgrx_embed!();
-}
+::pgrx::pgrx_embed!();

@@ -62,6 +62,7 @@ extension_sql!(
 );
 
 #[pg_guard]
+#[no_mangle]
 pub unsafe extern "C-unwind" fn plts_call_handler(
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> pg_sys::Datum {
@@ -112,6 +113,12 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
 
     (*fcinfo).isnull = true;
     pg_sys::Datum::from(0)
+}
+
+#[no_mangle]
+pub extern "C" fn pg_finfo_plts_call_handler() -> &'static pg_sys::Pg_finfo_record {
+    const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
+    &V1_API
 }
 
 #[derive(Debug)]
@@ -332,8 +339,15 @@ fn parse_artifact_ptr(prosrc: &str) -> Option<ArtifactPtr> {
 }
 
 #[pg_guard]
+#[no_mangle]
 pub unsafe extern "C-unwind" fn plts_validator(_fcinfo: pg_sys::FunctionCallInfo) -> pg_sys::Datum {
     pg_sys::Datum::from(0)
+}
+
+#[no_mangle]
+pub extern "C" fn pg_finfo_plts_validator() -> &'static pg_sys::Pg_finfo_record {
+    const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
+    &V1_API
 }
 
 #[pg_schema]
@@ -817,7 +831,7 @@ fn format_js_error(stage: &'static str, details: &str) -> RuntimeExecError {
 }
 
 #[cfg(test)]
-mod tests {
+mod unit_tests {
     #[test]
     fn test_hash_prefix() {
         let hash = crate::compute_artifact_hash(
@@ -944,6 +958,134 @@ mod tests {
         assert!(matches!(params[2], crate::BoundParam::Text(ref v) if v == "hello"));
         assert!(matches!(params[3], crate::BoundParam::Json(_)));
         assert!(matches!(params[4], crate::BoundParam::NullText));
+    }
+}
+
+#[cfg(feature = "pg_test")]
+#[pg_schema]
+mod tests {
+    use super::*;
+
+    #[pg_test]
+    fn test_compile_and_store_round_trip() {
+        let source = "export default (ctx) => ({ ok: true, args: ctx.args })";
+        let artifact_hash = Spi::get_one_with_args::<String>(
+            "SELECT plts.compile_and_store($1::text, '{}'::jsonb)",
+            &[source.into()],
+        )
+        .expect("compile_and_store query should succeed")
+        .expect("compile_and_store should return an artifact hash");
+
+        assert!(artifact_hash.starts_with("sha256:"));
+
+        let artifact = Spi::get_one_with_args::<JsonB>(
+            "SELECT plts.get_artifact($1)",
+            &[artifact_hash.into()],
+        )
+        .expect("get_artifact query should succeed")
+        .expect("artifact must exist after compile_and_store");
+
+        assert_eq!(
+            artifact.0.get("source_ts").and_then(Value::as_str),
+            Some(source),
+            "stored artifact should preserve source_ts"
+        );
+        assert!(
+            artifact
+                .0
+                .get("compiled_js")
+                .and_then(Value::as_str)
+                .is_some_and(|compiled| !compiled.is_empty()),
+            "stored artifact should include compiled_js"
+        );
+    }
+
+    #[pg_test]
+    fn test_regular_args_conversion_for_common_types() {
+        Spi::run(
+            "
+            DROP SCHEMA IF EXISTS plts_it CASCADE;
+            CREATE SCHEMA plts_it;
+            CREATE OR REPLACE FUNCTION plts_it.arg_echo(t text, i int4, b boolean, j jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            export default () => null;
+            $$;
+            ",
+        )
+        .expect("test setup SQL should succeed");
+
+        let payload = Spi::get_one::<JsonB>(
+            "
+            SELECT plts_it.arg_echo('hello', 42, true, '{\"ok\": true}'::jsonb)
+            ",
+        )
+        .expect("arg_echo query should succeed")
+        .expect("arg_echo should return a json payload in non-runtime mode");
+
+        assert_eq!(
+            payload
+                .0
+                .get("positional")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .and_then(Value::as_str),
+            Some("hello")
+        );
+        assert_eq!(
+            payload
+                .0
+                .get("positional")
+                .and_then(Value::as_array)
+                .and_then(|items| items.get(1))
+                .and_then(Value::as_i64),
+            Some(42)
+        );
+        assert_eq!(
+            payload
+                .0
+                .get("positional")
+                .and_then(Value::as_array)
+                .and_then(|items| items.get(2))
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            payload
+                .0
+                .get("positional")
+                .and_then(Value::as_array)
+                .and_then(|items| items.get(3))
+                .and_then(|json| json.get("ok"))
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+
+        assert_eq!(
+            payload.0.get("named").and_then(|named| named.get("0")).and_then(Value::as_str),
+            Some("hello")
+        );
+        assert_eq!(
+            payload.0.get("named").and_then(|named| named.get("1")).and_then(Value::as_i64),
+            Some(42)
+        );
+        assert_eq!(
+            payload.0.get("named").and_then(|named| named.get("2")).and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            payload
+                .0
+                .get("named")
+                .and_then(|named| named.get("3"))
+                .and_then(|json| json.get("ok"))
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_it CASCADE;")
+            .expect("test teardown SQL should succeed");
     }
 }
 
