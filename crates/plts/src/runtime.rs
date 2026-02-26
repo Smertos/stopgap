@@ -97,10 +97,45 @@ fn current_timestamp_text() -> String {
 }
 
 #[cfg(feature = "v8_runtime")]
+fn current_setting_text(name: &str) -> Option<String> {
+    let sql = match name {
+        "statement_timeout" => "SELECT current_setting('statement_timeout', true)",
+        "plts.max_runtime_ms" => "SELECT current_setting('plts.max_runtime_ms', true)",
+        _ => return None,
+    };
+    Spi::get_one::<String>(&sql).ok().flatten().and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+#[cfg(feature = "v8_runtime")]
 fn current_statement_timeout_ms() -> Option<u64> {
-    let raw =
-        Spi::get_one::<String>("SELECT current_setting('statement_timeout')").ok().flatten()?;
-    parse_statement_timeout_ms(raw.as_str())
+    current_setting_text("statement_timeout")
+        .and_then(|raw| parse_statement_timeout_ms(raw.as_str()))
+}
+
+#[cfg(feature = "v8_runtime")]
+fn current_plts_max_runtime_ms() -> Option<u64> {
+    current_setting_text("plts.max_runtime_ms")
+        .and_then(|raw| parse_statement_timeout_ms(raw.as_str()))
+}
+
+#[cfg_attr(not(any(test, feature = "v8_runtime")), allow(dead_code))]
+pub(crate) fn resolve_runtime_timeout_ms(
+    statement_timeout_ms: Option<u64>,
+    plts_max_runtime_ms: Option<u64>,
+) -> Option<u64> {
+    match (statement_timeout_ms, plts_max_runtime_ms) {
+        (Some(statement_timeout), Some(runtime_cap)) => Some(statement_timeout.min(runtime_cap)),
+        (Some(statement_timeout), None) => Some(statement_timeout),
+        (None, Some(runtime_cap)) => Some(runtime_cap),
+        (None, None) => None,
+    }
 }
 
 #[cfg_attr(not(any(test, feature = "v8_runtime")), allow(dead_code))]
@@ -475,16 +510,18 @@ pub(crate) fn execute_program(
     });
 
     let statement_timeout_ms = current_statement_timeout_ms();
+    let max_runtime_ms = current_plts_max_runtime_ms();
+    let effective_timeout_ms = resolve_runtime_timeout_ms(statement_timeout_ms, max_runtime_ms);
     let interrupt_guard =
-        RuntimeInterruptGuard::with_statement_timeout(&mut runtime, statement_timeout_ms);
+        RuntimeInterruptGuard::with_statement_timeout(&mut runtime, effective_timeout_ms);
 
     let map_runtime_error = |stage: &'static str, details: &str| {
         if interrupt_guard.as_ref().is_some_and(RuntimeInterruptGuard::timed_out) {
-            let configured_ms = statement_timeout_ms.unwrap_or_default();
+            let configured_ms = effective_timeout_ms.unwrap_or_default();
             RuntimeExecError::new(
                 "statement timeout",
                 format!(
-                    "execution exceeded current statement_timeout ({}ms) while in stage `{}`",
+                    "execution exceeded configured runtime timeout ({}ms) while in stage `{}`",
                     configured_ms, stage
                 ),
             )

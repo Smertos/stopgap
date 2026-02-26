@@ -199,6 +199,15 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_resolve_runtime_timeout_ms_prefers_most_restrictive_limit() {
+        assert_eq!(crate::runtime::resolve_runtime_timeout_ms(None, None), None);
+        assert_eq!(crate::runtime::resolve_runtime_timeout_ms(Some(1_000), None), Some(1_000));
+        assert_eq!(crate::runtime::resolve_runtime_timeout_ms(None, Some(750)), Some(750));
+        assert_eq!(crate::runtime::resolve_runtime_timeout_ms(Some(2_000), Some(750)), Some(750));
+        assert_eq!(crate::runtime::resolve_runtime_timeout_ms(Some(500), Some(3_000)), Some(500));
+    }
+
+    #[test]
     fn test_interrupt_pending_from_flags_detects_pending_signal() {
         assert!(!crate::runtime::interrupt_pending_from_flags(0, 0, 0));
         assert!(crate::runtime::interrupt_pending_from_flags(1, 0, 0));
