@@ -76,7 +76,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - DB-backed `stopgap` integration tests now cover deploy pointer updates, live pointer payload correctness, `fn_version` integrity, overloaded-function rejection, and rollback status/pointer rematerialization.
 - Stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`; ownership/role hardening baseline is now in place (`stopgap_owner`, `stopgap_deployer`, `app_user`, SECURITY DEFINER deploy/rollback/diff, and live-schema execute grants).
 - Most deploy SQL value binding uses argumentized SPI; remaining interpolation is primarily constrained identifier/DDL construction.
-- Shared helper migration has started via `crates/common` (SQL quoting + bool-setting parsing); stopgap pure domain/state-transition logic now lives in `crates/stopgap/src/domain.rs`, runtime config/SPI helpers now live in `crates/stopgap/src/runtime_config.rs`, and broader module split plus focused `pg_regress` scenario expansion remain pending.
+- Shared helper migration has started via `crates/common` (SQL quoting + bool-setting parsing); plts compile/fingerprint/source-map helpers now live in `crates/plts/src/compiler.rs`, stopgap pure domain/state-transition logic lives in `crates/stopgap/src/domain.rs`, runtime config/SPI helpers live in `crates/stopgap/src/runtime_config.rs`, deploy scan/materialization helpers live in `crates/stopgap/src/deployment_utils.rs`, and broader module split plus focused `pg_regress` scenario expansion remain pending.
 
 ## Do not do without explicit direction
 
