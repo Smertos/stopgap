@@ -1863,6 +1863,7 @@ version = "0.1.0"
 dependencies = [
  "deno_ast",
  "deno_core",
+ "deno_error",
  "hex",
  "pgrx",
  "pgrx-tests",

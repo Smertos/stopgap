@@ -5,6 +5,8 @@ use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
 use deno_ast::TranspileModuleOptions;
 use deno_ast::TranspileOptions;
+#[cfg(feature = "v8_runtime")]
+use pgrx::datum::DatumWithOid;
 use pgrx::iter::TableIterator;
 use pgrx::prelude::*;
 use pgrx::JsonB;
@@ -188,6 +190,77 @@ fn build_runtime_context(program: &FunctionProgram, args_payload: &Value) -> Val
 
 fn current_timestamp_text() -> String {
     Spi::get_one::<String>("SELECT now()::text").ok().flatten().unwrap_or_default()
+}
+
+#[cfg(feature = "v8_runtime")]
+#[derive(Debug)]
+enum BoundParam {
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Text(String),
+    Json(Value),
+    NullText,
+}
+
+#[cfg(feature = "v8_runtime")]
+impl BoundParam {
+    fn from_json(value: Value) -> Self {
+        match value {
+            Value::Bool(v) => Self::Bool(v),
+            Value::Number(n) => {
+                if let Some(v) = n.as_i64() {
+                    Self::Int(v)
+                } else if let Some(v) = n.as_f64() {
+                    Self::Float(v)
+                } else {
+                    Self::Json(Value::Number(n))
+                }
+            }
+            Value::String(v) => Self::Text(v),
+            Value::Array(_) | Value::Object(_) => Self::Json(value),
+            Value::Null => Self::NullText,
+        }
+    }
+
+    fn as_datum_with_oid(&self) -> DatumWithOid<'_> {
+        match self {
+            Self::Bool(v) => (*v).into(),
+            Self::Int(v) => (*v).into(),
+            Self::Float(v) => (*v).into(),
+            Self::Text(v) => v.as_str().into(),
+            Self::Json(v) => JsonB(v.clone()).into(),
+            Self::NullText => Option::<&str>::None.into(),
+        }
+    }
+}
+
+#[cfg(feature = "v8_runtime")]
+fn bind_json_params(params: Vec<Value>) -> Vec<BoundParam> {
+    params.into_iter().map(BoundParam::from_json).collect()
+}
+
+#[cfg(feature = "v8_runtime")]
+fn query_json_rows_with_params(sql: &str, params: Vec<Value>) -> Result<Value, String> {
+    let bound = bind_json_params(params);
+    let args: Vec<DatumWithOid<'_>> = bound.iter().map(BoundParam::as_datum_with_oid).collect();
+    let wrapped_sql =
+        format!("SELECT COALESCE(jsonb_agg(to_jsonb(q)), '[]'::jsonb) FROM ({}) q", sql);
+
+    let rows = Spi::get_one_with_args::<JsonB>(&wrapped_sql, &args)
+        .map_err(|e| format!("db.query SPI error: {e}"))?
+        .map(|v| v.0)
+        .unwrap_or_else(|| json!([]));
+
+    Ok(rows)
+}
+
+#[cfg(feature = "v8_runtime")]
+fn exec_sql_with_params(sql: &str, params: Vec<Value>) -> Result<Value, String> {
+    let bound = bind_json_params(params);
+    let args: Vec<DatumWithOid<'_>> = bound.iter().map(BoundParam::as_datum_with_oid).collect();
+    Spi::run_with_args(sql, &args).map_err(|e| format!("db.exec SPI error: {e}"))?;
+    Ok(json!({ "ok": true }))
 }
 
 fn load_function_program(fn_oid: pg_sys::Oid) -> Option<FunctionProgram> {
@@ -575,9 +648,32 @@ fn runtime_available() -> bool {
 
 #[cfg(feature = "v8_runtime")]
 fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, RuntimeExecError> {
-    use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
+    use deno_core::{op2, serde_v8, v8, JsRuntime, RuntimeOptions};
 
-    let mut runtime = JsRuntime::new(RuntimeOptions::default());
+    #[op2]
+    #[serde]
+    fn op_plts_db_query(
+        #[string] sql: String,
+        #[serde] params: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value, deno_error::JsErrorBox> {
+        query_json_rows_with_params(&sql, params).map_err(|e| deno_error::JsErrorBox::generic(e))
+    }
+
+    #[op2]
+    #[serde]
+    fn op_plts_db_exec(
+        #[string] sql: String,
+        #[serde] params: Vec<serde_json::Value>,
+    ) -> Result<serde_json::Value, deno_error::JsErrorBox> {
+        exec_sql_with_params(&sql, params).map_err(|e| deno_error::JsErrorBox::generic(e))
+    }
+
+    deno_core::extension!(plts_runtime_ext, ops = [op_plts_db_query, op_plts_db_exec]);
+
+    let mut runtime = JsRuntime::new(RuntimeOptions {
+        extensions: vec![plts_runtime_ext::init()],
+        ..Default::default()
+    });
     let rewritten = rewrite_default_export(source)?;
 
     runtime
@@ -591,7 +687,12 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
         )
     })?;
     let set_ctx_script = format!(
-        "globalThis.__plts_ctx = JSON.parse({});",
+        "globalThis.__plts_ctx = JSON.parse({});\
+         globalThis.__plts_ctx.db = {{\
+           mode: 'rw',\
+           query: (sql, params = []) => Deno.core.ops.op_plts_db_query(sql, params),\
+           exec: (sql, params = []) => Deno.core.ops.op_plts_db_exec(sql, params)\
+         }};",
         serde_json::to_string(&context_json).map_err(|e| {
             RuntimeExecError::new(
                 "context encode",
@@ -759,6 +860,24 @@ mod tests {
         let fingerprint = crate::compiler_fingerprint();
         assert!(fingerprint.contains("deno_ast@"));
         assert!(fingerprint.contains("deno_core@"));
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[test]
+    fn test_bind_json_params_maps_common_value_types() {
+        let params = crate::bind_json_params(vec![
+            serde_json::json!(true),
+            serde_json::json!(42),
+            serde_json::json!("hello"),
+            serde_json::json!({ "ok": true }),
+            serde_json::Value::Null,
+        ]);
+
+        assert!(matches!(params[0], crate::BoundParam::Bool(true)));
+        assert!(matches!(params[1], crate::BoundParam::Int(42)));
+        assert!(matches!(params[2], crate::BoundParam::Text(ref v) if v == "hello"));
+        assert!(matches!(params[3], crate::BoundParam::Json(_)));
+        assert!(matches!(params[4], crate::BoundParam::NullText));
     }
 }
 

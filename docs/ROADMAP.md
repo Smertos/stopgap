@@ -85,9 +85,9 @@ Legend:
 
 ### 2.6 DB API Surface (unfinished)
 
-- [ ] Expose RW db API (`query`/`exec`) from runtime context
-- [ ] Add structured parameter binding from JS to SPI
-- [ ] Add transaction semantics docs for runtime calls
+- [x] Expose RW db API (`query`/`exec`) from runtime context
+- [x] Add structured parameter binding from JS to SPI
+- [x] Add transaction semantics docs for runtime calls
 - [ ] Defer RO gate to P1 (tracked below)
 
 ---
@@ -241,4 +241,4 @@ Legend:
 
 - **P0 status:** Partially complete.
 - **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments APIs, live pointer materialization, overload rejection, baseline tests, and feature-gated sync default-export JS execution in `plts`.
-- **Biggest missing piece:** full module runtime support (imports/async/DB API bindings) in `plts` plus runtime DB API binding and P1 read-only/wrapper features.
+- **Biggest missing piece:** full module runtime support (imports/async) in `plts` plus P1 read-only/wrapper features.

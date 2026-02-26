@@ -170,6 +170,11 @@ Stopgap `query()` wrapper gets `db_ro`, mutation gets `db_rw`.
 
 This gives you real enforcement without brittle SQL parsing.
 
+Current implementation status:
+- P0 runtime context now exposes RW `ctx.db.query(sql, params)` and `ctx.db.exec(sql, params)`.
+- JS params are bound into SPI calls as typed values (`bool`, `int`, `float`, `text`, `jsonb`, null).
+- Runtime DB calls execute inside the same PostgreSQL transaction as the invoking SQL function call; no independent transaction is started by the runtime.
+
 Current state: P0 is RW-only; read-only enforcement is deferred to P1.
 
 ## 3.7 Safety and ops (must-have)
@@ -385,6 +390,7 @@ Current progress snapshot:
 - handler now has a feature-gated V8 execution path for sync `export default` handlers
 - handler resolves artifact-pointer stubs by loading compiled JS from `plts.artifact`
 - runtime context now includes initial `ctx` shape (`db`, `args`, `fn`, `now`)
+- runtime now wires `ctx.db.query/exec` to SPI with structured JS parameter binding
 - deno_core dependency and feature-gated isolate bootstrap scaffolding are in place
 - full module/import support and async handler execution are still pending
 - `plts.compile_ts` now performs real TS->JS transpilation via `deno_ast` and returns structured diagnostics
