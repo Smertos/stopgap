@@ -51,7 +51,7 @@ Legend:
 - [x] Extract Stopgap role/permission checks into `crates/stopgap/src/security.rs`
 - [x] Extract Stopgap deploy/status/diff orchestration helpers into `crates/stopgap/src/api_ops.rs`
 - [ ] Refactor `crates/plts/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
-- [ ] Refactor `crates/stopgap/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
+- [x] Refactor `crates/stopgap/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
 - [ ] Preserve existing SQL API and extension entity compatibility during refactor
 
 ---
@@ -267,7 +267,7 @@ Legend:
 
 ## 10) Suggested Execution Order from Here
 
-1. [ ] Continue module split of large extension `lib.rs` files, building on shared helpers now in `crates/common`
+1. [ ] Continue module split of large extension `lib.rs` files, building on shared helpers now in `crates/common` (remaining: `crates/plts/src/lib.rs`)
 2. [x] Expand focused scenario coverage in `pg_regress` suites (deploy, rollback, prune, diff, security)
 3. [x] Implement Drizzle-compatible SQL object / `toSQL()` interop in runtime DB APIs
 4. [ ] Reduce runtime-wrapper duplication between embedded module and `@stopgap/runtime`
@@ -281,4 +281,5 @@ Legend:
 - **P0 status:** Complete.
 - **P1 status:** Complete.
 - **What works now:** workspace + extension scaffolds, shared `crates/common` helpers used by both extensions (currently SQL quoting + boolean setting parsing), artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), behavior-focused pgrx integration test files under `crates/*/tests/pg/`, focused `pg_regress` scenario files for deploy/rollback/prune/diff/security, and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime DB APIs now support SQL string + params, `{ sql, params }` inputs, and Drizzle-style `toSQL()` objects while preserving SPI SQL + bound params execution. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution on both `statement_timeout` expiry and pending Postgres cancel/die signals. Ongoing module splitting now includes `crates/plts/src/compiler.rs` for compile/fingerprint/source-map logic, `crates/plts/src/runtime_spi.rs` for SPI/query binding and read-only SQL helpers, `crates/plts/src/function_program.rs` for function source resolution/artifact-pointer cache loading, `crates/stopgap/src/deployment_utils.rs` for deploy scan/materialization helpers, `crates/stopgap/src/security.rs` for role/permission checks, and `crates/stopgap/src/runtime_config.rs` + `crates/stopgap/src/domain.rs`.
-- **Biggest missing pieces:** structural refactor (module split), operational hardening (memory caps/runtime constraints/metrics/GUC tuning), and CLI implementation.
+- **Module split note:** `crates/stopgap/src/lib.rs` is now a thin entrypoint with SQL bootstrap/API wiring moved to `crates/stopgap/src/sql_bootstrap.rs` and `crates/stopgap/src/api.rs`; remaining refactor focus is `crates/plts/src/lib.rs`.
+- **Biggest missing pieces:** remaining `plts` structural refactor, operational hardening (memory caps/runtime constraints/metrics/GUC tuning), and CLI implementation.
