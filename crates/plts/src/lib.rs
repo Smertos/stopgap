@@ -713,6 +713,28 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
     };
 
     const MAIN_MODULE_SPECIFIER: &str = "file:///plts/main.js";
+    const STOPGAP_RUNTIME_BARE_SPECIFIER: &str = "@stopgap/runtime";
+    const STOPGAP_RUNTIME_SPECIFIER: &str = "file:///plts/__stopgap_runtime__.js";
+    const STOPGAP_RUNTIME_SOURCE: &str = r#"
+        const wrap = (kind, argsSchema, handler) => {
+            if (typeof handler !== "function") {
+                throw new TypeError(`stopgap.${kind} expects a function handler`);
+            }
+
+            const wrapped = async (ctx) => {
+                const args = ctx?.args ?? null;
+                return await handler(args, ctx);
+            };
+
+            wrapped.__stopgap_kind = kind;
+            wrapped.__stopgap_args_schema = argsSchema ?? null;
+            return wrapped;
+        };
+
+        export const query = (argsSchema, handler) => wrap("query", argsSchema, handler);
+        export const mutation = (argsSchema, handler) => wrap("mutation", argsSchema, handler);
+        export default { query, mutation };
+    "#;
 
     struct PltsModuleLoader;
 
@@ -723,6 +745,10 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
             referrer: &str,
             _kind: ResolutionKind,
         ) -> Result<ModuleSpecifier, deno_core::error::ModuleLoaderError> {
+            if specifier == STOPGAP_RUNTIME_BARE_SPECIFIER {
+                return ModuleSpecifier::parse(STOPGAP_RUNTIME_SPECIFIER)
+                    .map_err(deno_error::JsErrorBox::from_err);
+            }
             deno_core::resolve_import(specifier, referrer).map_err(deno_error::JsErrorBox::from_err)
         }
 
@@ -749,8 +775,16 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
                     None,
                 ))
             }
+            "file" if module_specifier.as_str() == STOPGAP_RUNTIME_SPECIFIER => {
+                Ok(ModuleSource::new(
+                    ModuleType::JavaScript,
+                    ModuleSourceCode::String(STOPGAP_RUNTIME_SOURCE.to_string().into()),
+                    module_specifier,
+                    None,
+                ))
+            }
             _ => Err(deno_error::JsErrorBox::generic(format!(
-                "unsupported module import `{}`; only `data:` imports are currently allowed",
+                "unsupported module import `{}`; only `data:` imports and `@stopgap/runtime` are currently allowed",
                 module_specifier
             ))),
         }
@@ -1354,6 +1388,43 @@ mod tests {
 
         Spi::run("DROP SCHEMA IF EXISTS plts_runtime_module_it CASCADE;")
             .expect("runtime module import teardown SQL should succeed");
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[pg_test]
+    fn test_runtime_supports_stopgap_runtime_bare_import() {
+        Spi::run(
+            r#"
+            DROP SCHEMA IF EXISTS plts_runtime_stopgap_import_it CASCADE;
+            CREATE SCHEMA plts_runtime_stopgap_import_it;
+            CREATE OR REPLACE FUNCTION plts_runtime_stopgap_import_it.wrapped(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            import { query } from "@stopgap/runtime";
+
+            export default query({ type: "object" }, async (args, ctx) => ({
+                kind: "query",
+                id: args.id,
+                dbMode: ctx.db.mode,
+            }));
+            $$;
+            "#,
+        )
+        .expect("runtime stopgap import setup SQL should succeed");
+
+        let payload = Spi::get_one::<JsonB>(
+            "SELECT plts_runtime_stopgap_import_it.wrapped('{\"id\": 13}'::jsonb)",
+        )
+        .expect("wrapped function invocation should succeed")
+        .expect("wrapped function should return jsonb");
+
+        assert_eq!(payload.0.get("kind").and_then(Value::as_str), Some("query"));
+        assert_eq!(payload.0.get("id").and_then(Value::as_i64), Some(13));
+        assert_eq!(payload.0.get("dbMode").and_then(Value::as_str), Some("rw"));
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_runtime_stopgap_import_it CASCADE;")
+            .expect("runtime stopgap import teardown SQL should succeed");
     }
 }
 
