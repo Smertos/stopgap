@@ -167,7 +167,7 @@ Legend:
 
 - [ ] Integrate Postgres cancellation and statement timeout with JS interrupts
   - [x] Wire `statement_timeout` to a V8 watchdog that terminates execution when the current call exceeds the active timeout
-  - [ ] Wire explicit cancel/interrupt-pending signals into the same runtime interrupt path
+  - [x] Wire explicit cancel/interrupt-pending signals into the same runtime interrupt path
 - [ ] Add per-call memory limits
 - [ ] Add deterministic runtime resource constraints
 - [x] Ensure no filesystem/network runtime surface
@@ -247,5 +247,5 @@ Legend:
 
 - **P0 status:** Complete.
 - **P1 status:** Complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed.
-- **Biggest missing piece:** operational hardening (cancel wiring, memory caps) and CLI implementation.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution on both `statement_timeout` expiry and pending Postgres cancel/die signals.
+- **Biggest missing piece:** operational hardening (memory caps, runtime constraints, metrics/GUC tuning) and CLI implementation.

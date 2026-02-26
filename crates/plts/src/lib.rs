@@ -266,6 +266,7 @@ fn parse_statement_timeout_ms(raw: &str) -> Option<u64> {
 struct RuntimeInterruptGuard {
     cancel: Arc<AtomicBool>,
     timed_out: Arc<AtomicBool>,
+    interrupted: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -278,8 +279,10 @@ impl RuntimeInterruptGuard {
         let timeout_ms = timeout_ms.filter(|value| *value > 0)?;
         let cancel = Arc::new(AtomicBool::new(false));
         let timed_out = Arc::new(AtomicBool::new(false));
+        let interrupted = Arc::new(AtomicBool::new(false));
         let cancel_worker = Arc::clone(&cancel);
         let timed_out_worker = Arc::clone(&timed_out);
+        let interrupted_worker = Arc::clone(&interrupted);
         let isolate_handle = runtime.v8_isolate().thread_safe_handle();
         let timeout = Duration::from_millis(timeout_ms);
 
@@ -287,6 +290,12 @@ impl RuntimeInterruptGuard {
             let start = Instant::now();
             loop {
                 if cancel_worker.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                if postgres_interrupt_pending() {
+                    interrupted_worker.store(true, Ordering::Relaxed);
+                    isolate_handle.terminate_execution();
                     return;
                 }
 
@@ -300,12 +309,36 @@ impl RuntimeInterruptGuard {
             }
         });
 
-        Some(Self { cancel, timed_out, worker: Some(worker) })
+        Some(Self { cancel, timed_out, interrupted, worker: Some(worker) })
     }
 
     fn timed_out(&self) -> bool {
         self.timed_out.load(Ordering::Relaxed)
     }
+
+    fn interrupted(&self) -> bool {
+        self.interrupted.load(Ordering::Relaxed)
+    }
+}
+
+#[cfg(feature = "v8_runtime")]
+fn postgres_interrupt_pending() -> bool {
+    unsafe {
+        interrupt_pending_from_flags(
+            pg_sys::InterruptPending,
+            pg_sys::QueryCancelPending,
+            pg_sys::ProcDiePending,
+        )
+    }
+}
+
+#[cfg_attr(not(any(test, feature = "v8_runtime")), allow(dead_code))]
+fn interrupt_pending_from_flags(
+    interrupt_pending: i32,
+    query_cancel_pending: i32,
+    proc_die_pending: i32,
+) -> bool {
+    interrupt_pending != 0 || query_cancel_pending != 0 || proc_die_pending != 0
 }
 
 #[cfg(feature = "v8_runtime")]
@@ -1289,6 +1322,14 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
                     configured_ms, stage
                 ),
             )
+        } else if interrupt_guard.as_ref().is_some_and(RuntimeInterruptGuard::interrupted) {
+            RuntimeExecError::new(
+                "postgres interrupt",
+                format!(
+                    "execution interrupted by pending PostgreSQL cancel signal while in stage `{}`",
+                    stage
+                ),
+            )
         } else {
             format_js_error(stage, details)
         }
@@ -1589,6 +1630,14 @@ mod unit_tests {
         assert_eq!(crate::parse_statement_timeout_ms("off"), None);
         assert_eq!(crate::parse_statement_timeout_ms("-5ms"), None);
         assert_eq!(crate::parse_statement_timeout_ms("12fortnights"), None);
+    }
+
+    #[test]
+    fn test_interrupt_pending_from_flags_detects_pending_signal() {
+        assert!(!crate::interrupt_pending_from_flags(0, 0, 0));
+        assert!(crate::interrupt_pending_from_flags(1, 0, 0));
+        assert!(crate::interrupt_pending_from_flags(0, 1, 0));
+        assert!(crate::interrupt_pending_from_flags(0, 0, 1));
     }
 
     #[cfg(feature = "v8_runtime")]

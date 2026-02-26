@@ -1,5 +1,18 @@
 CREATE EXTENSION IF NOT EXISTS plts;
 CREATE EXTENSION IF NOT EXISTS stopgap;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'workspace') THEN
+        EXECUTE 'DROP SCHEMA workspace CASCADE';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'live_deployment') THEN
+        EXECUTE 'DROP SCHEMA live_deployment CASCADE';
+    END IF;
+END;
+$$;
+TRUNCATE stopgap.activation_log, stopgap.fn_version, stopgap.deployment RESTART IDENTITY;
+DELETE FROM stopgap.environment WHERE env = 'prod';
 CREATE SCHEMA workspace;
 CREATE OR REPLACE FUNCTION workspace.echo(args jsonb)
 RETURNS jsonb
