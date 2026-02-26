@@ -49,6 +49,7 @@ Legend:
 - [x] Extract Stopgap deployable-function scan + live materialization helpers into `crates/stopgap/src/deployment_utils.rs`
 - [x] Extract Stopgap deployment-state / rollback helpers into `crates/stopgap/src/deployment_state.rs`
 - [x] Extract Stopgap role/permission checks into `crates/stopgap/src/security.rs`
+- [x] Extract Stopgap deploy/status/diff orchestration helpers into `crates/stopgap/src/api_ops.rs`
 - [ ] Refactor `crates/plts/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
 - [ ] Refactor `crates/stopgap/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
 - [ ] Preserve existing SQL API and extension entity compatibility during refactor
