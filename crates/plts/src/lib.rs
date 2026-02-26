@@ -234,6 +234,21 @@ mod unit_tests {
         assert!(crate::runtime::interrupt_pending_from_flags(0, 0, 1));
     }
 
+    #[test]
+    fn test_parse_positive_usize_parses_valid_limits() {
+        assert_eq!(crate::runtime_spi::parse_positive_usize("1"), Some(1));
+        assert_eq!(crate::runtime_spi::parse_positive_usize("2048"), Some(2048));
+        assert_eq!(crate::runtime_spi::parse_positive_usize(" 512 "), Some(512));
+    }
+
+    #[test]
+    fn test_parse_positive_usize_rejects_non_positive_or_invalid_values() {
+        assert_eq!(crate::runtime_spi::parse_positive_usize(""), None);
+        assert_eq!(crate::runtime_spi::parse_positive_usize("0"), None);
+        assert_eq!(crate::runtime_spi::parse_positive_usize("-5"), None);
+        assert_eq!(crate::runtime_spi::parse_positive_usize("abc"), None);
+    }
+
     #[cfg(feature = "v8_runtime")]
     #[test]
     fn test_bind_json_params_maps_common_value_types() {

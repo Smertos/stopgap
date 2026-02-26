@@ -80,6 +80,9 @@ Near-term structure direction:
 - GUCs (implemented):
   - `plts.max_runtime_ms`
   - `plts.max_heap_mb`
+  - `plts.max_sql_bytes`
+  - `plts.max_params`
+  - `plts.max_query_rows`
   - `plts.engine` (`quickjs`|`v8`)
   - `plts.log_level`
 
@@ -199,6 +202,7 @@ Current implementation status:
 - Runtime also honors `plts.max_runtime_ms` (when set) and uses the stricter value between `statement_timeout` and `plts.max_runtime_ms` for per-call execution caps.
 - Runtime now also honors optional `plts.max_heap_mb` by configuring a per-call V8 heap ceiling and terminating execution when the isolate reaches the near-heap limit callback.
 - Runtime now also routes pending Postgres cancel/die interrupt flags into the same V8 termination path used by timeout enforcement.
+- Runtime DB bridge calls now apply deterministic per-call guardrails: SQL text byte length (`plts.max_sql_bytes`), bound param count (`plts.max_params`), and query row count (`plts.max_query_rows`).
 
 ---
 
@@ -475,6 +479,7 @@ Current progress snapshot:
 ## P2 (hardening)
 - cancellation/timeouts wired to Postgres interrupts
 - memory limits (implemented via `plts.max_heap_mb` heap caps)
+- deterministic DB API limits (implemented via `plts.max_sql_bytes`, `plts.max_params`, and `plts.max_query_rows`)
 - prune mode + dependency-safe behavior
 - audit + status introspection
 

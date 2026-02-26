@@ -10,6 +10,13 @@ use serde_json::json;
 use serde_json::Value;
 
 #[cfg(feature = "v8_runtime")]
+const DEFAULT_MAX_SQL_BYTES: usize = 128 * 1024;
+#[cfg(feature = "v8_runtime")]
+const DEFAULT_MAX_PARAMS: usize = 256;
+#[cfg(feature = "v8_runtime")]
+const DEFAULT_MAX_QUERY_ROWS: usize = 1000;
+
+#[cfg(feature = "v8_runtime")]
 #[derive(Debug)]
 pub(crate) enum BoundParam {
     Bool(bool),
@@ -63,6 +70,8 @@ pub(crate) fn query_json_rows_with_params(
     params: Vec<Value>,
     read_only: bool,
 ) -> Result<Value, String> {
+    let limits = RuntimeDbLimits::from_settings();
+
     if read_only && !is_read_only_sql(sql) {
         return Err(
             "db.query is read-only for stopgap.query handlers; use a SELECT-only statement"
@@ -70,15 +79,27 @@ pub(crate) fn query_json_rows_with_params(
         );
     }
 
+    validate_sql_and_params("db.query", sql, params.len(), &limits)?;
+
     let bound = bind_json_params(params);
     let args: Vec<DatumWithOid<'_>> = bound.iter().map(BoundParam::as_datum_with_oid).collect();
-    let wrapped_sql =
-        format!("SELECT COALESCE(jsonb_agg(to_jsonb(q)), '[]'::jsonb) FROM ({}) q", sql);
+    let fetch_limit = limits.max_query_rows.saturating_add(1);
+    let wrapped_sql = format!(
+        "SELECT COALESCE(jsonb_agg(row_json), '[]'::jsonb) FROM (SELECT to_jsonb(q) AS row_json FROM ({}) q LIMIT {}) rows",
+        sql, fetch_limit
+    );
 
     let rows = Spi::get_one_with_args::<JsonB>(&wrapped_sql, &args)
         .map_err(|e| format!("db.query SPI error: {e}"))?
         .map(|v| v.0)
         .unwrap_or_else(|| json!([]));
+
+    if rows.as_array().is_some_and(|entries| entries.len() > limits.max_query_rows) {
+        return Err(format!(
+            "db.query returned more than {} rows; increase plts.max_query_rows if this result set is expected",
+            limits.max_query_rows
+        ));
+    }
 
     Ok(rows)
 }
@@ -89,10 +110,14 @@ pub(crate) fn exec_sql_with_params(
     params: Vec<Value>,
     read_only: bool,
 ) -> Result<Value, String> {
+    let limits = RuntimeDbLimits::from_settings();
+
     if read_only {
         return Err("db.exec is disabled for stopgap.query handlers; switch to stopgap.mutation"
             .to_string());
     }
+
+    validate_sql_and_params("db.exec", sql, params.len(), &limits)?;
 
     let bound = bind_json_params(params);
     let args: Vec<DatumWithOid<'_>> = bound.iter().map(BoundParam::as_datum_with_oid).collect();
@@ -156,4 +181,75 @@ fn strip_leading_sql_comments(sql: &str) -> &str {
 
         return rest;
     }
+}
+
+#[cfg(feature = "v8_runtime")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RuntimeDbLimits {
+    max_sql_bytes: usize,
+    max_params: usize,
+    max_query_rows: usize,
+}
+
+#[cfg(feature = "v8_runtime")]
+impl RuntimeDbLimits {
+    fn from_settings() -> Self {
+        Self {
+            max_sql_bytes: read_limit_setting("plts.max_sql_bytes", DEFAULT_MAX_SQL_BYTES),
+            max_params: read_limit_setting("plts.max_params", DEFAULT_MAX_PARAMS),
+            max_query_rows: read_limit_setting("plts.max_query_rows", DEFAULT_MAX_QUERY_ROWS),
+        }
+    }
+}
+
+#[cfg(feature = "v8_runtime")]
+fn validate_sql_and_params(
+    op_name: &str,
+    sql: &str,
+    params_len: usize,
+    limits: &RuntimeDbLimits,
+) -> Result<(), String> {
+    if sql.len() > limits.max_sql_bytes {
+        return Err(format!(
+            "{op_name} SQL text exceeds {} bytes; increase plts.max_sql_bytes for larger statements",
+            limits.max_sql_bytes
+        ));
+    }
+
+    if params_len > limits.max_params {
+        return Err(format!(
+            "{op_name} parameter count ({params_len}) exceeds {}; increase plts.max_params to allow more bound parameters",
+            limits.max_params
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "v8_runtime")]
+fn read_limit_setting(name: &str, fallback: usize) -> usize {
+    current_setting_text(name).as_deref().and_then(parse_positive_usize).unwrap_or(fallback)
+}
+
+#[cfg(feature = "v8_runtime")]
+fn current_setting_text(name: &str) -> Option<String> {
+    let sql = format!("SELECT current_setting('{}', true)", name);
+    Spi::get_one::<String>(&sql).ok().flatten().and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+#[cfg_attr(not(feature = "v8_runtime"), allow(dead_code))]
+pub(crate) fn parse_positive_usize(raw: &str) -> Option<usize> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    trimmed.parse::<usize>().ok().filter(|value| *value > 0)
 }

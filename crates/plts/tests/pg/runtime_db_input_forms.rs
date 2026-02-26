@@ -81,3 +81,83 @@ fn test_runtime_db_exec_accepts_to_sql_input() {
     Spi::run("DROP SCHEMA IF EXISTS plts_runtime_db_to_sql_exec_it CASCADE;")
         .expect("runtime toSQL exec teardown SQL should succeed");
 }
+
+#[pg_test]
+fn test_runtime_db_query_enforces_max_query_rows_limit() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_db_query_row_limit_it CASCADE;
+        CREATE SCHEMA plts_runtime_db_query_row_limit_it;
+        CREATE OR REPLACE FUNCTION plts_runtime_db_query_row_limit_it.wrapped(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$
+        export default async (_ctx) => {
+            return await _ctx.db.query("SELECT gs AS id FROM generate_series(1, 3) AS gs", []);
+        };
+        $$;
+        "#,
+    )
+    .expect("runtime query row limit setup SQL should succeed");
+
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM set_config('plts.max_query_rows', '2', true);
+            PERFORM plts_runtime_db_query_row_limit_it.wrapped('{}'::jsonb);
+            RAISE EXCEPTION 'expected row limit rejection';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('plts.max_query_rows' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END;
+        $$;
+        "#,
+    )
+    .expect("runtime query row limit should be enforced");
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_db_query_row_limit_it CASCADE;")
+        .expect("runtime query row limit teardown SQL should succeed");
+}
+
+#[pg_test]
+fn test_runtime_db_query_enforces_max_params_limit() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_db_param_limit_it CASCADE;
+        CREATE SCHEMA plts_runtime_db_param_limit_it;
+        CREATE OR REPLACE FUNCTION plts_runtime_db_param_limit_it.wrapped(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$
+        export default async (_ctx) => {
+            return await _ctx.db.query("SELECT $1::int4 AS id", [1, 2]);
+        };
+        $$;
+        "#,
+    )
+    .expect("runtime param limit setup SQL should succeed");
+
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM set_config('plts.max_params', '1', true);
+            PERFORM plts_runtime_db_param_limit_it.wrapped('{}'::jsonb);
+            RAISE EXCEPTION 'expected parameter limit rejection';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('plts.max_params' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END;
+        $$;
+        "#,
+    )
+    .expect("runtime parameter limit should be enforced");
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_db_param_limit_it CASCADE;")
+        .expect("runtime param limit teardown SQL should succeed");
+}
