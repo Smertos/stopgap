@@ -185,11 +185,11 @@ Legend:
 - [x] Add tests for null normalization behavior in runtime
 - [x] Add tests for artifact pointer execution path
 - [ ] Add stopgap deploy integration test that validates:
-  - [ ] active deployment pointer changes
-  - [ ] live schema pointer body payload
-  - [ ] `fn_version` integrity
-  - [ ] rejection of overloaded functions
-- [ ] Add rollback integration tests
+  - [x] active deployment pointer changes
+  - [x] live schema pointer body payload
+  - [x] `fn_version` integrity
+  - [x] rejection of overloaded functions
+- [x] Add rollback integration tests
 
 ### 7.3 Regressions / SQL snapshots
 
@@ -240,5 +240,5 @@ Legend:
 ## 11) Current Snapshot
 
 - **P0 status:** Partially complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, and feature-gated sync default-export JS execution in `plts`.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync default-export JS execution in `plts`.
 - **Biggest missing piece:** full module runtime support (imports/async) in `plts` plus P1 read-only/wrapper features.

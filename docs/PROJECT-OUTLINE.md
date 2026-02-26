@@ -407,6 +407,7 @@ Current progress snapshot:
 - stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`, dropping stale live pointer functions that have no dependents
 - plts runtime errors now include stage metadata, JS stack details (when present), and SQL function identity context
 - DB-backed `plts` integration tests now cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization (`null`/`undefined` -> SQL `NULL`), and artifact-pointer execution (under `v8_runtime`)
+- DB-backed `stopgap` integration tests now cover deploy pointer updates, live pointer payload correctness, `fn_version` integrity, overloaded-function rejection, and rollback rematerialization/status transitions
 - CI workflow now runs workspace `cargo check`, `cargo test`, and matrixed `cargo pgrx test` jobs per extension crate
 - repository toolchain and lint/format configs are pinned (`rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`)
 
