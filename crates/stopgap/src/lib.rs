@@ -1237,7 +1237,7 @@ fn run_sql_with_args<'a>(
 }
 
 fn quote_ident(ident: &str) -> String {
-    format!("\"{}\"", ident.replace('"', "\"\""))
+    common::sql::quote_ident(ident)
 }
 
 fn resolve_live_schema() -> String {
@@ -1260,12 +1260,7 @@ fn resolve_prune_enabled() -> bool {
 }
 
 fn parse_bool_setting(value: &str) -> Option<bool> {
-    let normalized = value.trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "1" | "on" | "true" | "t" | "yes" | "y" => Some(true),
-        "0" | "off" | "false" | "f" | "no" | "n" => Some(false),
-        _ => None,
-    }
+    common::settings::parse_bool_setting(value)
 }
 
 fn hash_lock_key(env: &str) -> i64 {

@@ -38,8 +38,8 @@ Legend:
 
 ### Next: structure + shared crate
 
-- [ ] Add `crates/common` workspace crate for shared pure-Rust helpers used by `plts` and `stopgap`
-- [ ] Keep split-extension ownership clear: shared helpers in `common`, extension semantics stay in owning crate
+- [x] Add `crates/common` workspace crate for shared pure-Rust helpers used by `plts` and `stopgap`
+- [x] Keep split-extension ownership clear: shared helpers in `common`, extension semantics stay in owning crate
 - [ ] Refactor `crates/plts/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
 - [ ] Refactor `crates/stopgap/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
 - [ ] Preserve existing SQL API and extension entity compatibility during refactor
@@ -257,7 +257,7 @@ Legend:
 
 ## 10) Suggested Execution Order from Here
 
-1. [ ] Add `crates/common` and split large extension `lib.rs` files into modules
+1. [ ] Continue module split of large extension `lib.rs` files, building on shared helpers now in `crates/common`
 2. [ ] Move PG tests out of extension source and make suites granular by behavior
 3. [x] Implement Drizzle-compatible SQL object / `toSQL()` interop in runtime DB APIs
 4. [ ] Reduce runtime-wrapper duplication between embedded module and `@stopgap/runtime`
@@ -270,5 +270,5 @@ Legend:
 
 - **P0 status:** Complete.
 - **P1 status:** Complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime DB APIs now support SQL string + params, `{ sql, params }` inputs, and Drizzle-style `toSQL()` objects while preserving SPI SQL + bound params execution. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution on both `statement_timeout` expiry and pending Postgres cancel/die signals.
-- **Biggest missing pieces:** structural refactor (module split + shared crate + test extraction), operational hardening (memory caps/runtime constraints/metrics/GUC tuning), and CLI implementation.
+- **What works now:** workspace + extension scaffolds, shared `crates/common` helpers used by both extensions (currently SQL quoting + boolean setting parsing), artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime DB APIs now support SQL string + params, `{ sql, params }` inputs, and Drizzle-style `toSQL()` objects while preserving SPI SQL + bound params execution. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution on both `statement_timeout` expiry and pending Postgres cancel/die signals.
+- **Biggest missing pieces:** structural refactor (module split + PG test extraction/granularity), operational hardening (memory caps/runtime constraints/metrics/GUC tuning), and CLI implementation.

@@ -6,6 +6,7 @@ This file captures how to work effectively in this repository.
 
 - Workspace root: `Cargo.toml`
 - Crates:
+  - `crates/common`: shared pure-Rust helpers used by both extensions
   - `crates/plts`: language/runtime extension (`LANGUAGE plts`, artifact APIs)
   - `crates/stopgap`: deployment/environment extension
 - Packages:
@@ -75,6 +76,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - DB-backed `stopgap` integration tests now cover deploy pointer updates, live pointer payload correctness, `fn_version` integrity, overloaded-function rejection, and rollback status/pointer rematerialization.
 - Stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`; ownership/role hardening baseline is now in place (`stopgap_owner`, `stopgap_deployer`, `app_user`, SECURITY DEFINER deploy/rollback/diff, and live-schema execute grants).
 - Most deploy SQL value binding uses argumentized SPI; remaining interpolation is primarily constrained identifier/DDL construction.
+- Shared helper migration has started via `crates/common` (SQL quoting + bool-setting parsing), while broader module/test extraction remains pending.
 
 ## Do not do without explicit direction
 

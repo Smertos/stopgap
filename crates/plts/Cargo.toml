@@ -22,6 +22,7 @@ pg_test = []
 v8_runtime = ["dep:deno_core", "dep:deno_error"]
 
 [dependencies]
+common = { path = "../common" }
 pgrx = "=0.17.0"
 deno_core = { version = "0.369", optional = true }
 deno_error = { version = "0.7", optional = true }

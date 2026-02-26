@@ -21,6 +21,7 @@ pg18 = ["pgrx/pg18", "pgrx-tests/pg18" ]
 pg_test = []
 
 [dependencies]
+common = { path = "../common" }
 pgrx = "=0.17.0"
 serde_json = "1.0"
 
