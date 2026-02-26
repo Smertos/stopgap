@@ -39,14 +39,23 @@ Both extensions share the same **function execution model**, and `stopgap` store
 ```
 stopgap/
   crates/
+    # planned:
+    # common/               # shared Rust helpers (no extension-specific semantics)
     plts/                 # Rust extension: language handler, runtime, artifact store
+    #   tests/pg/          # planned: pgrx integration tests outside extension source
     stopgap/              # Rust extension: deployments, live schema management
+    #   tests/pg/          # planned: pgrx integration tests outside extension source
   packages/
     runtime/              # NPM package: TS types + wrappers (`@stopgap/runtime`)
   docs/
   # future (planned):
   # cli/stopgap-cli       # Deploy/rollback tooling (Node/TS or Rust)
 ```
+
+Near-term structure direction:
+- add `crates/common` for shared utility code used by both extensions
+- keep split-extension ownership strict (`plts` runtime/language concerns stay in `plts`; deploy/materialization concerns stay in `stopgap`)
+- move PG integration tests out of single large source files and keep test files granular by behavior
 
 ---
 
@@ -336,6 +345,20 @@ Optional: wrappers attach metadata for stopgap deploy to read (if you choose to 
 
 But you don’t *need* this if you just treat kind as “convention” and enforce by which wrapper is used at runtime.
 
+## 5.4 Drizzle query-builder interop direction (locked for next phase)
+
+Goal: support Stopgap handlers that build queries with Drizzle-style APIs, including references to app schema declarations (`pgTable`, etc.).
+
+For the next phase, the interoperability contract is:
+- runtime DB APIs accept SQL string + params
+- runtime DB APIs accept `{ sql, params }` objects
+- runtime DB APIs accept objects that expose `toSQL(): { sql, params }`
+- execution remains SQL text + bound params over SPI
+
+This keeps integration deterministic and extension-friendly without requiring immediate full runtime module-graph support for arbitrary package imports.
+
+Follow-up work can expand import/bundling coverage for richer in-DB Drizzle compatibility.
+
 ---
 
 # 6) CLI tool (deployments UX)
@@ -435,6 +458,12 @@ Current progress snapshot:
 - better error messages + stack traces
 - caching compiled artifacts per backend (artifact-pointer source cache now implemented in `plts`)
 
+## P1.5 (structure + interop)
+- introduce `crates/common` for shared helper logic across extensions
+- split large single-file crate implementations into cohesive modules
+- move PG integration tests out of extension source and keep suites granular
+- add Drizzle-style SQL object / `toSQL()` interop while keeping SPI SQL+params execution model
+
 ## P2 (hardening)
 - cancellation/timeouts wired to Postgres interrupts
 - memory limits
@@ -452,3 +481,5 @@ Current progress snapshot:
 6) **Regular `plts` args view**: expose **both positional and named/object forms**.
 7) **Entrypoint convention**: **default export**.
 8) **P0 DB API mode**: **RW-only**, defer RO enforcement to P1.
+9) **Drizzle interop v1**: normalize query-builder output to **SQL text + params** for SPI execution.
+10) **Shared code strategy**: use a **`crates/common`** helper crate while preserving split-extension semantic boundaries.

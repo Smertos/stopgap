@@ -36,6 +36,14 @@ Legend:
 - [x] Add CI workflow (check + test + pgrx test matrix)
 - [x] Add pinned toolchain/rustfmt/clippy configs
 
+### Next: structure + shared crate
+
+- [ ] Add `crates/common` workspace crate for shared pure-Rust helpers used by `plts` and `stopgap`
+- [ ] Keep split-extension ownership clear: shared helpers in `common`, extension semantics stay in owning crate
+- [ ] Refactor `crates/plts/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
+- [ ] Refactor `crates/stopgap/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
+- [ ] Preserve existing SQL API and extension entity compatibility during refactor
+
 ---
 
 ## 2) `plts` Extension: Language + Runtime Substrate
@@ -161,11 +169,20 @@ Legend:
 - [x] Runtime arg validation against schema
 - [x] TS type inference helpers for args/results
 
+### 5.1 Drizzle query-builder interoperability (next)
+
+- [ ] Support `ctx.db.query/exec` input as SQL string + params
+- [ ] Support `ctx.db.query/exec` input as `{ sql, params }` object
+- [ ] Support `ctx.db.query/exec` input as object exposing `toSQL(): { sql, params }` (Drizzle-style interop)
+- [ ] Keep v1 runtime execution contract as SQL text + bound params over SPI
+- [ ] Evaluate statement/plan caching after interop baseline is stable
+- [ ] Defer full module-graph/bundling compatibility for arbitrary runtime imports to follow-up work
+
 ---
 
 ## 6) Operational Hardening (P2)
 
-- [ ] Integrate Postgres cancellation and statement timeout with JS interrupts
+- [x] Integrate Postgres cancellation and statement timeout with JS interrupts
   - [x] Wire `statement_timeout` to a V8 watchdog that terminates execution when the current call exceeds the active timeout
   - [x] Wire explicit cancel/interrupt-pending signals into the same runtime interrupt path
 - [ ] Add per-call memory limits
@@ -204,6 +221,13 @@ Legend:
 - [x] Wire pg_regress execution into automated test flow
 - [x] Keep expected files updated on SQL output/entity changes
 
+### 7.4 Test structure + granularity (next)
+
+- [ ] Move pgrx `#[pg_test]` suites out of extension `src/lib.rs` files
+- [ ] Keep PG tests in dedicated crate-level test modules separate from extension source
+- [ ] Enforce granular test scope (one behavior/theme per test file)
+- [ ] Expand `pg_regress` SQL suites into focused scenario files (deploy, rollback, prune, diff, security)
+
 ---
 
 ## 8) CLI Roadmap (`stopgap-cli`)
@@ -233,13 +257,12 @@ Legend:
 
 ## 10) Suggested Execution Order from Here
 
-1. [x] Implement real `deno_core` runtime execution in `plts_call_handler`
-2. [x] Implement real TS transpilation for `plts.compile_ts`
-3. [x] Add integration tests for runtime execution + null normalization
-4. [x] Harden `stopgap.deploy` error handling and state transitions
-5. [x] Implement rollback/status APIs
-6. [x] Add permissions model for live schema and deploy APIs
-7. [x] Introduce wrapper package (`@stopgap/runtime`) and schema validation
+1. [ ] Add `crates/common` and split large extension `lib.rs` files into modules
+2. [ ] Move PG tests out of extension source and make suites granular by behavior
+3. [ ] Implement Drizzle-compatible SQL object / `toSQL()` interop in runtime DB APIs
+4. [ ] Reduce runtime-wrapper duplication between embedded module and `@stopgap/runtime`
+5. [ ] Finish remaining operational hardening (memory caps, deterministic constraints, metrics/GUC tuning)
+6. [ ] Implement CLI surface (`deploy`, `rollback`, `status`, `deployments`, optional `diff`)
 
 ---
 
@@ -248,4 +271,4 @@ Legend:
 - **P0 status:** Complete.
 - **P1 status:** Complete.
 - **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution on both `statement_timeout` expiry and pending Postgres cancel/die signals.
-- **Biggest missing piece:** operational hardening (memory caps, runtime constraints, metrics/GUC tuning) and CLI implementation.
+- **Biggest missing pieces:** structural refactor (module split + shared crate + test extraction), Drizzle interop baseline, operational hardening (memory caps/runtime constraints/metrics/GUC tuning), and CLI implementation.
