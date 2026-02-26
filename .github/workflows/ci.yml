@@ -63,3 +63,11 @@ jobs:
 
       - name: Run pgrx tests
         run: cargo pgrx test -p ${{ matrix.package }} --features pg16
+
+      - name: Install plts extension for stopgap regress
+        if: matrix.package == 'stopgap'
+        run: cargo pgrx install -p plts --pg-config /usr/lib/postgresql/16/bin/pg_config --features pg16 --no-default-features
+
+      - name: Run stopgap pg_regress
+        if: matrix.package == 'stopgap'
+        run: cargo pgrx regress -p stopgap --features pg16 --resetdb

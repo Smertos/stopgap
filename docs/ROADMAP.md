@@ -198,8 +198,8 @@ Legend:
 
 - [x] Base pg_regress setup file exists
 - [x] Added deploy regression SQL/output scaffolding
-- [ ] Wire pg_regress execution into automated test flow
-- [ ] Keep expected files updated on SQL output/entity changes
+- [x] Wire pg_regress execution into automated test flow
+- [x] Keep expected files updated on SQL output/entity changes
 
 ---
 
@@ -244,4 +244,4 @@ Legend:
 
 - **P0 status:** Partially complete.
 - **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation.
-- **Biggest missing piece:** operational hardening (`statement_timeout`/cancel wiring, memory caps), pg_regress automation, and CLI implementation.
+- **Biggest missing piece:** operational hardening (`statement_timeout`/cancel wiring, memory caps) and CLI implementation.

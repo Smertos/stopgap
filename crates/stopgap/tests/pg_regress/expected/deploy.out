@@ -1,16 +1,12 @@
 CREATE EXTENSION IF NOT EXISTS plts;
-CREATE EXTENSION
 CREATE EXTENSION IF NOT EXISTS stopgap;
-CREATE EXTENSION
 CREATE SCHEMA workspace;
-CREATE SCHEMA
 CREATE OR REPLACE FUNCTION workspace.echo(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
 export default (ctx) => ctx.args;
 $$;
-CREATE FUNCTION
 SELECT stopgap.deploy('prod', 'workspace', 'demo') > 0 AS deployed;
  deployed 
 ----------
@@ -46,7 +42,8 @@ ORDER BY p.proname;
 (1 row)
 
 SELECT live_deployment.echo('{"ok":true}'::jsonb);
-      echo      
-----------------
+     echo     
+--------------
  {"ok": true}
 (1 row)
+

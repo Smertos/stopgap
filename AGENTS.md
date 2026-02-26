@@ -17,7 +17,7 @@ This file captures how to work effectively in this repository.
 
 - Rust toolchain is pinned in `rust-toolchain.toml`.
 - Formatting/lint config is tracked in `rustfmt.toml` and `clippy.toml`.
-- CI workflow lives at `.github/workflows/ci.yml` and runs workspace check/test plus per-crate `cargo pgrx test` matrix jobs.
+- CI workflow lives at `.github/workflows/ci.yml` and runs workspace check/test plus per-crate `cargo pgrx test` matrix jobs; the stopgap matrix job also runs `cargo pgrx regress -p stopgap`.
 
 ## Current architecture assumptions (locked)
 
@@ -56,6 +56,7 @@ This file captures how to work effectively in this repository.
 - `cargo test`
 - `cargo pgrx test -p plts`
 - `cargo pgrx test -p stopgap`
+- `cargo pgrx regress -p stopgap`
 
 If SQL outputs or extension entities change, also run/update pg_regress artifacts where relevant.
 
