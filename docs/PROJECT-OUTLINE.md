@@ -316,6 +316,7 @@ So in DB you can use:
 - `import { query, mutation } from "@stopgap/runtime"`
 
 Current implementation resolves this bare specifier through the runtime module loader.
+The embedded module source is loaded from `packages/runtime/src/embedded.ts` to keep wrapper logic in sync between package and in-DB execution.
 
 ## 5.2 Schema format
 Pick one schema strategy:
