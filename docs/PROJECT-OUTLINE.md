@@ -41,9 +41,9 @@ stopgap/
   crates/
     common/               # shared Rust helpers (no extension-specific semantics)
     plts/                 # Rust extension: language handler, runtime, artifact store
-    #   tests/pg/          # planned: pgrx integration tests outside extension source
+      tests/pg/           # pgrx integration tests outside extension source
     stopgap/              # Rust extension: deployments, live schema management
-    #   tests/pg/          # planned: pgrx integration tests outside extension source
+      tests/pg/           # pgrx integration tests outside extension source
   packages/
     runtime/              # NPM package: TS types + wrappers (`@stopgap/runtime`)
   docs/
@@ -54,7 +54,7 @@ stopgap/
 Near-term structure direction:
 - expand `crates/common` usage for shared utility code used by both extensions
 - keep split-extension ownership strict (`plts` runtime/language concerns stay in `plts`; deploy/materialization concerns stay in `stopgap`)
-- move PG integration tests out of single large source files and keep test files granular by behavior
+- keep PG integration tests outside extension source and continue splitting them by behavior
 
 ---
 
@@ -464,6 +464,7 @@ Current progress snapshot:
 - introduce and expand `crates/common` for shared helper logic across extensions (workspace + initial helper migration in place)
 - split large single-file crate implementations into cohesive modules
 - move PG integration tests out of extension source and keep suites granular
+  - status: pg_test suites now live under `crates/*/tests/pg/`; finer behavioral splitting remains
 - add Drizzle-style SQL object / `toSQL()` interop while keeping SPI SQL+params execution model
 
 ## P2 (hardening)
