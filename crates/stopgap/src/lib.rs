@@ -1,4 +1,3 @@
-use pgrx::datum::DatumWithOid;
 use pgrx::prelude::*;
 use pgrx::JsonB;
 use serde_json::json;
@@ -6,10 +5,14 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 mod domain;
+mod runtime_config;
 
 pub(crate) use domain::{
     compute_diff_rows, fn_manifest_item, hash_lock_key, is_allowed_transition, prune_manifest_item,
     rollback_steps_to_offset, CandidateFn, DeploymentStatus, FnVersionRow, LiveFnRow, PruneReport,
+};
+pub(crate) use runtime_config::{
+    quote_ident, resolve_live_schema, resolve_prune_enabled, run_sql, run_sql_with_args,
 };
 
 ::pgrx::pg_module_magic!(name, version);
@@ -1051,45 +1054,6 @@ fn transition_deployment_status(deployment_id: i64, to: DeploymentStatus) -> Res
     )
 }
 
-fn run_sql(sql: &str, context: &str) -> Result<(), String> {
-    Spi::run(sql).map_err(|e| format!("{context}: {e}"))
-}
-
-fn run_sql_with_args<'a>(
-    sql: &str,
-    args: &[DatumWithOid<'a>],
-    context: &str,
-) -> Result<(), String> {
-    Spi::run_with_args(sql, args).map_err(|e| format!("{context}: {e}"))
-}
-
-fn quote_ident(ident: &str) -> String {
-    common::sql::quote_ident(ident)
-}
-
-fn resolve_live_schema() -> String {
-    let live = Spi::get_one::<String>(
-        "SELECT COALESCE(current_setting('stopgap.live_schema', true), 'live_deployment')",
-    )
-    .ok()
-    .flatten();
-    live.unwrap_or_else(|| "live_deployment".to_string())
-}
-
-fn resolve_prune_enabled() -> bool {
-    let raw = Spi::get_one::<String>(
-        "SELECT COALESCE(current_setting('stopgap.prune', true), 'false')::text",
-    )
-    .ok()
-    .flatten();
-
-    raw.as_deref().and_then(parse_bool_setting).unwrap_or(false)
-}
-
-fn parse_bool_setting(value: &str) -> Option<bool> {
-    common::settings::parse_bool_setting(value)
-}
-
 #[cfg(test)]
 mod unit_tests {
     #[test]
@@ -1195,17 +1159,17 @@ mod unit_tests {
 
     #[test]
     fn test_parse_bool_setting_accepts_common_values() {
-        assert_eq!(crate::parse_bool_setting("true"), Some(true));
-        assert_eq!(crate::parse_bool_setting("on"), Some(true));
-        assert_eq!(crate::parse_bool_setting("1"), Some(true));
-        assert_eq!(crate::parse_bool_setting("false"), Some(false));
-        assert_eq!(crate::parse_bool_setting("off"), Some(false));
-        assert_eq!(crate::parse_bool_setting("0"), Some(false));
+        assert_eq!(crate::runtime_config::parse_bool_setting("true"), Some(true));
+        assert_eq!(crate::runtime_config::parse_bool_setting("on"), Some(true));
+        assert_eq!(crate::runtime_config::parse_bool_setting("1"), Some(true));
+        assert_eq!(crate::runtime_config::parse_bool_setting("false"), Some(false));
+        assert_eq!(crate::runtime_config::parse_bool_setting("off"), Some(false));
+        assert_eq!(crate::runtime_config::parse_bool_setting("0"), Some(false));
     }
 
     #[test]
     fn test_parse_bool_setting_rejects_unknown_values() {
-        assert_eq!(crate::parse_bool_setting("maybe"), None);
+        assert_eq!(crate::runtime_config::parse_bool_setting("maybe"), None);
     }
 
     #[test]
