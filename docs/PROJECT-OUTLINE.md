@@ -374,6 +374,7 @@ This keeps integration deterministic and extension-friendly without requiring im
 
 Current implementation status:
 - Runtime `ctx.db.query/exec` now accepts all three input forms (string+params, `{ sql, params }`, and `toSQL()` objects) and normalizes them to SQL text + bound params before SPI execution.
+- Statement/plan caching evaluation is complete for the current interop baseline; explicit runtime-level statement caching is intentionally deferred until profiling shows a clear need.
 
 Follow-up work can expand import/bundling coverage for richer in-DB Drizzle compatibility.
 

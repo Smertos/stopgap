@@ -185,8 +185,8 @@ Legend:
 - [x] Support `ctx.db.query/exec` input as `{ sql, params }` object
 - [x] Support `ctx.db.query/exec` input as object exposing `toSQL(): { sql, params }` (Drizzle-style interop)
 - [x] Keep v1 runtime execution contract as SQL text + bound params over SPI
-- [ ] Evaluate statement/plan caching after interop baseline is stable
-- [ ] Defer full module-graph/bundling compatibility for arbitrary runtime imports to follow-up work
+- [x] Evaluate statement/plan caching after interop baseline is stable (conclusion: keep SPI SQL+params execution path unchanged for now; no explicit cache added without profiling evidence)
+- [x] Defer full module-graph/bundling compatibility for arbitrary runtime imports to follow-up work (tracked in post-roadmap follow-up backlog)
 
 ---
 
@@ -286,4 +286,10 @@ Legend:
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
 - **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
 - **Docs note:** quickstart, runtime contract, deployment runbook, and troubleshooting guides now live under `docs/`.
-- **Biggest missing pieces:** statement/plan caching evaluation and broader runtime module-graph/bundling import compatibility.
+- **Biggest missing pieces:** broader runtime module-graph/bundling import compatibility.
+
+---
+
+## 12) Post-Roadmap Follow-up Backlog
+
+- [ ] Expand runtime module-graph/bundling compatibility for arbitrary in-DB imports beyond `data:` URLs and built-in `@stopgap/runtime`.
