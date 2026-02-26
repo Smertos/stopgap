@@ -15,6 +15,8 @@ use serde_json::json;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fmt;
+#[cfg(feature = "v8_runtime")]
+use std::rc::Rc;
 use std::sync::OnceLock;
 
 ::pgrx::pg_module_magic!(name, version);
@@ -704,7 +706,88 @@ fn runtime_available() -> bool {
 
 #[cfg(feature = "v8_runtime")]
 fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, RuntimeExecError> {
-    use deno_core::{op2, serde_v8, v8, JsRuntime, RuntimeOptions};
+    use deno_core::{
+        op2, serde_v8, v8, JsRuntime, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse,
+        ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType,
+        PollEventLoopOptions, ResolutionKind, RuntimeOptions,
+    };
+
+    const MAIN_MODULE_SPECIFIER: &str = "file:///plts/main.js";
+
+    struct PltsModuleLoader;
+
+    impl ModuleLoader for PltsModuleLoader {
+        fn resolve(
+            &self,
+            specifier: &str,
+            referrer: &str,
+            _kind: ResolutionKind,
+        ) -> Result<ModuleSpecifier, deno_core::error::ModuleLoaderError> {
+            deno_core::resolve_import(specifier, referrer).map_err(deno_error::JsErrorBox::from_err)
+        }
+
+        fn load(
+            &self,
+            module_specifier: &ModuleSpecifier,
+            _maybe_referrer: Option<&ModuleLoadReferrer>,
+            _options: ModuleLoadOptions,
+        ) -> ModuleLoadResponse {
+            ModuleLoadResponse::Sync(load_module_source(module_specifier))
+        }
+    }
+
+    fn load_module_source(
+        module_specifier: &ModuleSpecifier,
+    ) -> Result<ModuleSource, deno_core::error::ModuleLoaderError> {
+        match module_specifier.scheme() {
+            "data" => {
+                let source = decode_data_url_module_code(module_specifier)?;
+                Ok(ModuleSource::new(
+                    ModuleType::JavaScript,
+                    ModuleSourceCode::String(source.into()),
+                    module_specifier,
+                    None,
+                ))
+            }
+            _ => Err(deno_error::JsErrorBox::generic(format!(
+                "unsupported module import `{}`; only `data:` imports are currently allowed",
+                module_specifier
+            ))),
+        }
+    }
+
+    fn decode_data_url_module_code(
+        module_specifier: &ModuleSpecifier,
+    ) -> Result<String, deno_core::error::ModuleLoaderError> {
+        let raw = module_specifier.as_str();
+        let payload = raw.strip_prefix("data:").ok_or_else(|| {
+            deno_error::JsErrorBox::generic(format!(
+                "module specifier `{module_specifier}` is not a data URL"
+            ))
+        })?;
+
+        let (metadata, encoded) = payload.split_once(',').ok_or_else(|| {
+            deno_error::JsErrorBox::generic(format!(
+                "invalid data URL module specifier `{module_specifier}`"
+            ))
+        })?;
+
+        if metadata.contains(";base64") {
+            let decoded =
+                base64::engine::general_purpose::STANDARD.decode(encoded).map_err(|err| {
+                    deno_error::JsErrorBox::generic(format!(
+                        "failed to decode base64 data URL module `{module_specifier}`: {err}"
+                    ))
+                })?;
+            String::from_utf8(decoded).map_err(|err| {
+                deno_error::JsErrorBox::generic(format!(
+                    "data URL module `{module_specifier}` is not valid UTF-8: {err}"
+                ))
+            })
+        } else {
+            Ok(encoded.to_string())
+        }
+    }
 
     #[op2]
     #[serde]
@@ -728,13 +811,61 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
 
     let mut runtime = JsRuntime::new(RuntimeOptions {
         extensions: vec![plts_runtime_ext::init()],
+        module_loader: Some(Rc::new(PltsModuleLoader)),
         ..Default::default()
     });
-    let rewritten = rewrite_default_export(source)?;
 
-    runtime
-        .execute_script("plts_module.js", rewritten)
-        .map_err(|e| format_js_error("module evaluation", &e.to_string()))?;
+    let main_specifier = ModuleSpecifier::parse(MAIN_MODULE_SPECIFIER).map_err(|err| {
+        RuntimeExecError::new(
+            "module bootstrap",
+            format!("invalid main module specifier `{MAIN_MODULE_SPECIFIER}`: {err}"),
+        )
+    })?;
+
+    let module_id = deno_core::futures::executor::block_on(
+        runtime.load_main_es_module_from_code(&main_specifier, source.to_string()),
+    )
+    .map_err(|e| format_js_error("module load", &e.to_string()))?;
+
+    let module_result = runtime.mod_evaluate(module_id);
+    deno_core::futures::executor::block_on(async {
+        runtime.run_event_loop(PollEventLoopOptions::default()).await?;
+        module_result.await
+    })
+    .map_err(|e| format_js_error("module evaluation", &e.to_string()))?;
+
+    {
+        let namespace = runtime
+            .get_module_namespace(module_id)
+            .map_err(|e| format_js_error("module namespace", &e.to_string()))?;
+
+        deno_core::scope!(scope, runtime);
+        let namespace = v8::Local::new(scope, namespace);
+        let default_key = v8::String::new(scope, "default").ok_or_else(|| {
+            RuntimeExecError::new("entrypoint resolution", "failed to intern key")
+        })?;
+        let default_export = namespace.get(scope, default_key.into()).ok_or_else(|| {
+            RuntimeExecError::new("entrypoint resolution", "module default export is missing")
+        })?;
+
+        if !default_export.is_function() {
+            return Err(RuntimeExecError::new(
+                "entrypoint resolution",
+                "default export must be a function",
+            ));
+        }
+
+        let global = scope.get_current_context().global(scope);
+        let global_key = v8::String::new(scope, "__plts_default").ok_or_else(|| {
+            RuntimeExecError::new("entrypoint resolution", "failed to intern key")
+        })?;
+        if !global.set(scope, global_key.into(), default_export).unwrap_or(false) {
+            return Err(RuntimeExecError::new(
+                "entrypoint resolution",
+                "failed to install default export entrypoint",
+            ));
+        }
+    }
 
     let context_json = serde_json::to_string(context).map_err(|e| {
         RuntimeExecError::new(
@@ -798,20 +929,6 @@ fn execute_program(_source: &str, _context: &Value) -> Result<Option<Value>, Run
     Err(RuntimeExecError::new("runtime bootstrap", "v8_runtime feature is disabled"))
 }
 
-#[cfg(any(test, feature = "v8_runtime"))]
-fn rewrite_default_export(source: &str) -> Result<String, RuntimeExecError> {
-    let token = "export default";
-    if let Some(idx) = source.find(token) {
-        let mut rewritten = String::with_capacity(source.len() + 32);
-        rewritten.push_str(&source[..idx]);
-        rewritten.push_str("globalThis.__plts_default =");
-        rewritten.push_str(&source[idx + token.len()..]);
-        Ok(rewritten)
-    } else {
-        Err(RuntimeExecError::new("module rewrite", "module must include `export default`"))
-    }
-}
-
 #[cfg(feature = "v8_runtime")]
 fn format_js_error(stage: &'static str, details: &str) -> RuntimeExecError {
     let (message, stack) = parse_js_error_details(details);
@@ -838,13 +955,6 @@ mod unit_tests {
         )
         .expect("expected pointer metadata");
         assert_eq!(ptr.artifact_hash, "sha256:abc");
-    }
-
-    #[test]
-    fn test_rewrite_default_export() {
-        let src = "export default (ctx) => ({ ok: true, args: ctx.args })";
-        let rewritten = crate::rewrite_default_export(src).expect("rewrite should succeed");
-        assert!(rewritten.contains("globalThis.__plts_default ="));
     }
 
     #[test]
@@ -1214,6 +1324,36 @@ mod tests {
 
         Spi::run("DROP SCHEMA IF EXISTS plts_runtime_async_it CASCADE;")
             .expect("runtime async teardown SQL should succeed");
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[pg_test]
+    fn test_runtime_supports_module_imports_via_data_url() {
+        Spi::run(
+            "
+            DROP SCHEMA IF EXISTS plts_runtime_module_it CASCADE;
+            CREATE SCHEMA plts_runtime_module_it;
+            CREATE OR REPLACE FUNCTION plts_runtime_module_it.imported(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            import { imported } from \"data:text/javascript;base64,ZXhwb3J0IGNvbnN0IGltcG9ydGVkID0gOTs=\";
+            export default (ctx) => ({ imported, id: ctx.args.id });
+            $$;
+            ",
+        )
+        .expect("runtime module import setup SQL should succeed");
+
+        let payload =
+            Spi::get_one::<JsonB>("SELECT plts_runtime_module_it.imported('{\"id\": 11}'::jsonb)")
+                .expect("imported function invocation should succeed")
+                .expect("imported function should return jsonb");
+
+        assert_eq!(payload.0.get("imported").and_then(Value::as_i64), Some(9));
+        assert_eq!(payload.0.get("id").and_then(Value::as_i64), Some(11));
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_runtime_module_it CASCADE;")
+            .expect("runtime module import teardown SQL should succeed");
     }
 }
 

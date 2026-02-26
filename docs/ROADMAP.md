@@ -66,7 +66,8 @@ Legend:
 
 - [x] Add `deno_core` dependency and isolate bootstrap
 - [x] Add feature-gated V8 script execution path for default-export handlers (source or artifact pointer)
-- [ ] Implement full TS/JS module execution inside V8 isolate (module loader/imports)
+- [x] Implement ES module execution inside V8 isolate with module loader support (`import`/`export`, including `data:` modules)
+- [ ] Expand module loader coverage beyond `data:` imports (for example controlled relative/bare-specifier strategies)
 - [x] Resolve and invoke default export entrypoint (sync handlers)
 - [x] Resolve and invoke async default export entrypoints (Promise-returning handlers)
 - [x] Build initial runtime call contract: `ctx.db`, `ctx.args`, `ctx.fn`, `ctx.now`
@@ -229,10 +230,10 @@ Legend:
 
 ## 10) Suggested Execution Order from Here
 
-1. [ ] Implement real `deno_core` runtime execution in `plts_call_handler`
+1. [x] Implement real `deno_core` runtime execution in `plts_call_handler`
 2. [x] Implement real TS transpilation for `plts.compile_ts`
 3. [x] Add integration tests for runtime execution + null normalization
-4. [ ] Harden `stopgap.deploy` error handling and state transitions
+4. [x] Harden `stopgap.deploy` error handling and state transitions
 5. [x] Implement rollback/status APIs
 6. [ ] Add permissions model for live schema and deploy APIs
 7. [ ] Introduce wrapper package (`@stopgap/runtime`) and schema validation
@@ -243,4 +244,4 @@ Legend:
 
 - **P0 status:** Partially complete.
 - **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`.
-- **Biggest missing piece:** full module runtime support (imports/loader) in `plts` plus P1 read-only/wrapper features.
+- **Biggest missing piece:** P1 read-only/wrapper features plus broader module loader coverage beyond `data:` imports.
