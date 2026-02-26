@@ -69,6 +69,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - Runtime/package wrapper parity is maintained via shared module source at `packages/runtime/src/embedded.ts`, which is what `plts` loads for the built-in `@stopgap/runtime` module.
 - `plts` runtime now locks down module globals before execution (removing `Deno`, `fetch`, and related web APIs) so handlers only use the explicit `ctx.db` bridge and do not gain filesystem/network runtime surface.
 - `plts` runtime now applies a V8 watchdog per call using the stricter of `statement_timeout` and optional `plts.max_runtime_ms`, and routes pending Postgres cancel/die interrupt flags into the same V8 termination path.
+- `plts` runtime now optionally enforces `plts.max_heap_mb` per call by setting V8 heap limits and terminating execution on near-heap-limit callbacks.
 - `plts.compile_ts` now transpiles TS->JS via `deno_ast`, reports structured diagnostics, records compiler fingerprint metadata from lockfile-resolved dependency versions, and can persist source-map payloads when `compiler_opts.source_map=true`.
 - `plts` now caches artifact-pointer compiled JS per backend process to avoid repeat `plts.artifact` lookups during live pointer execution.
 - DB-backed `plts` integration tests cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization, artifact-pointer execution, and async default-export execution under `v8_runtime`.

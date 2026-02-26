@@ -101,6 +101,7 @@ fn current_setting_text(name: &str) -> Option<String> {
     let sql = match name {
         "statement_timeout" => "SELECT current_setting('statement_timeout', true)",
         "plts.max_runtime_ms" => "SELECT current_setting('plts.max_runtime_ms', true)",
+        "plts.max_heap_mb" => "SELECT current_setting('plts.max_heap_mb', true)",
         _ => return None,
     };
     Spi::get_one::<String>(&sql).ok().flatten().and_then(|value| {
@@ -123,6 +124,11 @@ fn current_statement_timeout_ms() -> Option<u64> {
 fn current_plts_max_runtime_ms() -> Option<u64> {
     current_setting_text("plts.max_runtime_ms")
         .and_then(|raw| parse_statement_timeout_ms(raw.as_str()))
+}
+
+#[cfg(feature = "v8_runtime")]
+fn current_plts_max_heap_setting() -> Option<String> {
+    current_setting_text("plts.max_heap_mb")
 }
 
 #[cfg_attr(not(any(test, feature = "v8_runtime")), allow(dead_code))]
@@ -173,6 +179,41 @@ pub(crate) fn parse_statement_timeout_ms(raw: &str) -> Option<u64> {
     }
 
     Some(timeout_ms as u64)
+}
+
+#[cfg_attr(not(any(test, feature = "v8_runtime")), allow(dead_code))]
+pub(crate) fn parse_runtime_heap_limit_bytes(raw: &str) -> Option<usize> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed == "0" {
+        return None;
+    }
+
+    let unit_start =
+        trimmed.find(|ch: char| !(ch.is_ascii_digit() || ch == '.')).unwrap_or(trimmed.len());
+    if unit_start == 0 {
+        return None;
+    }
+
+    let magnitude = trimmed[..unit_start].trim().parse::<f64>().ok()?;
+    if !magnitude.is_finite() || magnitude <= 0.0 {
+        return None;
+    }
+
+    let unit = trimmed[unit_start..].trim().to_ascii_lowercase();
+    let multiplier = match unit.as_str() {
+        "" | "m" | "mb" | "mib" | "megabyte" | "megabytes" => 1_048_576.0,
+        "k" | "kb" | "kib" | "kilobyte" | "kilobytes" => 1_024.0,
+        "g" | "gb" | "gib" | "gigabyte" | "gigabytes" => 1_073_741_824.0,
+        "b" | "byte" | "bytes" => 1.0,
+        _ => return None,
+    };
+
+    let bytes = (magnitude * multiplier).ceil();
+    if !bytes.is_finite() || bytes <= 0.0 || bytes > usize::MAX as f64 {
+        return None;
+    }
+
+    Some(bytes as usize)
 }
 
 #[cfg(feature = "v8_runtime")]
@@ -503,11 +544,27 @@ pub(crate) fn execute_program(
         })();
     "#;
 
+    let max_heap_setting = current_plts_max_heap_setting();
+    let max_heap_bytes = max_heap_setting.as_deref().and_then(parse_runtime_heap_limit_bytes);
+
     let mut runtime = JsRuntime::new(RuntimeOptions {
         extensions: vec![plts_runtime_ext::init()],
         module_loader: Some(Rc::new(PltsModuleLoader)),
+        create_params: max_heap_bytes
+            .map(|bytes| v8::Isolate::create_params().heap_limits(0, bytes)),
         ..Default::default()
     });
+
+    let heap_limit_reached = Arc::new(AtomicBool::new(false));
+    if max_heap_bytes.is_some() {
+        let heap_limit_reached = Arc::clone(&heap_limit_reached);
+        let isolate_handle = runtime.v8_isolate().thread_safe_handle();
+        runtime.add_near_heap_limit_callback(move |current_limit, _initial_limit| {
+            heap_limit_reached.store(true, Ordering::Relaxed);
+            isolate_handle.terminate_execution();
+            current_limit
+        });
+    }
 
     let statement_timeout_ms = current_statement_timeout_ms();
     let max_runtime_ms = current_plts_max_runtime_ms();
@@ -516,7 +573,16 @@ pub(crate) fn execute_program(
         RuntimeInterruptGuard::with_statement_timeout(&mut runtime, effective_timeout_ms);
 
     let map_runtime_error = |stage: &'static str, details: &str| {
-        if interrupt_guard.as_ref().is_some_and(RuntimeInterruptGuard::timed_out) {
+        if heap_limit_reached.load(Ordering::Relaxed) {
+            let configured_limit = max_heap_setting.as_deref().unwrap_or("unknown");
+            RuntimeExecError::new(
+                "memory limit",
+                format!(
+                    "execution exceeded configured runtime memory limit (plts.max_heap_mb={}) while in stage `{}`",
+                    configured_limit, stage
+                ),
+            )
+        } else if interrupt_guard.as_ref().is_some_and(RuntimeInterruptGuard::timed_out) {
             let configured_ms = effective_timeout_ms.unwrap_or_default();
             RuntimeExecError::new(
                 "statement timeout",

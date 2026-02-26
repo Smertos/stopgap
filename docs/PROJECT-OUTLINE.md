@@ -79,7 +79,7 @@ Near-term structure direction:
 - `plts.version() -> text`
 - GUCs (implemented):
   - `plts.max_runtime_ms`
-  - `plts.max_heap_mb` (planned)
+  - `plts.max_heap_mb`
   - `plts.engine` (`quickjs`|`v8`)
   - `plts.log_level`
 
@@ -197,6 +197,7 @@ Current implementation status:
 - Runtime global lockdown strips `Deno`, `fetch`, `Request`, `Response`, `Headers`, and `WebSocket` from module scope before user code executes; runtime DB access remains available only through `ctx.db.query/exec` wrappers backed by internal ops.
 - Runtime now reads the active `statement_timeout` and applies a per-call V8 watchdog that terminates JS execution when the call exceeds that timeout.
 - Runtime also honors `plts.max_runtime_ms` (when set) and uses the stricter value between `statement_timeout` and `plts.max_runtime_ms` for per-call execution caps.
+- Runtime now also honors optional `plts.max_heap_mb` by configuring a per-call V8 heap ceiling and terminating execution when the isolate reaches the near-heap limit callback.
 - Runtime now also routes pending Postgres cancel/die interrupt flags into the same V8 termination path used by timeout enforcement.
 
 ---
@@ -473,7 +474,7 @@ Current progress snapshot:
 
 ## P2 (hardening)
 - cancellation/timeouts wired to Postgres interrupts
-- memory limits
+- memory limits (implemented via `plts.max_heap_mb` heap caps)
 - prune mode + dependency-safe behavior
 - audit + status introspection
 

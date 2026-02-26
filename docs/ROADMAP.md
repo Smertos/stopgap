@@ -195,7 +195,7 @@ Legend:
 - [x] Integrate Postgres cancellation and statement timeout with JS interrupts
   - [x] Wire `statement_timeout` to a V8 watchdog that terminates execution when the current call exceeds the active timeout
   - [x] Wire explicit cancel/interrupt-pending signals into the same runtime interrupt path
-- [ ] Add per-call memory limits
+- [x] Add per-call memory limits
 - [ ] Add deterministic runtime resource constraints
 - [x] Ensure no filesystem/network runtime surface
 - [ ] Add metrics and logs for compile/execute/deploy flows
@@ -271,7 +271,7 @@ Legend:
 2. [x] Expand focused scenario coverage in `pg_regress` suites (deploy, rollback, prune, diff, security)
 3. [x] Implement Drizzle-compatible SQL object / `toSQL()` interop in runtime DB APIs
 4. [x] Reduce runtime-wrapper duplication between embedded module and `@stopgap/runtime`
-5. [ ] Finish remaining operational hardening (memory caps, deterministic constraints, metrics/GUC tuning)
+5. [ ] Finish remaining operational hardening (deterministic constraints, metrics/GUC tuning)
 6. [ ] Implement CLI surface (`deploy`, `rollback`, `status`, `deployments`, optional `diff`)
 
 ---
@@ -283,4 +283,4 @@ Legend:
 - **What works now:** workspace + extension scaffolds, shared `crates/common` helpers used by both extensions (currently SQL quoting + boolean setting parsing), artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), behavior-focused pgrx integration test files under `crates/*/tests/pg/`, focused `pg_regress` scenario files for deploy/rollback/prune/diff/security, and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime DB APIs now support SQL string + params, `{ sql, params }` inputs, and Drizzle-style `toSQL()` objects while preserving SPI SQL + bound params execution. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution using the stricter of `statement_timeout` and optional `plts.max_runtime_ms` plus pending Postgres cancel/die signals. Ongoing module splitting now includes `crates/plts/src/compiler.rs` for compile/fingerprint/source-map logic, `crates/plts/src/runtime_spi.rs` for SPI/query binding and read-only SQL helpers, `crates/plts/src/function_program.rs` for function source resolution/artifact-pointer cache loading, `crates/stopgap/src/deployment_utils.rs` for deploy scan/materialization helpers, `crates/stopgap/src/security.rs` for role/permission checks, and `crates/stopgap/src/runtime_config.rs` + `crates/stopgap/src/domain.rs`.
 - **Module split note:** both extension entrypoints are now thin (`crates/plts/src/lib.rs` and `crates/stopgap/src/lib.rs`), with `plts` split across `api.rs`, `handler.rs`, `runtime.rs`, `compiler.rs`, `runtime_spi.rs`, `function_program.rs`, and `arg_mapping.rs`.
 - **Wrapper parity note:** the in-DB `@stopgap/runtime` module source is now loaded from `packages/runtime/src/embedded.ts`, so wrapper validation/metadata behavior stays aligned between package and runtime.
-- **Biggest missing pieces:** operational hardening (memory caps/runtime constraints/metrics), CLI implementation, and docs roadmap items.
+- **Biggest missing pieces:** operational hardening (runtime constraints/metrics), CLI implementation, and docs roadmap items.

@@ -199,6 +199,25 @@ mod unit_tests {
     }
 
     #[test]
+    fn test_parse_runtime_heap_limit_bytes_parses_expected_units() {
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes("0"), None);
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes("32"), Some(32 * 1024 * 1024));
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes("32mb"), Some(32 * 1024 * 1024));
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes("1.5mb"), Some(1_572_864));
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes("512kb"), Some(524_288));
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes("2gb"), Some(2_147_483_648));
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes("2048 bytes"), Some(2048));
+    }
+
+    #[test]
+    fn test_parse_runtime_heap_limit_bytes_rejects_invalid_values() {
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes(""), None);
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes("off"), None);
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes("-1mb"), None);
+        assert_eq!(crate::runtime::parse_runtime_heap_limit_bytes("12fortnights"), None);
+    }
+
+    #[test]
     fn test_resolve_runtime_timeout_ms_prefers_most_restrictive_limit() {
         assert_eq!(crate::runtime::resolve_runtime_timeout_ms(None, None), None);
         assert_eq!(crate::runtime::resolve_runtime_timeout_ms(Some(1_000), None), Some(1_000));
