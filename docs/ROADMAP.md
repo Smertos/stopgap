@@ -45,7 +45,9 @@ Legend:
 - [x] Extract `plts` compiler/transpile + fingerprint + source-map helpers into `crates/plts/src/compiler.rs`
 - [x] Extract `plts` runtime SPI/query-binding/read-only SQL helpers into `crates/plts/src/runtime_spi.rs`
 - [x] Extract `plts` function source loading + artifact-pointer cache helpers into `crates/plts/src/function_program.rs`
+- [x] Extract `plts` regular-arg payload conversion helpers into `crates/plts/src/arg_mapping.rs`
 - [x] Extract Stopgap deployable-function scan + live materialization helpers into `crates/stopgap/src/deployment_utils.rs`
+- [x] Extract Stopgap deployment-state / rollback helpers into `crates/stopgap/src/deployment_state.rs`
 - [x] Extract Stopgap role/permission checks into `crates/stopgap/src/security.rs`
 - [ ] Refactor `crates/plts/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
 - [ ] Refactor `crates/stopgap/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
