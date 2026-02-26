@@ -81,7 +81,7 @@ Legend:
 - [x] Replace placeholder `compile_ts` with real TS->JS transpilation
 - [x] Return diagnostics payload with line/column and severity
 - [x] Persist compiler metadata/fingerprint from real toolchain versions
-- [ ] Optionally persist source maps in `plts.artifact`
+- [x] Optionally persist source maps in `plts.artifact`
 
 ### 2.6 DB API Surface (unfinished)
 

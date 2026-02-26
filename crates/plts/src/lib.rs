@@ -1,3 +1,4 @@
+use base64::Engine;
 use deno_ast::EmitOptions;
 use deno_ast::MediaType;
 use deno_ast::ModuleSpecifier;
@@ -32,8 +33,12 @@ extension_sql!(
         compiler_opts jsonb NOT NULL,
         compiler_fingerprint text NOT NULL,
         created_at timestamptz NOT NULL DEFAULT now(),
+        source_map text,
         diagnostics jsonb
     );
+
+    ALTER TABLE plts.artifact
+    ADD COLUMN IF NOT EXISTS source_map text;
 
     CREATE FUNCTION plts_call_handler()
     RETURNS language_handler
@@ -366,22 +371,35 @@ mod plts {
         let compiler_fingerprint = compiler_fingerprint();
         let hash =
             compute_artifact_hash(source_ts, compiled_js, &compiler_opts.0, compiler_fingerprint);
+        let source_map_sql = maybe_extract_source_map(compiled_js, &compiler_opts.0)
+            .as_deref()
+            .map(quote_literal)
+            .unwrap_or_else(|| "NULL".to_string());
 
         let sql = format!(
             "
-            INSERT INTO plts.artifact (artifact_hash, source_ts, compiled_js, compiler_opts, compiler_fingerprint)
-            VALUES ({}, {}, {}, {}::jsonb, {})
+            INSERT INTO plts.artifact (
+                artifact_hash,
+                source_ts,
+                compiled_js,
+                compiler_opts,
+                compiler_fingerprint,
+                source_map
+            )
+            VALUES ({}, {}, {}, {}::jsonb, {}, {})
             ON CONFLICT (artifact_hash) DO UPDATE
             SET source_ts = EXCLUDED.source_ts,
                 compiled_js = EXCLUDED.compiled_js,
                 compiler_opts = EXCLUDED.compiler_opts,
-                compiler_fingerprint = EXCLUDED.compiler_fingerprint
+                compiler_fingerprint = EXCLUDED.compiler_fingerprint,
+                source_map = EXCLUDED.source_map
             ",
             quote_literal(&hash),
             quote_literal(source_ts),
             quote_literal(compiled_js),
             quote_literal(&compiler_opts.0.to_string()),
-            quote_literal(compiler_fingerprint)
+            quote_literal(compiler_fingerprint),
+            source_map_sql
         );
 
         let _ = Spi::run(&sql);
@@ -424,6 +442,7 @@ mod plts {
                 'compiled_js', compiled_js,
                 'compiler_opts', compiler_opts,
                 'compiler_fingerprint', compiler_fingerprint,
+                'source_map', source_map,
                 'created_at', created_at
             )
             FROM plts.artifact
@@ -557,6 +576,29 @@ fn extract_line_column(message: &str) -> Option<(u32, u32)> {
     let col = pieces.next()?.parse::<u32>().ok()?;
     let line = pieces.next()?.parse::<u32>().ok()?;
     Some((line, col))
+}
+
+fn maybe_extract_source_map(compiled_js: &str, compiler_opts: &Value) -> Option<String> {
+    let source_map_enabled =
+        compiler_opts.get("source_map").and_then(Value::as_bool).unwrap_or(false);
+    if !source_map_enabled {
+        return None;
+    }
+
+    extract_inline_source_map(compiled_js)
+}
+
+fn extract_inline_source_map(compiled_js: &str) -> Option<String> {
+    const SOURCE_MAP_PREFIX: &str = "//# sourceMappingURL=data:application/json;base64,";
+
+    let marker = compiled_js.rfind(SOURCE_MAP_PREFIX)?;
+    let encoded = compiled_js[(marker + SOURCE_MAP_PREFIX.len())..].lines().next()?.trim();
+    if encoded.is_empty() {
+        return None;
+    }
+
+    let decoded = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+    String::from_utf8(decoded).ok()
 }
 
 #[cfg(feature = "v8_runtime")]
@@ -853,6 +895,30 @@ mod tests {
     fn test_dependency_version_from_lock_finds_known_crate() {
         let version = crate::dependency_version_from_lock("serde_json");
         assert!(version.is_some());
+    }
+
+    #[test]
+    fn test_extract_inline_source_map_decodes_payload() {
+        let compiled =
+            "console.log('x');\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozfQ==";
+        let source_map = crate::extract_inline_source_map(compiled)
+            .expect("inline source map should decode from base64 payload");
+        assert!(source_map.contains("\"version\":3"));
+    }
+
+    #[test]
+    fn test_transpile_typescript_optionally_emits_source_map_payload() {
+        let source =
+            "export default (ctx: { args: { id: number } }) => ({ id: ctx.args.id as number });";
+        let (compiled, diagnostics) =
+            crate::transpile_typescript(source, &serde_json::json!({ "source_map": true }));
+        assert!(diagnostics.as_array().is_some_and(|items| items.is_empty()));
+
+        let source_map =
+            crate::maybe_extract_source_map(&compiled, &serde_json::json!({ "source_map": true }))
+                .expect("source_map=true should persist an inline source map payload");
+
+        assert!(source_map.contains("\"version\""));
     }
 
     #[test]

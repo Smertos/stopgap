@@ -395,6 +395,7 @@ Current progress snapshot:
 - full module/import support and async handler execution are still pending
 - `plts.compile_ts` now performs real TS->JS transpilation via `deno_ast` and returns structured diagnostics
 - `plts` compiler fingerprinting now derives from real dependency versions (`deno_ast`/`deno_core`) from workspace lock metadata
+- optional source-map persistence is now supported in `plts.artifact` when `compiler_opts.source_map=true`
 - basic arg conversion work has started
 - stopgap deploy now validates deployment status transitions (`open -> sealed -> active`, with failure paths)
 - stopgap deploy records function-level manifest metadata including artifact hashes and live pointer payloads
