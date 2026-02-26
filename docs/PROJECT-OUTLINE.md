@@ -55,6 +55,7 @@ Near-term structure direction:
 - expand `crates/common` usage for shared utility code used by both extensions
 - keep split-extension ownership strict (`plts` runtime/language concerns stay in `plts`; deploy/materialization concerns stay in `stopgap`)
 - keep PG integration tests outside extension source and continue splitting them by behavior
+- stopgap module-splitting is in progress, with pure domain/state-transition helpers extracted into `crates/stopgap/src/domain.rs`
 
 ---
 

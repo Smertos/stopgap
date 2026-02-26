@@ -40,6 +40,7 @@ Legend:
 
 - [x] Add `crates/common` workspace crate for shared pure-Rust helpers used by `plts` and `stopgap`
 - [x] Keep split-extension ownership clear: shared helpers in `common`, extension semantics stay in owning crate
+- [x] Extract Stopgap pure domain/state-transition helpers into a dedicated module as a first step toward a thin `lib.rs`
 - [ ] Refactor `crates/plts/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
 - [ ] Refactor `crates/stopgap/src/lib.rs` into focused modules with a thin entrypoint `lib.rs`
 - [ ] Preserve existing SQL API and extension entity compatibility during refactor

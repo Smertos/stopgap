@@ -5,6 +5,13 @@ use serde_json::json;
 use serde_json::Value;
 use std::collections::BTreeSet;
 
+mod domain;
+
+pub(crate) use domain::{
+    compute_diff_rows, fn_manifest_item, hash_lock_key, is_allowed_transition, prune_manifest_item,
+    rollback_steps_to_offset, CandidateFn, DeploymentStatus, FnVersionRow, LiveFnRow, PruneReport,
+};
+
 ::pgrx::pg_module_magic!(name, version);
 
 const STOPGAP_OWNER_ROLE: &str = "stopgap_owner";
@@ -326,80 +333,6 @@ struct DeployableFn {
     prosrc: String,
 }
 
-#[derive(Debug)]
-struct FnVersionRow {
-    fn_name: String,
-    live_fn_schema: String,
-    artifact_hash: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct LiveFnRow {
-    oid: i64,
-    fn_name: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PruneReport {
-    enabled: bool,
-    dropped: Vec<String>,
-    skipped_with_dependents: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-struct CandidateFn {
-    fn_name: String,
-    artifact_hash: String,
-}
-
-#[derive(Debug, Clone)]
-struct DiffRow {
-    fn_name: String,
-    change: &'static str,
-    active_artifact_hash: Option<String>,
-    candidate_artifact_hash: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct DiffSummary {
-    added: usize,
-    changed: usize,
-    removed: usize,
-    unchanged: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DeploymentStatus {
-    Open,
-    Sealed,
-    Active,
-    RolledBack,
-    Failed,
-}
-
-impl DeploymentStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Open => "open",
-            Self::Sealed => "sealed",
-            Self::Active => "active",
-            Self::RolledBack => "rolled_back",
-            Self::Failed => "failed",
-        }
-    }
-
-    fn from_str(value: &str) -> Option<Self> {
-        match value {
-            "open" => Some(Self::Open),
-            "sealed" => Some(Self::Sealed),
-            "active" => Some(Self::Active),
-            "rolled_back" => Some(Self::RolledBack),
-            "failed" => Some(Self::Failed),
-            _ => None,
-        }
-    }
-}
-
 fn run_deploy_flow(
     deployment_id: i64,
     env: &str,
@@ -594,14 +527,6 @@ fn live_function_has_dependents(function_oid: i64) -> Result<bool, String> {
     .map(|value| value.unwrap_or(false))
 }
 
-fn prune_manifest_item(report: &PruneReport) -> Value {
-    json!({
-        "enabled": report.enabled,
-        "dropped": report.dropped,
-        "skipped_with_dependents": report.skipped_with_dependents
-    })
-}
-
 fn ensure_deploy_permissions(from_schema: &str, live_schema: &str) -> Result<(), String> {
     ensure_required_role_exists(STOPGAP_OWNER_ROLE)?;
     ensure_required_role_exists(STOPGAP_DEPLOYER_ROLE)?;
@@ -760,60 +685,6 @@ fn compile_candidate_functions(from_schema: &str) -> Result<Vec<CandidateFn>, St
     Ok(out)
 }
 
-fn compute_diff_rows(
-    active: &[FnVersionRow],
-    candidate: &[CandidateFn],
-) -> (Vec<DiffRow>, DiffSummary) {
-    let active_by_name = active
-        .iter()
-        .map(|row| (row.fn_name.as_str(), row.artifact_hash.as_str()))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let candidate_by_name = candidate
-        .iter()
-        .map(|row| (row.fn_name.as_str(), row.artifact_hash.as_str()))
-        .collect::<std::collections::BTreeMap<_, _>>();
-
-    let all_names =
-        active_by_name.keys().chain(candidate_by_name.keys()).copied().collect::<BTreeSet<_>>();
-
-    let mut rows = Vec::with_capacity(all_names.len());
-    let mut summary = DiffSummary::default();
-
-    for fn_name in all_names {
-        let active_hash = active_by_name.get(fn_name).copied();
-        let candidate_hash = candidate_by_name.get(fn_name).copied();
-
-        let change = match (active_hash, candidate_hash) {
-            (None, Some(_)) => {
-                summary.added += 1;
-                "added"
-            }
-            (Some(_), None) => {
-                summary.removed += 1;
-                "removed"
-            }
-            (Some(a), Some(c)) if a != c => {
-                summary.changed += 1;
-                "changed"
-            }
-            (Some(_), Some(_)) => {
-                summary.unchanged += 1;
-                "unchanged"
-            }
-            (None, None) => continue,
-        };
-
-        rows.push(DiffRow {
-            fn_name: fn_name.to_string(),
-            change,
-            active_artifact_hash: active_hash.map(str::to_string),
-            candidate_artifact_hash: candidate_hash.map(str::to_string),
-        });
-    }
-
-    (rows, summary)
-}
-
 fn load_environment_state(env: &str) -> Result<(String, i64), String> {
     Spi::connect(|client| {
         let mut rows = client.select(
@@ -867,14 +738,6 @@ fn find_rollback_target_by_steps(
     .ok_or_else(|| {
         format!("cannot rollback env {} by {} step(s): no prior deployment available", env, steps)
     })
-}
-
-fn rollback_steps_to_offset(steps: i32) -> Result<i64, String> {
-    if steps < 1 {
-        return Err("stopgap.rollback requires steps >= 1".to_string());
-    }
-
-    Ok(i64::from(steps - 1))
 }
 
 fn ensure_deployment_belongs_to_env(env: &str, deployment_id: i64) -> Result<(), String> {
@@ -1145,29 +1008,6 @@ fn ensure_role_membership(required_role: &str, operation: &str) -> Result<(), St
     }
 }
 
-fn fn_manifest_item(
-    source_schema: &str,
-    live_schema: &str,
-    fn_name: &str,
-    kind: &str,
-    artifact_hash: &str,
-) -> Value {
-    json!({
-        "fn_name": fn_name,
-        "source_schema": source_schema,
-        "live_schema": live_schema,
-        "kind": kind,
-        "artifact_hash": artifact_hash,
-        "pointer": {
-            "plts": 1,
-            "kind": "artifact_ptr",
-            "artifact_hash": artifact_hash,
-            "export": "default",
-            "mode": "stopgap_deployed"
-        }
-    })
-}
-
 fn update_deployment_manifest(deployment_id: i64, patch: Value) -> Result<(), String> {
     run_sql_with_args(
         "
@@ -1211,19 +1051,6 @@ fn transition_deployment_status(deployment_id: i64, to: DeploymentStatus) -> Res
     )
 }
 
-fn is_allowed_transition(from: DeploymentStatus, to: DeploymentStatus) -> bool {
-    matches!(
-        (from, to),
-        (DeploymentStatus::Open, DeploymentStatus::Sealed)
-            | (DeploymentStatus::Open, DeploymentStatus::Failed)
-            | (DeploymentStatus::Sealed, DeploymentStatus::Active)
-            | (DeploymentStatus::Sealed, DeploymentStatus::Failed)
-            | (DeploymentStatus::Active, DeploymentStatus::RolledBack)
-            | (DeploymentStatus::Active, DeploymentStatus::Failed)
-            | (DeploymentStatus::RolledBack, DeploymentStatus::Active)
-    )
-}
-
 fn run_sql(sql: &str, context: &str) -> Result<(), String> {
     Spi::run(sql).map_err(|e| format!("{context}: {e}"))
 }
@@ -1261,15 +1088,6 @@ fn resolve_prune_enabled() -> bool {
 
 fn parse_bool_setting(value: &str) -> Option<bool> {
     common::settings::parse_bool_setting(value)
-}
-
-fn hash_lock_key(env: &str) -> i64 {
-    let mut hash: i64 = 1469598103934665603;
-    for b in env.as_bytes() {
-        hash ^= i64::from(*b);
-        hash = hash.wrapping_mul(1099511628211);
-    }
-    hash
 }
 
 #[cfg(test)]
@@ -1359,7 +1177,10 @@ mod unit_tests {
         ];
 
         let (rows, summary) = crate::compute_diff_rows(&active, &candidate);
-        assert_eq!(summary, crate::DiffSummary { added: 1, changed: 1, removed: 1, unchanged: 1 });
+        assert_eq!(
+            summary,
+            crate::domain::DiffSummary { added: 1, changed: 1, removed: 1, unchanged: 1 }
+        );
 
         let changes = rows
             .iter()
