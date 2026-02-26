@@ -407,6 +407,7 @@ Current progress snapshot:
 - stopgap now exposes `stopgap.status(env)`, `stopgap.deployments(env)`, `stopgap.diff(env, from_schema)`, and `stopgap.rollback(env, steps, to_id)` APIs
 - stopgap now exposes `stopgap.activation_audit` and `stopgap.environment_overview` introspection views
 - stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`, dropping stale live pointer functions that have no dependents
+- stopgap security model now provisions/enforces baseline roles (`stopgap_owner`, `stopgap_deployer`, `app_user`), runs deploy/rollback/diff as SECURITY DEFINER, and hardens live-schema/live-function ownership + execute grants
 - plts runtime errors now include stage metadata, JS stack details (when present), and SQL function identity context
 - DB-backed `plts` integration tests now cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization (`null`/`undefined` -> SQL `NULL`), and artifact-pointer execution (under `v8_runtime`)
 - DB-backed `stopgap` integration tests now cover deploy pointer updates, live pointer payload correctness, `fn_version` integrity, overloaded-function rejection, and rollback rematerialization/status transitions

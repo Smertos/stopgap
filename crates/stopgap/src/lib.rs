@@ -7,6 +7,10 @@ use std::collections::BTreeSet;
 
 ::pgrx::pg_module_magic!(name, version);
 
+const STOPGAP_OWNER_ROLE: &str = "stopgap_owner";
+const STOPGAP_DEPLOYER_ROLE: &str = "stopgap_deployer";
+const APP_RUNTIME_ROLE: &str = "app_user";
+
 extension_sql!(
     r#"
     CREATE SCHEMA IF NOT EXISTS stopgap;
@@ -78,6 +82,70 @@ extension_sql!(
     name = "stopgap_sql_bootstrap"
 );
 
+extension_sql!(
+    r#"
+    DO $$
+    BEGIN
+        IF COALESCE(
+            (SELECT r.rolsuper OR r.rolcreaterole FROM pg_roles r WHERE r.rolname = current_user),
+            false
+        ) THEN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stopgap_owner') THEN
+                CREATE ROLE stopgap_owner NOLOGIN;
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stopgap_deployer') THEN
+                CREATE ROLE stopgap_deployer NOLOGIN;
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
+                CREATE ROLE app_user NOLOGIN;
+            END IF;
+
+            IF NOT pg_has_role(current_user, 'stopgap_owner', 'MEMBER') THEN
+                EXECUTE format('GRANT %I TO %I', 'stopgap_owner', current_user);
+            END IF;
+        END IF;
+    END;
+    $$;
+
+    REVOKE CREATE ON SCHEMA stopgap FROM PUBLIC;
+    GRANT USAGE ON SCHEMA stopgap TO stopgap_deployer;
+    "#,
+    name = "stopgap_security_roles",
+    requires = ["stopgap_sql_bootstrap"]
+);
+
+extension_sql!(
+    r#"
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'stopgap_owner') THEN
+            EXECUTE format('ALTER SCHEMA stopgap OWNER TO %I', 'stopgap_owner');
+        END IF;
+    END;
+    $$;
+
+    ALTER FUNCTION stopgap.deploy(text, text, text) SECURITY DEFINER;
+    ALTER FUNCTION stopgap.rollback(text, integer, bigint) SECURITY DEFINER;
+    ALTER FUNCTION stopgap.diff(text, text) SECURITY DEFINER;
+
+    ALTER FUNCTION stopgap.deploy(text, text, text) SET search_path TO pg_catalog, pg_temp;
+    ALTER FUNCTION stopgap.rollback(text, integer, bigint) SET search_path TO pg_catalog, pg_temp;
+    ALTER FUNCTION stopgap.diff(text, text) SET search_path TO pg_catalog, pg_temp;
+
+    REVOKE ALL ON FUNCTION stopgap.deploy(text, text, text) FROM PUBLIC;
+    REVOKE ALL ON FUNCTION stopgap.rollback(text, integer, bigint) FROM PUBLIC;
+    REVOKE ALL ON FUNCTION stopgap.diff(text, text) FROM PUBLIC;
+
+    GRANT EXECUTE ON FUNCTION stopgap.deploy(text, text, text) TO stopgap_deployer;
+    GRANT EXECUTE ON FUNCTION stopgap.rollback(text, integer, bigint) TO stopgap_deployer;
+    GRANT EXECUTE ON FUNCTION stopgap.diff(text, text) TO stopgap_deployer;
+    "#,
+    name = "stopgap_security_finalize",
+    finalize
+);
+
 #[pg_extern]
 fn hello_stopgap() -> &'static str {
     "Hello, stopgap"
@@ -92,8 +160,10 @@ mod stopgap {
         "0.1.0"
     }
 
-    #[pg_extern]
+    #[pg_extern(security_definer)]
     fn deploy(env: &str, from_schema: &str, label: default!(Option<&str>, "NULL")) -> i64 {
+        ensure_role_membership(STOPGAP_DEPLOYER_ROLE, "stopgap deploy")
+            .unwrap_or_else(|err| error!("{err}"));
         let lock_key = hash_lock_key(env);
         run_sql_with_args(
             "SELECT pg_advisory_xact_lock($1)",
@@ -161,8 +231,10 @@ mod stopgap {
         JsonB(load_deployments(env))
     }
 
-    #[pg_extern]
+    #[pg_extern(security_definer)]
     fn rollback(env: &str, steps: default!(i32, "1"), to_id: default!(Option<i64>, "NULL")) -> i64 {
+        ensure_role_membership(STOPGAP_DEPLOYER_ROLE, "stopgap rollback")
+            .unwrap_or_else(|err| error!("{err}"));
         rollback_steps_to_offset(steps).unwrap_or_else(|err| error!("{err}"));
 
         let lock_key = hash_lock_key(env);
@@ -240,8 +312,10 @@ mod stopgap {
         target_deployment_id
     }
 
-    #[pg_extern]
+    #[pg_extern(security_definer)]
     fn diff(env: &str, from_schema: &str) -> JsonB {
+        ensure_role_membership(STOPGAP_DEPLOYER_ROLE, "stopgap diff")
+            .unwrap_or_else(|err| error!("{err}"));
         JsonB(load_diff(env, from_schema).unwrap_or_else(|err| error!("{err}")))
     }
 }
@@ -338,6 +412,7 @@ fn run_deploy_flow(
         &format!("CREATE SCHEMA IF NOT EXISTS {}", quote_ident(live_schema)),
         "failed to create live schema",
     )?;
+    harden_live_schema(live_schema)?;
 
     let mut manifest_functions: Vec<Value> = Vec::with_capacity(fns.len());
 
@@ -528,8 +603,12 @@ fn prune_manifest_item(report: &PruneReport) -> Value {
 }
 
 fn ensure_deploy_permissions(from_schema: &str, live_schema: &str) -> Result<(), String> {
+    ensure_required_role_exists(STOPGAP_OWNER_ROLE)?;
+    ensure_required_role_exists(STOPGAP_DEPLOYER_ROLE)?;
+    ensure_required_role_exists(APP_RUNTIME_ROLE)?;
+
     let can_use_source = Spi::get_one_with_args::<bool>(
-        "SELECT has_schema_privilege(current_user, $1, 'USAGE')",
+        "SELECT has_schema_privilege(session_user, $1, 'USAGE')",
         &[from_schema.into()],
     )
     .map_err(|e| format!("failed to check source schema privileges: {e}"))?
@@ -542,54 +621,7 @@ fn ensure_deploy_permissions(from_schema: &str, live_schema: &str) -> Result<(),
         ));
     }
 
-    let live_schema_exists = Spi::get_one_with_args::<bool>(
-        "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1)",
-        &[live_schema.into()],
-    )
-    .map_err(|e| format!("failed to check live schema existence: {e}"))?
-    .unwrap_or(false);
-
-    if live_schema_exists {
-        let can_write_live = Spi::get_one_with_args::<bool>(
-            "SELECT has_schema_privilege(current_user, $1, 'USAGE,CREATE')",
-            &[live_schema.into()],
-        )
-        .map_err(|e| format!("failed to check live schema privileges: {e}"))?
-        .unwrap_or(false);
-
-        if !can_write_live {
-            return Err(format!(
-                "permission denied for stopgap deploy: current_user lacks USAGE,CREATE on live schema {}",
-                live_schema
-            ));
-        }
-    } else {
-        let can_create_schema = Spi::get_one::<bool>(
-            "SELECT has_database_privilege(current_user, current_database(), 'CREATE')",
-        )
-        .map_err(|e| format!("failed to check database CREATE privilege: {e}"))?
-        .unwrap_or(false);
-
-        if !can_create_schema {
-            return Err(format!(
-                "permission denied for stopgap deploy: current_user cannot create live schema {}",
-                live_schema
-            ));
-        }
-    }
-
-    let can_compile = Spi::get_one::<bool>(
-        "SELECT has_function_privilege(current_user, 'plts.compile_and_store(text, jsonb)', 'EXECUTE')",
-    )
-    .map_err(|e| format!("failed to check plts.compile_and_store execute privilege: {e}"))?
-    .unwrap_or(false);
-
-    if !can_compile {
-        return Err(
-            "permission denied for stopgap deploy: current_user lacks EXECUTE on plts.compile_and_store(text, jsonb)"
-                .to_string(),
-        );
-    }
+    let _ = live_schema;
 
     Ok(())
 }
@@ -687,8 +719,10 @@ fn load_diff(env: &str, from_schema: &str) -> Result<Value, String> {
 }
 
 fn ensure_diff_permissions(from_schema: &str) -> Result<(), String> {
+    ensure_required_role_exists(STOPGAP_DEPLOYER_ROLE)?;
+
     let can_use_source = Spi::get_one_with_args::<bool>(
-        "SELECT has_schema_privilege(current_user, $1, 'USAGE')",
+        "SELECT has_schema_privilege(session_user, $1, 'USAGE')",
         &[from_schema.into()],
     )
     .map_err(|e| format!("failed to check source schema privileges: {e}"))?
@@ -701,20 +735,7 @@ fn ensure_diff_permissions(from_schema: &str) -> Result<(), String> {
         ));
     }
 
-    let can_compile = Spi::get_one::<bool>(
-        "SELECT has_function_privilege(current_user, 'plts.compile_and_store(text, jsonb)', 'EXECUTE')",
-    )
-    .map_err(|e| format!("failed to check plts.compile_and_store execute privilege: {e}"))?
-    .unwrap_or(false);
-
-    if can_compile {
-        Ok(())
-    } else {
-        Err(
-            "permission denied for stopgap diff: current_user lacks EXECUTE on plts.compile_and_store(text, jsonb)"
-                .to_string(),
-        )
-    }
+    Ok(())
 }
 
 fn compile_candidate_functions(from_schema: &str) -> Result<Vec<CandidateFn>, String> {
@@ -1029,7 +1050,99 @@ fn materialize_live_pointer(
         body
     );
 
-    run_sql(&sql, "failed to materialize live pointer function")
+    run_sql(&sql, "failed to materialize live pointer function")?;
+
+    run_sql(
+        &format!(
+            "ALTER FUNCTION {}.{}(jsonb) OWNER TO {}",
+            quote_ident(live_schema),
+            quote_ident(fn_name),
+            quote_ident(STOPGAP_OWNER_ROLE)
+        ),
+        "failed to set live pointer function owner",
+    )?;
+
+    run_sql(
+        &format!(
+            "REVOKE ALL ON FUNCTION {}.{}(jsonb) FROM PUBLIC",
+            quote_ident(live_schema),
+            quote_ident(fn_name)
+        ),
+        "failed to revoke public execute from live pointer function",
+    )?;
+
+    run_sql(
+        &format!(
+            "GRANT EXECUTE ON FUNCTION {}.{}(jsonb) TO {}",
+            quote_ident(live_schema),
+            quote_ident(fn_name),
+            quote_ident(APP_RUNTIME_ROLE)
+        ),
+        "failed to grant app runtime execute on live pointer function",
+    )
+}
+
+fn harden_live_schema(live_schema: &str) -> Result<(), String> {
+    run_sql(
+        &format!(
+            "ALTER SCHEMA {} OWNER TO {}",
+            quote_ident(live_schema),
+            quote_ident(STOPGAP_OWNER_ROLE)
+        ),
+        "failed to set live schema owner",
+    )?;
+
+    run_sql(
+        &format!("REVOKE ALL ON SCHEMA {} FROM PUBLIC", quote_ident(live_schema)),
+        "failed to revoke public privileges from live schema",
+    )?;
+
+    run_sql(
+        &format!(
+            "GRANT USAGE ON SCHEMA {} TO {}",
+            quote_ident(live_schema),
+            quote_ident(APP_RUNTIME_ROLE)
+        ),
+        "failed to grant app runtime usage on live schema",
+    )
+}
+
+fn ensure_required_role_exists(role_name: &str) -> Result<(), String> {
+    let exists = Spi::get_one_with_args::<bool>(
+        "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)",
+        &[role_name.into()],
+    )
+    .map_err(|e| format!("failed to check role {} existence: {e}", role_name))?
+    .unwrap_or(false);
+
+    if exists {
+        Ok(())
+    } else {
+        Err(format!(
+            "stopgap security model requires role {} to exist; install/update extension as a role that can create required roles",
+            role_name
+        ))
+    }
+}
+
+fn ensure_role_membership(required_role: &str, operation: &str) -> Result<(), String> {
+    ensure_required_role_exists(required_role)?;
+
+    let member = Spi::get_one_with_args::<bool>(
+        "SELECT pg_has_role(session_user, oid, 'MEMBER') FROM pg_roles WHERE rolname = $1",
+        &[required_role.into()],
+    )
+    .map_err(|e| format!("failed to check {} role membership: {e}", required_role))?
+    .unwrap_or(false);
+
+    if member {
+        Ok(())
+    } else {
+        Err(format!(
+            "permission denied for {}: session_user must be a member of role {}",
+            operation, required_role
+        ))
+    }
 }
 
 fn fn_manifest_item(
@@ -1277,6 +1390,13 @@ mod unit_tests {
     #[test]
     fn test_parse_bool_setting_rejects_unknown_values() {
         assert_eq!(crate::parse_bool_setting("maybe"), None);
+    }
+
+    #[test]
+    fn test_role_constants_are_stable() {
+        assert_eq!(crate::STOPGAP_OWNER_ROLE, "stopgap_owner");
+        assert_eq!(crate::STOPGAP_DEPLOYER_ROLE, "stopgap_deployer");
+        assert_eq!(crate::APP_RUNTIME_ROLE, "app_user");
     }
 
     #[test]
@@ -1609,6 +1729,73 @@ mod tests {
         );
 
         assert!(deploy_one < deploy_two && deploy_two < deploy_three);
+    }
+
+    #[pg_test]
+    fn test_deploy_security_model_sets_live_fn_acl() {
+        ensure_mock_plts_runtime();
+
+        Spi::run(
+            "
+            DROP SCHEMA IF EXISTS sg_it_sec_src CASCADE;
+            DROP SCHEMA IF EXISTS sg_it_sec_live CASCADE;
+            CREATE SCHEMA sg_it_sec_src;
+            SELECT set_config('stopgap.live_schema', 'sg_it_sec_live', true);
+            ",
+        )
+        .expect("security setup should succeed");
+
+        create_deployable_function(
+            "sg_it_sec_src",
+            "secure_fn",
+            "BEGIN RETURN jsonb_build_object('ok', true); END",
+        );
+
+        let deployment_id =
+            Spi::get_one::<i64>("SELECT stopgap.deploy('it_env_sec', 'sg_it_sec_src', 'sec')")
+                .expect("security deploy should succeed")
+                .expect("security deploy should return deployment id");
+        assert!(deployment_id > 0);
+
+        let owner = Spi::get_one::<String>(
+            "
+            SELECT pg_get_userbyid(p.proowner)::text
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'sg_it_sec_live'
+              AND p.proname = 'secure_fn'
+              AND p.prorettype = 'jsonb'::regtype::oid
+              AND array_length(p.proargtypes::oid[], 1) = 1
+              AND p.proargtypes[0] = 'jsonb'::regtype::oid
+            ",
+        )
+        .expect("live function owner lookup should succeed")
+        .expect("live function should exist");
+        assert_eq!(owner, crate::STOPGAP_OWNER_ROLE);
+
+        let app_can_execute = Spi::get_one::<bool>(
+            "
+            SELECT has_function_privilege('app_user', 'sg_it_sec_live.secure_fn(jsonb)', 'EXECUTE')
+            ",
+        )
+        .expect("live function execute privilege check should succeed")
+        .expect("execute privilege check should return a row");
+        assert!(app_can_execute, "app_user should have execute on live pointer function");
+    }
+
+    #[pg_test]
+    fn test_deploy_function_is_security_definer() {
+        let is_security_definer = Spi::get_one::<bool>(
+            "
+            SELECT p.prosecdef
+            FROM pg_proc p
+            WHERE p.oid = 'stopgap.deploy(text, text, text)'::regprocedure
+            ",
+        )
+        .expect("deploy function lookup should succeed")
+        .expect("deploy function should exist");
+
+        assert!(is_security_definer, "stopgap.deploy should be SECURITY DEFINER");
     }
 }
 

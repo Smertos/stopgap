@@ -141,12 +141,12 @@ Legend:
 - [x] Create/replace pointer functions in live schema
 - [x] Add prune mode (`stopgap.prune`) to drop stale functions safely
 - [x] Add dependency-aware prune strategy
-- [ ] Enforce ownership/privilege model for live schema writes:
-  - [ ] owner role (`stopgap_owner`)
-  - [ ] deployer role (`stopgap_deployer`)
-  - [ ] app runtime role (`app_user`)
-  - [ ] security definer deploy functions
-  - [ ] explicit revoke/create grants
+- [x] Enforce ownership/privilege model for live schema writes:
+  - [x] owner role (`stopgap_owner`)
+  - [x] deployer role (`stopgap_deployer`)
+  - [x] app runtime role (`app_user`)
+  - [x] security definer deploy functions
+  - [x] explicit revoke/create grants
 
 ---
 
@@ -235,7 +235,7 @@ Legend:
 3. [x] Add integration tests for runtime execution + null normalization
 4. [x] Harden `stopgap.deploy` error handling and state transitions
 5. [x] Implement rollback/status APIs
-6. [ ] Add permissions model for live schema and deploy APIs
+6. [x] Add permissions model for live schema and deploy APIs
 7. [ ] Introduce wrapper package (`@stopgap/runtime`) and schema validation
 
 ---
@@ -244,4 +244,4 @@ Legend:
 
 - **P0 status:** Partially complete.
 - **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write).
-- **Biggest missing piece:** wrapper package scaffolding + schema validation/type tooling, plus live-schema ownership hardening.
+- **Biggest missing piece:** wrapper package scaffolding + schema validation/type tooling.
