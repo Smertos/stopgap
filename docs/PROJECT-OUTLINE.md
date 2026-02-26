@@ -184,6 +184,9 @@ Current state: P0 baseline remains RW; P1 wrapper-aware read-only gating is now 
 - Set memory/time limits per call.
 - No filesystem / network APIs.
 
+Current implementation status:
+- Runtime global lockdown strips `Deno`, `fetch`, `Request`, `Response`, `Headers`, and `WebSocket` from module scope before user code executes; runtime DB access remains available only through `ctx.db.query/exec` wrappers backed by internal ops.
+
 ---
 
 # 4) Stopgap extension (deployments + environments + live schema)

@@ -168,7 +168,7 @@ Legend:
 - [ ] Integrate Postgres cancellation and statement timeout with JS interrupts
 - [ ] Add per-call memory limits
 - [ ] Add deterministic runtime resource constraints
-- [ ] Ensure no filesystem/network runtime surface
+- [x] Ensure no filesystem/network runtime surface
 - [ ] Add metrics and logs for compile/execute/deploy flows
 - [ ] Add tunable GUCs for runtime caps and log level
 
@@ -243,6 +243,7 @@ Legend:
 
 ## 11) Current Snapshot
 
-- **P0 status:** Partially complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation.
+- **P0 status:** Complete.
+- **P1 status:** Complete.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed.
 - **Biggest missing piece:** operational hardening (`statement_timeout`/cancel wiring, memory caps) and CLI implementation.

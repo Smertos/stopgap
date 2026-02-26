@@ -1125,11 +1125,51 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
 
     deno_core::extension!(plts_runtime_ext, ops = [op_plts_db_query, op_plts_db_exec]);
 
+    const LOCKDOWN_RUNTIME_SURFACE_SCRIPT: &str = r#"
+        (() => {
+            const ops = {
+                dbQuery: (sql, params = [], readOnly = false) => Deno.core.ops.op_plts_db_query(sql, params, readOnly),
+                dbExec: (sql, params = [], readOnly = false) => Deno.core.ops.op_plts_db_exec(sql, params, readOnly),
+            };
+
+            Object.defineProperty(globalThis, "__plts_internal_ops", {
+                value: Object.freeze(ops),
+                configurable: false,
+                enumerable: false,
+                writable: false,
+            });
+
+            const stripGlobal = (key) => {
+                try {
+                    delete globalThis[key];
+                } catch (_err) {
+                    Object.defineProperty(globalThis, key, {
+                        value: undefined,
+                        configurable: true,
+                        enumerable: false,
+                        writable: false,
+                    });
+                }
+            };
+
+            stripGlobal("Deno");
+            stripGlobal("fetch");
+            stripGlobal("Request");
+            stripGlobal("Response");
+            stripGlobal("Headers");
+            stripGlobal("WebSocket");
+        })();
+    "#;
+
     let mut runtime = JsRuntime::new(RuntimeOptions {
         extensions: vec![plts_runtime_ext::init()],
         module_loader: Some(Rc::new(PltsModuleLoader)),
         ..Default::default()
     });
+
+    runtime
+        .execute_script("plts_runtime_lockdown.js", LOCKDOWN_RUNTIME_SURFACE_SCRIPT)
+        .map_err(|e| format_js_error("runtime lockdown", &e.to_string()))?;
 
     let main_specifier = ModuleSpecifier::parse(MAIN_MODULE_SPECIFIER).map_err(|err| {
         RuntimeExecError::new(
@@ -1224,8 +1264,8 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
         "globalThis.__plts_ctx = JSON.parse({});\
          globalThis.__plts_ctx.db = {{\
            mode: '{}',\
-           query: (sql, params = []) => Deno.core.ops.op_plts_db_query(sql, params, {}),\
-           exec: (sql, params = []) => Deno.core.ops.op_plts_db_exec(sql, params, {})\
+           query: (sql, params = []) => globalThis.__plts_internal_ops.dbQuery(sql, params, {}),\
+           exec: (sql, params = []) => globalThis.__plts_internal_ops.dbExec(sql, params, {})\
          }};",
         serde_json::to_string(&context_json).map_err(|e| {
             RuntimeExecError::new(
@@ -1734,6 +1774,41 @@ mod tests {
 
         Spi::run("DROP SCHEMA IF EXISTS plts_runtime_module_it CASCADE;")
             .expect("runtime module import teardown SQL should succeed");
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[pg_test]
+    fn test_runtime_does_not_expose_network_or_fs_globals() {
+        Spi::run(
+            r#"
+            DROP SCHEMA IF EXISTS plts_runtime_surface_it CASCADE;
+            CREATE SCHEMA plts_runtime_surface_it;
+            CREATE OR REPLACE FUNCTION plts_runtime_surface_it.globals(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            export default () => ({
+                denoType: typeof Deno,
+                fetchType: typeof fetch,
+                requestType: typeof Request,
+                websocketType: typeof WebSocket,
+            });
+            $$;
+            "#,
+        )
+        .expect("runtime surface lockdown setup SQL should succeed");
+
+        let payload = Spi::get_one::<JsonB>("SELECT plts_runtime_surface_it.globals('{}'::jsonb)")
+            .expect("runtime globals invocation should succeed")
+            .expect("runtime globals should return jsonb payload");
+
+        assert_eq!(payload.0.get("denoType").and_then(Value::as_str), Some("undefined"));
+        assert_eq!(payload.0.get("fetchType").and_then(Value::as_str), Some("undefined"));
+        assert_eq!(payload.0.get("requestType").and_then(Value::as_str), Some("undefined"));
+        assert_eq!(payload.0.get("websocketType").and_then(Value::as_str), Some("undefined"));
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_runtime_surface_it CASCADE;")
+            .expect("runtime surface lockdown teardown SQL should succeed");
     }
 
     #[cfg(feature = "v8_runtime")]
