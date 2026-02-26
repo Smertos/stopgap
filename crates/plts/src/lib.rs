@@ -790,18 +790,140 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
     const STOPGAP_RUNTIME_BARE_SPECIFIER: &str = "@stopgap/runtime";
     const STOPGAP_RUNTIME_SPECIFIER: &str = "file:///plts/__stopgap_runtime__.js";
     const STOPGAP_RUNTIME_SOURCE: &str = r#"
-        const wrap = (kind, argsSchema, handler) => {
+        const isPlainObject = (value) =>
+            typeof value === "object" && value !== null && !Array.isArray(value);
+
+        const typeMatches = (expectedType, value) => {
+            switch (expectedType) {
+                case "object":
+                    return isPlainObject(value);
+                case "array":
+                    return Array.isArray(value);
+                case "string":
+                    return typeof value === "string";
+                case "boolean":
+                    return typeof value === "boolean";
+                case "number":
+                    return typeof value === "number" && Number.isFinite(value);
+                case "integer":
+                    return typeof value === "number" && Number.isInteger(value);
+                case "null":
+                    return value === null;
+                default:
+                    return true;
+            }
+        };
+
+        const describeValue = (value) => {
+            if (value === null) return "null";
+            if (Array.isArray(value)) return "array";
+            return typeof value;
+        };
+
+        const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+
+        const validateJsonSchema = (schema, value, path = "$") => {
+            if (schema == null || schema === true) {
+                return;
+            }
+
+            if (schema === false) {
+                throw new TypeError(`stopgap args validation failed at ${path}: schema forbids all values`);
+            }
+
+            if (!isPlainObject(schema)) {
+                throw new TypeError(`stopgap args validation failed at ${path}: schema must be an object`);
+            }
+
+            if (Array.isArray(schema.enum)) {
+                const matched = schema.enum.some((allowed) => sameJson(allowed, value));
+                if (!matched) {
+                    throw new TypeError(`stopgap args validation failed at ${path}: value is not in enum`);
+                }
+            }
+
+            if (Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
+                let matched = false;
+                for (const branch of schema.anyOf) {
+                    try {
+                        validateJsonSchema(branch, value, path);
+                        matched = true;
+                        break;
+                    } catch (_err) {
+                        // continue trying other branches
+                    }
+                }
+
+                if (!matched) {
+                    throw new TypeError(`stopgap args validation failed at ${path}: value does not match anyOf branches`);
+                }
+            }
+
+            if (schema.type !== undefined) {
+                const expected = Array.isArray(schema.type) ? schema.type : [schema.type];
+                const matches = expected.some((entry) => typeMatches(entry, value));
+                if (!matches) {
+                    throw new TypeError(
+                        `stopgap args validation failed at ${path}: expected ${expected.join("|")}, got ${describeValue(value)}`
+                    );
+                }
+            }
+
+            if (isPlainObject(value)) {
+                const properties = isPlainObject(schema.properties) ? schema.properties : {};
+                const required = Array.isArray(schema.required) ? schema.required : [];
+
+                for (const key of required) {
+                    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+                        throw new TypeError(`stopgap args validation failed at ${path}.${key}: missing required property`);
+                    }
+                }
+
+                for (const [key, propertySchema] of Object.entries(properties)) {
+                    if (Object.prototype.hasOwnProperty.call(value, key)) {
+                        validateJsonSchema(propertySchema, value[key], `${path}.${key}`);
+                    }
+                }
+
+                if (schema.additionalProperties === false) {
+                    for (const key of Object.keys(value)) {
+                        if (!Object.prototype.hasOwnProperty.call(properties, key)) {
+                            throw new TypeError(`stopgap args validation failed at ${path}.${key}: additional properties are not allowed`);
+                        }
+                    }
+                }
+            }
+
+            if (Array.isArray(value) && schema.items !== undefined) {
+                for (let i = 0; i < value.length; i += 1) {
+                    validateJsonSchema(schema.items, value[i], `${path}[${i}]`);
+                }
+            }
+        };
+
+        const normalizeWrapperArgs = (kind, argsSchema, handler) => {
+            if (typeof argsSchema === "function" && handler === undefined) {
+                return { argsSchema: null, handler: argsSchema };
+            }
+
             if (typeof handler !== "function") {
                 throw new TypeError(`stopgap.${kind} expects a function handler`);
             }
 
+            return { argsSchema: argsSchema ?? null, handler };
+        };
+
+        const wrap = (kind, argsSchema, handler) => {
+            const normalized = normalizeWrapperArgs(kind, argsSchema, handler);
+
             const wrapped = async (ctx) => {
                 const args = ctx?.args ?? null;
-                return await handler(args, ctx);
+                validateJsonSchema(normalized.argsSchema, args);
+                return await normalized.handler(args, ctx);
             };
 
             wrapped.__stopgap_kind = kind;
-            wrapped.__stopgap_args_schema = argsSchema ?? null;
+            wrapped.__stopgap_args_schema = normalized.argsSchema;
             return wrapped;
         };
 
@@ -1614,6 +1736,63 @@ mod tests {
 
         Spi::run("DROP SCHEMA IF EXISTS plts_runtime_stopgap_query_exec_it CASCADE;")
             .expect("stopgap query exec rejection teardown SQL should succeed");
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[pg_test]
+    fn test_stopgap_query_wrapper_validates_json_schema() {
+        Spi::run(
+            r#"
+            DROP SCHEMA IF EXISTS plts_runtime_stopgap_schema_it CASCADE;
+            CREATE SCHEMA plts_runtime_stopgap_schema_it;
+            CREATE OR REPLACE FUNCTION plts_runtime_stopgap_schema_it.wrapped(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            import { query } from "@stopgap/runtime";
+
+            const schema = {
+                type: "object",
+                required: ["id"],
+                additionalProperties: false,
+                properties: {
+                    id: { type: "integer" }
+                }
+            };
+
+            export default query(schema, async (args, _ctx) => ({ id: args.id }));
+            $$;
+            "#,
+        )
+        .expect("stopgap schema validation setup SQL should succeed");
+
+        let payload = Spi::get_one::<JsonB>(
+            "SELECT plts_runtime_stopgap_schema_it.wrapped('{\"id\": 22}'::jsonb)",
+        )
+        .expect("wrapped function invocation should succeed")
+        .expect("wrapped function should return jsonb");
+
+        assert_eq!(payload.0.get("id").and_then(Value::as_i64), Some(22));
+
+        Spi::run(
+            r#"
+            DO $$
+            BEGIN
+                PERFORM plts_runtime_stopgap_schema_it.wrapped('{}'::jsonb);
+                RAISE EXCEPTION 'expected schema validation failure for missing id';
+            EXCEPTION
+                WHEN OTHERS THEN
+                    IF POSITION('args validation failed at $.id: missing required property' IN SQLERRM) = 0 THEN
+                        RAISE;
+                    END IF;
+            END;
+            $$;
+            "#,
+        )
+        .expect("query wrapper should reject invalid args schema payload");
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_runtime_stopgap_schema_it CASCADE;")
+            .expect("stopgap schema validation teardown SQL should succeed");
     }
 
     #[cfg(feature = "v8_runtime")]

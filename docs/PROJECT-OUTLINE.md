@@ -41,9 +41,10 @@ stopgap/
   crates/
     plts/                 # Rust extension: language handler, runtime, artifact store
     stopgap/              # Rust extension: deployments, live schema management
+  packages/
+    runtime/              # NPM package: TS types + wrappers (`@stopgap/runtime`)
   docs/
   # future (planned):
-  # packages/runtime      # NPM package: TS types + helpers (query/mutation/schema)
   # cli/stopgap-cli       # Deploy/rollback tooling (Node/TS or Rust)
 ```
 
@@ -295,13 +296,12 @@ Ship an NPM package `@stopgap/runtime` containing:
 - `argsSchema` helpers (either a small DSL or JSON Schema builder)
 - The wrapper implementation for local testing
 
-In Postgres, `plts` injects `globalThis.stopgap = { query, mutation }` (native or preloaded JS).
+In Postgres, `plts` exposes wrapper support through a built-in `@stopgap/runtime` module.
 
-So in DB you can either:
-- `import { query } from "@stopgap/runtime"` (harder: imports), or
-- just use `global stopgap.query(...)` (simplest).
+So in DB you can use:
+- `import { query, mutation } from "@stopgap/runtime"`
 
-**Recommendation for P0:** global `stopgap` object to avoid module resolution.
+Current implementation resolves this bare specifier through the runtime module loader.
 
 ## 5.2 Schema format
 Pick one schema strategy:
@@ -312,6 +312,8 @@ Pick one schema strategy:
 Given you need to store schema for inputs, JSON Schema is pragmatic:
 - In TS you can still get types via helper builders.
 - At runtime you validate jsonb args with a Rust JSON schema validator or a lightweight JS validator.
+
+Current implementation uses a JSON Schema subset validator inside the runtime wrappers (object/array/scalar `type`, `required`, `properties`, `items`, `enum`, `anyOf`, `additionalProperties=false`) and mirrors the same behavior in `packages/runtime` for local testing.
 
 ## 5.3 Wrapper semantics
 ### `stopgap.query(schema, handler)`
@@ -424,7 +426,7 @@ Current progress snapshot:
 ## P1 (DX + correctness)
 - `stopgap.rollback` (implemented SQL API with `steps`/`to_id` targeting)
 - read-only enforcement for queries (implemented for `stopgap.query`; SQL classifier hardening can continue iteratively)
-- `stopgap.query/mutation` wrappers available in runtime + TS types package
+- `stopgap.query/mutation` wrappers available in runtime + TS types package, with JSON Schema arg validation + inferred TS helper types (`InferJsonSchema`)
 - better error messages + stack traces
 - caching compiled artifacts per backend
 

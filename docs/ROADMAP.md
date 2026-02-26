@@ -152,13 +152,13 @@ Legend:
 
 ## 5) Wrapper Model + Runtime UX (`@stopgap/runtime`) (P1)
 
-- [ ] Create package scaffold for `@stopgap/runtime`
-- [ ] Implement `stopgap.query(schema, handler)` wrapper
-- [ ] Implement `stopgap.mutation(schema, handler)` wrapper
+- [x] Create package scaffold for `@stopgap/runtime`
+- [x] Implement `stopgap.query(schema, handler)` wrapper
+- [x] Implement `stopgap.mutation(schema, handler)` wrapper
 - [x] Expose runtime metadata for handler kind
-- [ ] Choose/implement schema strategy (JSON Schema target)
-- [ ] Runtime arg validation against schema
-- [ ] TS type inference helpers for args/results
+- [x] Choose/implement schema strategy (JSON Schema target)
+- [x] Runtime arg validation against schema
+- [x] TS type inference helpers for args/results
 
 ---
 
@@ -187,7 +187,7 @@ Legend:
 - [x] Add tests for null normalization behavior in runtime
 - [x] Add tests for artifact pointer execution path
 - [x] Add tests for async default-export execution path (`v8_runtime`)
-- [ ] Add stopgap deploy integration test that validates:
+- [x] Add stopgap deploy integration test that validates:
   - [x] active deployment pointer changes
   - [x] live schema pointer body payload
   - [x] `fn_version` integrity
@@ -236,12 +236,12 @@ Legend:
 4. [x] Harden `stopgap.deploy` error handling and state transitions
 5. [x] Implement rollback/status APIs
 6. [x] Add permissions model for live schema and deploy APIs
-7. [ ] Introduce wrapper package (`@stopgap/runtime`) and schema validation
+7. [x] Introduce wrapper package (`@stopgap/runtime`) and schema validation
 
 ---
 
 ## 11) Current Snapshot
 
 - **P0 status:** Partially complete.
-- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write).
-- **Biggest missing piece:** wrapper package scaffolding + schema validation/type tooling.
+- **What works now:** workspace + extension scaffolds, artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation.
+- **Biggest missing piece:** operational hardening (`statement_timeout`/cancel wiring, memory caps), pg_regress automation, and CLI implementation.

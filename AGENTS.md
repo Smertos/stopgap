@@ -8,6 +8,8 @@ This file captures how to work effectively in this repository.
 - Crates:
   - `crates/plts`: language/runtime extension (`LANGUAGE plts`, artifact APIs)
   - `crates/stopgap`: deployment/environment extension
+- Packages:
+  - `packages/runtime`: `@stopgap/runtime` wrappers + TS schema/type helpers
 - Docs:
   - `docs/PROJECT-OUTLINE.md`: product/architecture source of truth
 
@@ -60,10 +62,10 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 ## Near-term technical debt to remember
 
 - `plts` runtime handler executes sync + async default-export JS when built with `v8_runtime`, now via ES module loading (including `data:` imports and bare `@stopgap/runtime`); broader arbitrary import-resolution coverage is still pending, but runtime errors surface stage/message/stack with SQL function identity context.
-- `plts` runtime now exposes `ctx.db.query/exec` SPI bindings with structured JSON parameter binding and wrapper-aware DB mode (`stopgap.query` => read-only, `stopgap.mutation`/regular => read-write).
+- `plts` runtime now exposes `ctx.db.query/exec` SPI bindings with structured JSON parameter binding and wrapper-aware DB mode (`stopgap.query` => read-only, `stopgap.mutation`/regular => read-write), with JSON-Schema-based arg validation in runtime wrappers.
 - `plts.compile_ts` now transpiles TS->JS via `deno_ast`, reports structured diagnostics, records compiler fingerprint metadata from lockfile-resolved dependency versions, and can persist source-map payloads when `compiler_opts.source_map=true`.
 - DB-backed `plts` integration tests cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization, artifact-pointer execution, and async default-export execution under `v8_runtime`.
-- Stopgap function kind (`query` vs `mutation`) is currently convention-based, not wrapper-enforced.
+- Stopgap deploy still records function kind as a default convention (`mutation`), while runtime enforcement relies on wrapper metadata.
 - Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, checks deploy caller privileges, and ships rollback/status/deployments/diff APIs plus activation/environment introspection views.
 - DB-backed `stopgap` integration tests now cover deploy pointer updates, live pointer payload correctness, `fn_version` integrity, overloaded-function rejection, and rollback status/pointer rematerialization.
 - Stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`; ownership/role hardening baseline is now in place (`stopgap_owner`, `stopgap_deployer`, `app_user`, SECURITY DEFINER deploy/rollback/diff, and live-schema execute grants).
