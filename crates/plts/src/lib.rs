@@ -255,7 +255,18 @@ fn bind_json_params(params: Vec<Value>) -> Vec<BoundParam> {
 }
 
 #[cfg(feature = "v8_runtime")]
-fn query_json_rows_with_params(sql: &str, params: Vec<Value>) -> Result<Value, String> {
+fn query_json_rows_with_params(
+    sql: &str,
+    params: Vec<Value>,
+    read_only: bool,
+) -> Result<Value, String> {
+    if read_only && !is_read_only_sql(sql) {
+        return Err(
+            "db.query is read-only for stopgap.query handlers; use a SELECT-only statement"
+                .to_string(),
+        );
+    }
+
     let bound = bind_json_params(params);
     let args: Vec<DatumWithOid<'_>> = bound.iter().map(BoundParam::as_datum_with_oid).collect();
     let wrapped_sql =
@@ -270,11 +281,74 @@ fn query_json_rows_with_params(sql: &str, params: Vec<Value>) -> Result<Value, S
 }
 
 #[cfg(feature = "v8_runtime")]
-fn exec_sql_with_params(sql: &str, params: Vec<Value>) -> Result<Value, String> {
+fn exec_sql_with_params(sql: &str, params: Vec<Value>, read_only: bool) -> Result<Value, String> {
+    if read_only {
+        return Err("db.exec is disabled for stopgap.query handlers; switch to stopgap.mutation"
+            .to_string());
+    }
+
     let bound = bind_json_params(params);
     let args: Vec<DatumWithOid<'_>> = bound.iter().map(BoundParam::as_datum_with_oid).collect();
     Spi::run_with_args(sql, &args).map_err(|e| format!("db.exec SPI error: {e}"))?;
     Ok(json!({ "ok": true }))
+}
+
+#[cfg(feature = "v8_runtime")]
+fn is_read_only_sql(sql: &str) -> bool {
+    let normalized = strip_leading_sql_comments(sql).to_ascii_lowercase();
+    if !(normalized.starts_with("select") || normalized.starts_with("with")) {
+        return false;
+    }
+
+    let forbidden = [
+        "insert", "update", "delete", "merge", "create", "alter", "drop", "truncate", "grant",
+        "revoke", "vacuum", "analyze", "reindex", "cluster", "call", "copy",
+    ];
+
+    let mut token = String::new();
+    for ch in normalized.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            token.push(ch);
+            continue;
+        }
+
+        if !token.is_empty() {
+            if forbidden.contains(&token.as_str()) {
+                return false;
+            }
+            token.clear();
+        }
+    }
+
+    if !token.is_empty() && forbidden.contains(&token.as_str()) {
+        return false;
+    }
+
+    true
+}
+
+#[cfg(feature = "v8_runtime")]
+fn strip_leading_sql_comments(sql: &str) -> &str {
+    let mut rest = sql.trim_start();
+    loop {
+        if let Some(line_comment) = rest.strip_prefix("--") {
+            if let Some(newline_idx) = line_comment.find('\n') {
+                rest = line_comment[(newline_idx + 1)..].trim_start();
+                continue;
+            }
+            return "";
+        }
+
+        if let Some(block_comment) = rest.strip_prefix("/*") {
+            if let Some(end_idx) = block_comment.find("*/") {
+                rest = block_comment[(end_idx + 2)..].trim_start();
+                continue;
+            }
+            return "";
+        }
+
+        return rest;
+    }
 }
 
 fn load_function_program(fn_oid: pg_sys::Oid) -> Option<FunctionProgram> {
@@ -738,6 +812,25 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
 
     struct PltsModuleLoader;
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum DbAccessMode {
+        ReadOnly,
+        ReadWrite,
+    }
+
+    impl DbAccessMode {
+        fn is_read_only(self) -> bool {
+            matches!(self, Self::ReadOnly)
+        }
+
+        fn as_js_mode(self) -> &'static str {
+            match self {
+                Self::ReadOnly => "ro",
+                Self::ReadWrite => "rw",
+            }
+        }
+    }
+
     impl ModuleLoader for PltsModuleLoader {
         fn resolve(
             &self,
@@ -828,8 +921,10 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
     fn op_plts_db_query(
         #[string] sql: String,
         #[serde] params: Vec<serde_json::Value>,
+        read_only: bool,
     ) -> Result<serde_json::Value, deno_error::JsErrorBox> {
-        query_json_rows_with_params(&sql, params).map_err(|e| deno_error::JsErrorBox::generic(e))
+        query_json_rows_with_params(&sql, params, read_only)
+            .map_err(|e| deno_error::JsErrorBox::generic(e))
     }
 
     #[op2]
@@ -837,8 +932,10 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
     fn op_plts_db_exec(
         #[string] sql: String,
         #[serde] params: Vec<serde_json::Value>,
+        read_only: bool,
     ) -> Result<serde_json::Value, deno_error::JsErrorBox> {
-        exec_sql_with_params(&sql, params).map_err(|e| deno_error::JsErrorBox::generic(e))
+        exec_sql_with_params(&sql, params, read_only)
+            .map_err(|e| deno_error::JsErrorBox::generic(e))
     }
 
     deno_core::extension!(plts_runtime_ext, ops = [op_plts_db_query, op_plts_db_exec]);
@@ -901,25 +998,59 @@ fn execute_program(source: &str, context: &Value) -> Result<Option<Value>, Runti
         }
     }
 
+    let db_mode = {
+        let handler_kind_value = runtime
+            .execute_script(
+                "plts_handler_kind.js",
+                r#"
+                (() => {
+                    const kind = globalThis.__plts_default?.__stopgap_kind;
+                    return typeof kind === "string" ? kind : null;
+                })();
+                "#,
+            )
+            .map_err(|e| format_js_error("handler metadata", &e.to_string()))?;
+
+        deno_core::scope!(scope, runtime);
+        let local = v8::Local::new(scope, handler_kind_value);
+        let handler_kind = serde_v8::from_v8::<Option<String>>(scope, local).map_err(|e| {
+            RuntimeExecError::new(
+                "handler metadata",
+                format!("failed to decode stopgap handler kind: {e}"),
+            )
+        })?;
+
+        match handler_kind.as_deref() {
+            Some("query") => DbAccessMode::ReadOnly,
+            _ => DbAccessMode::ReadWrite,
+        }
+    };
+
     let context_json = serde_json::to_string(context).map_err(|e| {
         RuntimeExecError::new(
             "context serialize",
             format!("failed to serialize runtime context: {e}"),
         )
     })?;
+
+    let db_mode_js = db_mode.as_js_mode();
+    let db_read_only_js = if db_mode.is_read_only() { "true" } else { "false" };
     let set_ctx_script = format!(
         "globalThis.__plts_ctx = JSON.parse({});\
          globalThis.__plts_ctx.db = {{\
-           mode: 'rw',\
-           query: (sql, params = []) => Deno.core.ops.op_plts_db_query(sql, params),\
-           exec: (sql, params = []) => Deno.core.ops.op_plts_db_exec(sql, params)\
+           mode: '{}',\
+           query: (sql, params = []) => Deno.core.ops.op_plts_db_query(sql, params, {}),\
+           exec: (sql, params = []) => Deno.core.ops.op_plts_db_exec(sql, params, {})\
          }};",
         serde_json::to_string(&context_json).map_err(|e| {
             RuntimeExecError::new(
                 "context encode",
                 format!("failed to encode runtime context string: {e}"),
             )
-        })?
+        })?,
+        db_mode_js,
+        db_read_only_js,
+        db_read_only_js
     );
 
     runtime
@@ -1090,6 +1221,21 @@ mod unit_tests {
         assert!(matches!(params[2], crate::BoundParam::Text(ref v) if v == "hello"));
         assert!(matches!(params[3], crate::BoundParam::Json(_)));
         assert!(matches!(params[4], crate::BoundParam::NullText));
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[test]
+    fn test_is_read_only_sql_accepts_select_and_rejects_writes() {
+        assert!(crate::is_read_only_sql("SELECT 1"));
+        assert!(crate::is_read_only_sql("-- comment\nSELECT now()"));
+        assert!(crate::is_read_only_sql("/* leading */ SELECT * FROM pg_class"));
+        assert!(crate::is_read_only_sql("WITH cte AS (SELECT 1) SELECT * FROM cte"));
+
+        assert!(!crate::is_read_only_sql("INSERT INTO t(id) VALUES (1)"));
+        assert!(!crate::is_read_only_sql(
+            "WITH x AS (INSERT INTO t VALUES (1) RETURNING 1) SELECT * FROM x"
+        ));
+        assert!(!crate::is_read_only_sql("DELETE FROM t"));
     }
 }
 
@@ -1421,10 +1567,135 @@ mod tests {
 
         assert_eq!(payload.0.get("kind").and_then(Value::as_str), Some("query"));
         assert_eq!(payload.0.get("id").and_then(Value::as_i64), Some(13));
-        assert_eq!(payload.0.get("dbMode").and_then(Value::as_str), Some("rw"));
+        assert_eq!(payload.0.get("dbMode").and_then(Value::as_str), Some("ro"));
 
         Spi::run("DROP SCHEMA IF EXISTS plts_runtime_stopgap_import_it CASCADE;")
             .expect("runtime stopgap import teardown SQL should succeed");
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[pg_test]
+    fn test_stopgap_query_wrapper_rejects_db_exec() {
+        Spi::run(
+            r#"
+            DROP SCHEMA IF EXISTS plts_runtime_stopgap_query_exec_it CASCADE;
+            CREATE SCHEMA plts_runtime_stopgap_query_exec_it;
+            CREATE OR REPLACE FUNCTION plts_runtime_stopgap_query_exec_it.wrapped(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            import { query } from "@stopgap/runtime";
+
+            export default query({ type: "object" }, async (_args, ctx) => {
+                await ctx.db.exec("SELECT 1", []);
+                return { ok: true };
+            });
+            $$;
+            "#,
+        )
+        .expect("stopgap query exec rejection setup SQL should succeed");
+
+        Spi::run(
+            r#"
+            DO $$
+            BEGIN
+                PERFORM plts_runtime_stopgap_query_exec_it.wrapped('{}'::jsonb);
+                RAISE EXCEPTION 'expected db.exec rejection for query wrapper';
+            EXCEPTION
+                WHEN OTHERS THEN
+                    IF POSITION('db.exec is disabled for stopgap.query handlers' IN SQLERRM) = 0 THEN
+                        RAISE;
+                    END IF;
+            END;
+            $$;
+            "#,
+        )
+        .expect("query wrapper should reject db.exec");
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_runtime_stopgap_query_exec_it CASCADE;")
+            .expect("stopgap query exec rejection teardown SQL should succeed");
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[pg_test]
+    fn test_stopgap_query_wrapper_rejects_write_sql_in_db_query() {
+        Spi::run(
+            r#"
+            DROP SCHEMA IF EXISTS plts_runtime_stopgap_query_write_it CASCADE;
+            CREATE SCHEMA plts_runtime_stopgap_query_write_it;
+            CREATE TABLE plts_runtime_stopgap_query_write_it.items(id int4);
+            CREATE OR REPLACE FUNCTION plts_runtime_stopgap_query_write_it.wrapped(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            import { query } from "@stopgap/runtime";
+
+            export default query({ type: "object" }, async (_args, ctx) => {
+                await ctx.db.query("WITH w AS (INSERT INTO plts_runtime_stopgap_query_write_it.items(id) VALUES (1) RETURNING id) SELECT id FROM w", []);
+                return { ok: true };
+            });
+            $$;
+            "#,
+        )
+        .expect("stopgap query write rejection setup SQL should succeed");
+
+        Spi::run(
+            r#"
+            DO $$
+            BEGIN
+                PERFORM plts_runtime_stopgap_query_write_it.wrapped('{}'::jsonb);
+                RAISE EXCEPTION 'expected write SQL rejection for query wrapper';
+            EXCEPTION
+                WHEN OTHERS THEN
+                    IF POSITION('db.query is read-only for stopgap.query handlers' IN SQLERRM) = 0 THEN
+                        RAISE;
+                    END IF;
+            END;
+            $$;
+            "#,
+        )
+        .expect("query wrapper should reject write SQL through db.query");
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_runtime_stopgap_query_write_it CASCADE;")
+            .expect("stopgap query write rejection teardown SQL should succeed");
+    }
+
+    #[cfg(feature = "v8_runtime")]
+    #[pg_test]
+    fn test_stopgap_mutation_wrapper_allows_db_exec() {
+        Spi::run(
+            r#"
+            DROP SCHEMA IF EXISTS plts_runtime_stopgap_mutation_it CASCADE;
+            CREATE SCHEMA plts_runtime_stopgap_mutation_it;
+            CREATE TABLE plts_runtime_stopgap_mutation_it.items(id int4);
+            CREATE OR REPLACE FUNCTION plts_runtime_stopgap_mutation_it.wrapped(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $$
+            import { mutation } from "@stopgap/runtime";
+
+            export default mutation({ type: "object" }, async (args, ctx) => {
+                await ctx.db.exec("INSERT INTO plts_runtime_stopgap_mutation_it.items(id) VALUES ($1)", [args.id]);
+                const rows = await ctx.db.query("SELECT id FROM plts_runtime_stopgap_mutation_it.items ORDER BY id", []);
+                return { kind: "mutation", dbMode: ctx.db.mode, count: rows.length };
+            });
+            $$;
+            "#,
+        )
+        .expect("stopgap mutation setup SQL should succeed");
+
+        let payload = Spi::get_one::<JsonB>(
+            "SELECT plts_runtime_stopgap_mutation_it.wrapped('{\"id\": 17}'::jsonb)",
+        )
+        .expect("mutation wrapper invocation should succeed")
+        .expect("mutation wrapper should return jsonb");
+
+        assert_eq!(payload.0.get("kind").and_then(Value::as_str), Some("mutation"));
+        assert_eq!(payload.0.get("dbMode").and_then(Value::as_str), Some("rw"));
+        assert_eq!(payload.0.get("count").and_then(Value::as_i64), Some(1));
+
+        Spi::run("DROP SCHEMA IF EXISTS plts_runtime_stopgap_mutation_it CASCADE;")
+            .expect("stopgap mutation teardown SQL should succeed");
     }
 }
 

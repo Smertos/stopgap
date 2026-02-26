@@ -26,7 +26,7 @@ This file captures how to work effectively in this repository.
 - Stopgap-managed overloading is forbidden.
 - Regular `plts` calling convention should expose both positional and named/object argument forms.
 - Default export is the entrypoint convention.
-- Read-only DB API enforcement is deferred (RW-only allowed in current P0 state).
+- P0 baseline DB API mode is RW; P1 adds wrapper-aware read-only gating for `stopgap.query` handlers.
 
 ## Implementation guardrails
 
@@ -60,7 +60,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 ## Near-term technical debt to remember
 
 - `plts` runtime handler executes sync + async default-export JS when built with `v8_runtime`, now via ES module loading (including `data:` imports and bare `@stopgap/runtime`); broader arbitrary import-resolution coverage is still pending, but runtime errors surface stage/message/stack with SQL function identity context.
-- `plts` runtime now exposes RW `ctx.db.query/exec` SPI bindings with structured JSON parameter binding; read-only gate enforcement is still pending.
+- `plts` runtime now exposes `ctx.db.query/exec` SPI bindings with structured JSON parameter binding and wrapper-aware DB mode (`stopgap.query` => read-only, `stopgap.mutation`/regular => read-write).
 - `plts.compile_ts` now transpiles TS->JS via `deno_ast`, reports structured diagnostics, records compiler fingerprint metadata from lockfile-resolved dependency versions, and can persist source-map payloads when `compiler_opts.source_map=true`.
 - DB-backed `plts` integration tests cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization, artifact-pointer execution, and async default-export execution under `v8_runtime`.
 - Stopgap function kind (`query` vs `mutation`) is currently convention-based, not wrapper-enforced.

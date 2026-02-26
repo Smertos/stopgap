@@ -174,8 +174,9 @@ Current implementation status:
 - P0 runtime context now exposes RW `ctx.db.query(sql, params)` and `ctx.db.exec(sql, params)`.
 - JS params are bound into SPI calls as typed values (`bool`, `int`, `float`, `text`, `jsonb`, null).
 - Runtime DB calls execute inside the same PostgreSQL transaction as the invoking SQL function call; no independent transaction is started by the runtime.
+- Runtime now reads `@stopgap/runtime` wrapper metadata (`__stopgap_kind`) and switches DB mode accordingly: `query` handlers get `ctx.db.mode='ro'` with `db.exec` denied and read-only-only `db.query` filtering, while `mutation`/regular handlers stay `rw`.
 
-Current state: P0 is RW-only; read-only enforcement is deferred to P1.
+Current state: P0 baseline remains RW; P1 wrapper-aware read-only gating is now implemented for `stopgap.query` handlers.
 
 ## 3.7 Safety and ops (must-have)
 - Tie JS interrupts to Postgres cancellation (`statement_timeout`, user cancel).
@@ -421,7 +422,7 @@ Current progress snapshot:
 
 ## P1 (DX + correctness)
 - `stopgap.rollback` (implemented SQL API with `steps`/`to_id` targeting)
-- read-only enforcement for queries
+- read-only enforcement for queries (implemented for `stopgap.query`; SQL classifier hardening can continue iteratively)
 - `stopgap.query/mutation` wrappers available in runtime + TS types package
 - better error messages + stack traces
 - caching compiled artifacts per backend
