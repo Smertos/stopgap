@@ -2,8 +2,6 @@
 
 This document captures the `plts` runtime call contract and result semantics.
 
-Planning note (Feb 2026): roadmap continuation is currently in a docs-only planning phase; this file should track implemented behavior and avoid speculative contract drift.
-
 ## Entrypoint shape
 
 `LANGUAGE plts` handlers execute a module default export:
@@ -62,3 +60,8 @@ type SqlObjectLike =
   - `plts.max_sql_bytes`
   - `plts.max_params`
   - `plts.max_query_rows`
+
+## Contract verification
+
+- DB-backed contract tests live in `crates/plts/tests/pg/runtime_contract.rs`.
+- Existing behavior suites in `crates/plts/tests/pg/runtime_nulls.rs`, `crates/plts/tests/pg/runtime_db_input_forms.rs`, and `crates/plts/tests/pg/runtime_stopgap_wrappers.rs` also guard this document's guarantees.

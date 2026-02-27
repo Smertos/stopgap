@@ -1,8 +1,8 @@
-use pgrx::prelude::*;
 use pgrx::JsonB;
+use pgrx::prelude::*;
+use serde_json::Value;
 #[cfg(feature = "v8_runtime")]
 use serde_json::json;
-use serde_json::Value;
 
 include!("arg_conversion.rs");
 include!("artifact_catalog.rs");
@@ -11,6 +11,8 @@ include!("metrics.rs");
 include!("runtime_artifact_pointer.rs");
 #[cfg(feature = "v8_runtime")]
 include!("runtime_async.rs");
+#[cfg(feature = "v8_runtime")]
+include!("runtime_contract.rs");
 #[cfg(feature = "v8_runtime")]
 include!("runtime_db_input_forms.rs");
 #[cfg(feature = "v8_runtime")]

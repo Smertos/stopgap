@@ -284,6 +284,7 @@ Legend:
 - **Module split note:** both extension entrypoints are now thin (`crates/plts/src/lib.rs` and `crates/stopgap/src/lib.rs`), with `plts` split across `api.rs`, `handler.rs`, `runtime.rs`, `compiler.rs`, `runtime_spi.rs`, `function_program.rs`, and `arg_mapping.rs`.
 - **Wrapper parity note:** the in-DB `@stopgap/runtime` module source is now loaded from `packages/runtime/src/embedded.ts`, so wrapper validation/metadata behavior stays aligned between package and runtime.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
+- **Runtime contract note:** `docs/RUNTIME-CONTRACT.md` is now aligned to current runtime behavior and is guarded by dedicated DB-backed tests in `crates/plts/tests/pg/runtime_contract.rs` plus existing runtime contract suites.
 - **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
 - **Runtime package note:** `packages/runtime` now has a self-test harness (`selftest.mjs`) covering wrapper metadata, validation behavior, and default export API parity, and CI baseline runs package `check` + `test`.
 - **CI note:** CI now includes a dedicated `plts runtime v8 (pg16)` job for runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage in addition to the baseline pgrx matrix.
@@ -370,9 +371,9 @@ Minimum implementation evidence:
 - [x] Wire package test/check execution into CI.
 
 #### G. Contract drift closure
-- [ ] Reconcile `docs/RUNTIME-CONTRACT.md` with current runtime output/API shapes.
-- [ ] Add contract-focused tests guarding documented behavior.
-- [ ] Add review rule: contract-affecting code changes require doc updates in same PR.
+- [x] Reconcile `docs/RUNTIME-CONTRACT.md` with current runtime output/API shapes.
+- [x] Add contract-focused tests guarding documented behavior.
+- [x] Add review rule: contract-affecting code changes require doc updates in same PR.
 
 #### H. Security hardening (read-only + privilege checks)
 - [ ] Strengthen `stopgap.query` read-only enforcement edge-case coverage.
