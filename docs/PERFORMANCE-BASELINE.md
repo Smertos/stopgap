@@ -72,3 +72,27 @@ Interpretation notes:
 - This command-level wall clock includes extension rebuild/install and test harness startup overhead in addition to runtime execute-loop work.
 - The before/after publication requirement is now satisfied with measured evidence, but signal quality is still noisy at this granularity.
 - Follow-up profiling should capture loop-level timings directly (compile loop and execute loop separately) so optimization impact is easier to isolate from harness overhead.
+
+## Iteration 12 cache policy hardening + benchmark snapshot
+
+- Implemented in `crates/plts/src/function_program.rs`:
+  - function-program cache now uses explicit keying by `fn_oid` with LRU eviction
+  - cache entries now expire via TTL invalidation (`30s`) to avoid indefinite staleness
+  - cache now enforces source-size memory bounds (`4 MiB`) in addition to entry-count bounds (`256`)
+  - added unit coverage for byte-budget eviction and TTL expiration behavior
+- Validation commands executed after this change:
+  - `cargo check`
+  - `cargo test`
+  - `cargo pgrx test -p plts`
+  - `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`
+  - `cargo pgrx test -p stopgap`
+  - `cargo pgrx regress -p stopgap`
+
+Benchmark snapshot command:
+
+```bash
+TIMEFMT='BENCHMARK_WALL_SECONDS=%E'; time cargo pgrx test -p plts pg17 test_runtime_performance_baseline_snapshot
+```
+
+- after (iteration 12 cache policy hardening): `BENCHMARK_WALL_SECONDS=6.18s`
+- note: this is a command-level wall-clock measurement and includes extension build/install overhead in addition to execute-loop runtime work.

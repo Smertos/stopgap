@@ -285,7 +285,7 @@ Legend:
 - **Module split note:** both extension entrypoints are now thin (`crates/plts/src/lib.rs` and `crates/stopgap/src/lib.rs`), with `plts` split across `api.rs`, `handler.rs`, `runtime.rs`, `compiler.rs`, `runtime_spi.rs`, `function_program.rs`, and `arg_mapping.rs`.
 - **Wrapper parity note:** the in-DB `@stopgap/runtime` module source is now loaded from `packages/runtime/src/embedded_runtime.js`, so wrapper validation/metadata behavior stays aligned between package and runtime.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
-- **Performance note:** iteration 10 benchmark-backed optimizations are now in place for hot execute paths via backend-local non-pointer function program caching and argument-type caching for regular invocation payload mapping.
+- **Performance note:** iteration 10 benchmark-backed optimizations are now in place for hot execute paths via backend-local non-pointer function program caching and argument-type caching for regular invocation payload mapping; iteration 12 hardens function-program caching with explicit LRU keying (`fn_oid`), TTL invalidation, and source-byte memory bounds.
 - **Runtime contract note:** `docs/RUNTIME-CONTRACT.md` is now aligned to current runtime behavior and is guarded by dedicated DB-backed tests in `crates/plts/tests/pg/runtime_contract.rs` plus existing runtime contract suites.
 - **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
 - **Runtime package note:** `packages/runtime` now has a self-test harness (`selftest.mjs`) covering wrapper metadata, validation behavior, and default export API parity, and CI baseline runs package `check` + `test`.
@@ -343,13 +343,13 @@ Minimum implementation evidence:
 - [x] docs links validated
 
 #### 2. Hot cache for JS bytecode in `plts`
-- [ ] Add in-memory cache for recently called function bytecode/programs in backend-process hot paths.
-- [ ] Define cache keying, invalidation, memory bounds, and eviction policy.
-- [ ] Add benchmark evidence and safety/contract regression checks.
+- [x] Add in-memory cache for recently called function bytecode/programs in backend-process hot paths.
+- [x] Define cache keying, invalidation, memory bounds, and eviction policy.
+- [x] Add benchmark evidence and safety/contract regression checks.
 
 Minimum implementation evidence:
-- [ ] implementation + tests in `crates/plts`
-- [ ] before/after data in `docs/PERFORMANCE-BASELINE.md`
+- [x] implementation + tests in `crates/plts`
+- [x] before/after data in `docs/PERFORMANCE-BASELINE.md`
 
 #### 3. Migrate wrapper args schema to zod/mini (`v`)
 - [x] Move stopgap wrapper arg validation from JSON Schema subset to zod/mini-style `v` schemas.

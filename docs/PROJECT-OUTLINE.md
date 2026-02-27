@@ -500,7 +500,7 @@ Current progress snapshot:
 - `stopgap.query/mutation` wrappers available in runtime + TS types package, with `v` schema arg validation + inferred TS helper types (`InferArgsSchema`) and compatibility fallback for legacy JSON Schema inputs
 - better error messages + stack traces
 - caching compiled artifacts per backend (artifact-pointer source cache now implemented in `plts`)
-- hot-path execute caching for regular/non-pointer functions and argument-type lookup (backend-local in `plts`)
+- hot-path execute caching for regular/non-pointer functions and argument-type lookup (backend-local in `plts`), now with explicit LRU eviction, TTL invalidation, and source-byte memory bounds for function-program cache entries
 
 ## P1.5 (structure + interop)
 - introduce and expand `crates/common` for shared helper logic across extensions (workspace + initial helper migration in place)
