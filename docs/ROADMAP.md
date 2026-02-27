@@ -332,7 +332,8 @@ Required verification per meaningful item:
 Minimum implementation evidence:
 - [x] CI/runtime references aligned in `.github/workflows/ci.yml`, `AGENTS.md`, and `docs/DEVELOPER-QUICKSTART.md`
 - [x] local runtime-lane verification passed via `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` during iteration 4
-- [ ] at least one green CI run including `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`
+- [x] at least one green CI run including `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`
+  - evidence: workflow runs #7-#10 for `ci.yml` all completed with green `plts runtime v8 (pg17)` job execution (`https://github.com/Smertos/stopgap/actions/workflows/ci.yml`)
 
 #### 1. Add simple root README
 - [x] Add root `README.md` with quickstart-first onboarding.
