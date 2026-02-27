@@ -118,7 +118,7 @@ jobs:
           retention-days: 7
 
   plts-runtime-v8-tests:
-    name: plts runtime v8 unit (pg17)
+    name: plts runtime v8 (pg17)
     runs-on: ubuntu-latest
     env:
       PGRX_HOME: ${{ github.workspace }}/.pgrx
@@ -154,8 +154,10 @@ jobs:
       - name: Initialize cargo-pgrx
         run: cargo pgrx init --pg17 /usr/lib/postgresql/17/bin/pg_config
 
-      - name: Run plts runtime-heavy unit tests
-        run: cargo test -p plts --lib --no-default-features --features "pg17,v8_runtime"
+      - name: Run plts runtime-heavy tests
+        env:
+          RUSTFLAGS: -Clink-arg=-fuse-ld=bfd
+        run: cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"
 
       - name: Collect runtime diagnostics bundle
         if: failure()
