@@ -293,13 +293,14 @@ Legend:
 - **Cross-extension e2e note:** stopgap rollback pg_regress now covers `deploy -> live execute -> rollback` and verifies both execution continuity and pointer rematerialization after rollback.
 - **Security hardening note:** deploy permission checks now explicitly enforce source-schema existence/USAGE, `plts.compile_and_store` EXECUTE access, and stopgap-owned live schema usage; security pg_regress now includes deny/allow scenarios for source-schema and unmanaged-live-schema paths.
 - **Docs note:** quickstart, runtime contract, deployment runbook, performance baseline, and troubleshooting guides now live under `docs/`.
-- **Biggest missing pieces:** CI evidence capture for runtime-lane execution in GitHub Actions and broader package-style/bundled runtime import compatibility beyond current `data:` + `plts+artifact:` + `@stopgap/runtime` support.
+- **Biggest missing pieces:** CI evidence capture for runtime-lane execution in GitHub Actions and deploy-time ergonomics for supplying runtime bare-import maps without hand-authored inline comments.
 
 ---
 
 ## 12) Post-Roadmap Follow-up Backlog
 
-- [ ] Expand runtime module-graph/bundling compatibility for package-style imports beyond current `data:` URLs, `plts+artifact:<hash>`, and built-in `@stopgap/runtime`.
+- [x] Expand runtime module-graph/bundling compatibility for package-style imports beyond current `data:` URLs, `plts+artifact:<hash>`, and built-in `@stopgap/runtime` by adding bare-specifier import-map support via inline `plts-import-map` comments.
+- [ ] Add stopgap deploy plumbing to emit/manage import maps for live pointer functions so runtime bare-specifier mapping does not require manual inline comments in function sources.
 
 ---
 

@@ -111,6 +111,77 @@ fn test_runtime_supports_nested_module_graph_with_artifact_imports() {
 }
 
 #[pg_test]
+fn test_runtime_supports_bare_imports_via_inline_import_map() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_module_bare_map_it CASCADE;
+        CREATE SCHEMA plts_runtime_module_bare_map_it;
+        CREATE OR REPLACE FUNCTION plts_runtime_module_bare_map_it.imported(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$
+        // plts-import-map: {"@app/math":"data:text/javascript;base64,ZXhwb3J0IGNvbnN0IGJhc2UgPSA0MDs="}
+        import { base } from "@app/math";
+        export default (ctx) => ({ total: base + ctx.args.delta });
+        $$;
+        "#,
+    )
+    .expect("bare import map setup SQL should succeed");
+
+    let payload = Spi::get_one::<JsonB>(
+        "SELECT plts_runtime_module_bare_map_it.imported('{\"delta\": 2}'::jsonb)",
+    )
+    .expect("bare import map invocation should succeed")
+    .expect("bare import map invocation should return jsonb");
+
+    assert_eq!(payload.0.get("total").and_then(Value::as_i64), Some(42));
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_module_bare_map_it CASCADE;")
+        .expect("bare import map teardown SQL should succeed");
+}
+
+#[pg_test]
+fn test_runtime_rejects_unmapped_bare_import_with_actionable_error() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_module_bare_missing_it CASCADE;
+        CREATE SCHEMA plts_runtime_module_bare_missing_it;
+        CREATE OR REPLACE FUNCTION plts_runtime_module_bare_missing_it.imported(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$
+        import { base } from "@app/math";
+        export default () => ({ base });
+        $$;
+        "#,
+    )
+    .expect("unmapped bare import setup SQL should succeed");
+
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM plts_runtime_module_bare_missing_it.imported('{}'::jsonb);
+            RAISE EXCEPTION 'expected unmapped bare import failure';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('unsupported bare module import `@app/math`' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+                IF POSITION('plts-import-map' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END;
+        $$;
+        "#,
+    )
+    .expect("unmapped bare import should fail with actionable error");
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_module_bare_missing_it CASCADE;")
+        .expect("unmapped bare import teardown SQL should succeed");
+}
+
+#[pg_test]
 fn test_runtime_rejects_unknown_artifact_module_specifier() {
     Spi::run(
         r#"

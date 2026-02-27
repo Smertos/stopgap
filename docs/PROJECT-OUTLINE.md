@@ -338,10 +338,11 @@ Runtime module imports currently support:
 - `data:` module specifiers
 - `plts+artifact:<hash>` module specifiers backed by `plts.artifact.compiled_js`
 - bare `@stopgap/runtime`
+- additional bare specifiers via inline source comments of the form `// plts-import-map: {"pkg/name":"plts+artifact:sha256:..."}` (also accepts `data:` targets and raw `sha256:...` artifact-hash shorthand)
 
 Unsupported for now:
 - arbitrary filesystem/network module resolution
-- package-manager style bare imports other than `@stopgap/runtime`
+- package-manager style bare imports that are not explicitly mapped via `plts-import-map`
 
 ## 5.2 Schema format
 Pick one schema strategy:
@@ -463,7 +464,7 @@ Current progress snapshot:
 - runtime now wires `ctx.db.query/exec` to SPI with structured JS parameter binding
 - deno_core dependency and feature-gated isolate bootstrap scaffolding are in place
 - async default-export handler execution is now supported in the V8 runtime path
-- runtime now evaluates ES modules via the module loader (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, and a built-in bare `@stopgap/runtime` module); broader arbitrary import-resolution strategies are still pending
+- runtime now evaluates ES modules via the module loader (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, a built-in bare `@stopgap/runtime` module, and additional bare-specifier imports mapped via inline `plts-import-map` comments)
 - `plts.compile_ts` now performs real TS->JS transpilation via `deno_ast` and returns structured diagnostics
 - `plts` compiler fingerprinting now derives from real dependency versions (`deno_ast`/`deno_core`) from workspace lock metadata
 - optional source-map persistence is now supported in `plts.artifact` when `compiler_opts.source_map=true`

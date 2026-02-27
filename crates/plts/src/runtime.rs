@@ -8,6 +8,8 @@ use base64::Engine;
 use pgrx::prelude::*;
 use serde_json::Value;
 use serde_json::json;
+#[cfg(any(test, feature = "v8_runtime"))]
+use std::collections::HashMap;
 use std::fmt;
 #[cfg(feature = "v8_runtime")]
 use std::rc::Rc;
@@ -92,6 +94,61 @@ pub(crate) fn build_runtime_context(program: &FunctionProgram, args_payload: &Va
 
 fn current_timestamp_text() -> String {
     Spi::get_one::<String>("SELECT now()::text").ok().flatten().unwrap_or_default()
+}
+
+#[cfg(any(test, feature = "v8_runtime"))]
+const INLINE_IMPORT_MAP_MARKER: &str = "plts-import-map:";
+
+#[cfg(any(test, feature = "v8_runtime"))]
+fn parse_inline_import_map(source: &str) -> HashMap<String, String> {
+    let Some(marker_start) = source.find(INLINE_IMPORT_MAP_MARKER) else {
+        return HashMap::new();
+    };
+
+    let mut cursor = marker_start + INLINE_IMPORT_MAP_MARKER.len();
+    while source[cursor..].chars().next().is_some_and(char::is_whitespace) {
+        cursor += source[cursor..].chars().next().map(char::len_utf8).unwrap_or(0);
+    }
+
+    if source[cursor..].chars().next() != Some('{') {
+        return HashMap::new();
+    }
+
+    let mut depth = 0_i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut end = None;
+    for (offset, ch) in source[cursor..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(cursor + offset + ch.len_utf8());
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let Some(end) = end else {
+        return HashMap::new();
+    };
+
+    serde_json::from_str::<HashMap<String, String>>(&source[cursor..end]).unwrap_or_default()
 }
 
 #[cfg(feature = "v8_runtime")]
@@ -334,7 +391,34 @@ pub(crate) fn execute_program(
     const STOPGAP_RUNTIME_SPECIFIER: &str = "file:///plts/__stopgap_runtime__.js";
     const STOPGAP_RUNTIME_SOURCE: &str = include_str!("../../../packages/runtime/src/embedded.ts");
 
-    struct PltsModuleLoader;
+    #[derive(Clone)]
+    struct PltsModuleLoader {
+        bare_specifier_map: HashMap<String, String>,
+    }
+
+    fn is_bare_module_specifier(specifier: &str) -> bool {
+        !specifier.starts_with("./")
+            && !specifier.starts_with("../")
+            && !specifier.starts_with('/')
+            && !specifier.contains(':')
+    }
+
+    fn resolve_inline_import_map_target(
+        target: &str,
+    ) -> Result<ModuleSpecifier, deno_core::error::ModuleLoaderError> {
+        if let Ok(specifier) = ModuleSpecifier::parse(target) {
+            return Ok(specifier);
+        }
+
+        if target.starts_with("sha256:") {
+            let specifier = format!("plts+artifact:{target}");
+            return ModuleSpecifier::parse(&specifier).map_err(deno_error::JsErrorBox::from_err);
+        }
+
+        Err(deno_error::JsErrorBox::generic(format!(
+            "invalid inline import map target `{target}`; expected absolute module specifier or artifact hash"
+        )))
+    }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum DbAccessMode {
@@ -366,6 +450,17 @@ pub(crate) fn execute_program(
                 return ModuleSpecifier::parse(STOPGAP_RUNTIME_SPECIFIER)
                     .map_err(deno_error::JsErrorBox::from_err);
             }
+
+            if is_bare_module_specifier(specifier) {
+                if let Some(target) = self.bare_specifier_map.get(specifier) {
+                    return resolve_inline_import_map_target(target);
+                }
+
+                return Err(deno_error::JsErrorBox::generic(format!(
+                    "unsupported bare module import `{specifier}`; add an inline import map comment like `// {INLINE_IMPORT_MAP_MARKER} {{\"{specifier}\":\"plts+artifact:sha256:...\"}}`"
+                )));
+            }
+
             deno_core::resolve_import(specifier, referrer).map_err(deno_error::JsErrorBox::from_err)
         }
 
@@ -576,10 +671,11 @@ pub(crate) fn execute_program(
 
     let max_heap_setting = current_plts_max_heap_setting();
     let max_heap_bytes = max_heap_setting.as_deref().and_then(parse_runtime_heap_limit_bytes);
+    let bare_specifier_map = parse_inline_import_map(source);
 
     let mut runtime = JsRuntime::new(RuntimeOptions {
         extensions: vec![plts_runtime_ext::init()],
-        module_loader: Some(Rc::new(PltsModuleLoader)),
+        module_loader: Some(Rc::new(PltsModuleLoader { bare_specifier_map })),
         create_params: max_heap_bytes
             .map(|bytes| v8::Isolate::create_params().heap_limits(0, bytes)),
         ..Default::default()
@@ -793,4 +889,36 @@ pub(crate) fn execute_program(
 fn format_js_error(stage: &'static str, details: &str) -> RuntimeExecError {
     let (message, stack) = parse_js_error_details(details);
     RuntimeExecError::with_stack(stage, message, stack)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_inline_import_map;
+
+    #[test]
+    fn parse_inline_import_map_extracts_json_object_after_marker() {
+        let source = r#"
+            // plts-import-map: {"@app/math":"sha256:abc","@app/time":"data:text/javascript,export const now=1;"}
+            import { now } from "@app/time";
+            export default () => now;
+        "#;
+
+        let import_map = parse_inline_import_map(source);
+        assert_eq!(import_map.get("@app/math").map(String::as_str), Some("sha256:abc"));
+        assert_eq!(
+            import_map.get("@app/time").map(String::as_str),
+            Some("data:text/javascript,export const now=1;")
+        );
+    }
+
+    #[test]
+    fn parse_inline_import_map_returns_empty_when_marker_payload_is_invalid_json() {
+        let source = r#"
+            // plts-import-map: {"@app/math":
+            import { now } from "@app/math";
+            export default () => now;
+        "#;
+
+        assert!(parse_inline_import_map(source).is_empty());
+    }
 }
