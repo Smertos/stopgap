@@ -2,7 +2,7 @@ import {
   mutation as mutationCore,
   query as queryCore,
   validateArgs as validateArgsCore,
-} from "./embedded";
+} from "./embedded.js";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [k: string]: JsonValue };
@@ -53,9 +53,7 @@ type InferByType<S extends JsonSchema> = SchemaTypeName<S> extends "object"
 
 export type InferJsonSchema<S extends JsonSchema> = S["enum"] extends readonly JsonValue[]
   ? S["enum"][number]
-  : S["anyOf"] extends readonly JsonSchema[]
-    ? InferJsonSchema<S["anyOf"][number]>
-    : InferByType<S>;
+  : InferByType<S>;
 
 export type DbMode = "ro" | "rw";
 

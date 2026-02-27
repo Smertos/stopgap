@@ -285,6 +285,7 @@ Legend:
 - **Wrapper parity note:** the in-DB `@stopgap/runtime` module source is now loaded from `packages/runtime/src/embedded.ts`, so wrapper validation/metadata behavior stays aligned between package and runtime.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
 - **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
+- **Runtime package note:** `packages/runtime` now has a self-test harness (`selftest.mjs`) covering wrapper metadata, validation behavior, and default export API parity, and CI baseline runs package `check` + `test`.
 - **CI note:** CI now includes a dedicated `plts runtime v8 (pg16)` job for runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage in addition to the baseline pgrx matrix.
 - **Cross-extension e2e note:** stopgap rollback pg_regress now covers `deploy -> live execute -> rollback` and verifies both execution continuity and pointer rematerialization after rollback.
 - **Docs note:** quickstart, runtime contract, deployment runbook, and troubleshooting guides now live under `docs/`.
@@ -346,13 +347,13 @@ Minimum implementation evidence:
 - [x] `cargo pgrx regress -p stopgap --resetdb pg17 rollback`
 
 #### D. Wrapper mode e2e enforcement test
-- [ ] Add e2e test proving `stopgap.query` is read-only (`db.exec` denied).
-- [ ] Add e2e test proving `stopgap.mutation` remains read-write.
-- [ ] Assert clear runtime error message for denied write path.
+- [x] Add e2e test proving `stopgap.query` is read-only (`db.exec` denied).
+- [x] Add e2e test proving `stopgap.mutation` remains read-write.
+- [x] Assert clear runtime error message for denied write path.
 
 Minimum implementation evidence:
-- new tests in `crates/plts/tests/pg/` or `crates/stopgap/tests/pg/`
-- passing pgrx evidence for both allow/deny paths
+- [x] new tests in `crates/plts/tests/pg/runtime_stopgap_wrappers.rs`
+- [x] passing pgrx evidence for both allow/deny paths
 
 #### E. stopgap-cli integration coverage
 - [ ] Add integration tests for `deploy`, `status`, `rollback`, `deployments`, optional `diff`.
@@ -360,9 +361,9 @@ Minimum implementation evidence:
 - [ ] Validate JSON output schema for machine-readable mode.
 
 #### F. `packages/runtime` test coverage
-- [ ] Add tests for wrapper metadata (`query`/`mutation`) and validation behavior.
-- [ ] Add tests for exported API behavior in `packages/runtime/src/index.ts`.
-- [ ] Wire package test/check execution into CI.
+- [x] Add tests for wrapper metadata (`query`/`mutation`) and validation behavior.
+- [x] Add tests for exported API behavior in `packages/runtime/src/index.ts`.
+- [x] Wire package test/check execution into CI.
 
 #### G. Contract drift closure
 - [ ] Reconcile `docs/RUNTIME-CONTRACT.md` with current runtime output/API shapes.

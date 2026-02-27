@@ -23,7 +23,7 @@ This file captures how to work effectively in this repository.
 
 - Rust toolchain is pinned in `rust-toolchain.toml`.
 - Formatting/lint config is tracked in `rustfmt.toml` and `clippy.toml`.
-- CI workflow lives at `.github/workflows/ci.yml` and runs a fast baseline (`cargo check` + `cargo test`) plus per-crate `cargo pgrx test` matrix jobs; the stopgap matrix job also runs `cargo pgrx regress -p stopgap`, a dedicated `plts runtime v8 (pg16)` lane runs runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage, and pgrx/runtime jobs upload failure-only diagnostics artifacts (`PGRX_HOME` + `target/debug` bundles).
+- CI workflow lives at `.github/workflows/ci.yml` and runs a fast baseline (`packages/runtime` check/test + `cargo check` + `cargo test`) plus per-crate `cargo pgrx test` matrix jobs; the stopgap matrix job also runs `cargo pgrx regress -p stopgap`, a dedicated `plts runtime v8 (pg16)` lane runs runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage, and pgrx/runtime jobs upload failure-only diagnostics artifacts (`PGRX_HOME` + `target/debug` bundles).
 
 ## Current architecture assumptions (locked)
 
@@ -74,7 +74,9 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - `plts` runtime now applies deterministic DB API guardrails per call (bounded SQL text size, bound parameter count, and query row count via `plts.max_sql_bytes`, `plts.max_params`, and `plts.max_query_rows`).
 - Observability now includes backend-process metrics counters (`plts.metrics()`, `stopgap.metrics()`) and log-level gated compile/execute/deploy flow logging (`plts.log_level`, `stopgap.log_level`).
 - `plts` runtime now exposes `ctx.db.query/exec` SPI bindings with structured JSON parameter binding and wrapper-aware DB mode (`stopgap.query` => read-only, `stopgap.mutation`/regular => read-write), with JSON-Schema-based arg validation in runtime wrappers.
+- DB-backed wrapper enforcement coverage now includes explicit allow/deny tests (`stopgap.query` rejects `db.exec`/write SQL; `stopgap.mutation` allows writes) in `crates/plts/tests/pg/runtime_stopgap_wrappers.rs`.
 - Runtime/package wrapper parity is maintained via shared module source at `packages/runtime/src/embedded.ts`, which is what `plts` loads for the built-in `@stopgap/runtime` module.
+- `packages/runtime` now includes a self-test harness at `packages/runtime/selftest.mjs` to verify wrapper metadata/validation and exported API behavior, and CI baseline executes package `check` + `test`.
 - `plts` runtime now locks down module globals before execution (removing `Deno`, `fetch`, and related web APIs) so handlers only use the explicit `ctx.db` bridge and do not gain filesystem/network runtime surface.
 - `plts` runtime now applies a V8 watchdog per call using the stricter of `statement_timeout` and optional `plts.max_runtime_ms`, and routes pending Postgres cancel/die interrupt flags into the same V8 termination path.
 - `plts` runtime now optionally enforces `plts.max_heap_mb` per call by setting V8 heap limits and terminating execution on near-heap-limit callbacks.

@@ -25,6 +25,20 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install runtime package dependencies
+        run: npm install --prefix packages/runtime --no-package-lock
+
+      - name: Runtime package typecheck
+        run: npm run check --prefix packages/runtime
+
+      - name: Runtime package self-tests
+        run: npm run test --prefix packages/runtime
+
       - name: Cargo check
         run: cargo check --workspace --all-targets
 

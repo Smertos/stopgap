@@ -343,6 +343,7 @@ Given you need to store schema for inputs, JSON Schema is pragmatic:
 - At runtime you validate jsonb args with a Rust JSON schema validator or a lightweight JS validator.
 
 Current implementation uses a JSON Schema subset validator inside the runtime wrappers (object/array/scalar `type`, `required`, `properties`, `items`, `enum`, `anyOf`, `additionalProperties=false`) and mirrors the same behavior in `packages/runtime` for local testing.
+`packages/runtime` now includes a self-test harness (`selftest.mjs`) that verifies wrapper metadata, validation behavior, and exported API parity (`query`, `mutation`, `validateArgs`).
 
 ## 5.3 Wrapper semantics
 ### `stopgap.query(schema, handler)`
@@ -395,6 +396,7 @@ Current implementation status:
 - `crates/stopgap-cli` now implements deploy/rollback/status/deployments and diff commands against the SQL API.
 - CLI supports `--output human|json` for operator and automation workflows.
 - CLI uses explicit non-zero exit codes for connection/query/decode/output failures for CI/CD diagnostics.
+- CI baseline now runs `packages/runtime` typecheck + self-tests (`npm run check` and `npm run test`) alongside Rust checks/tests.
 
 ## 6.2 Deploy algorithm (single transaction, atomic)
 1) `pg_advisory_xact_lock(...)` per env
