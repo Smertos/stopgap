@@ -155,6 +155,8 @@ jobs:
         run: cargo pgrx init --pg17 /usr/lib/postgresql/17/bin/pg_config
 
       - name: Run plts runtime-heavy tests
+        env:
+          RUSTFLAGS: -Clink-arg=-fuse-ld=bfd
         run: cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"
 
       - name: Collect runtime diagnostics bundle
