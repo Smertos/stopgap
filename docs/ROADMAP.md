@@ -283,7 +283,7 @@ Legend:
 - **P1 status:** Complete.
 - **What works now:** workspace + extension scaffolds, shared `crates/common` helpers used by both extensions (currently SQL quoting + boolean setting parsing), artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), behavior-focused pgrx integration test files under `crates/*/tests/pg/`, focused `pg_regress` scenario files for deploy/rollback/prune/diff/security, and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime DB APIs now support SQL string + params, `{ sql, params }` inputs, and Drizzle-style `toSQL()` objects while preserving SPI SQL + bound params execution. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution using the stricter of `statement_timeout` and optional `plts.max_runtime_ms` plus pending Postgres cancel/die signals. Ongoing module splitting now includes `crates/plts/src/compiler.rs` for compile/fingerprint/source-map logic, `crates/plts/src/runtime_spi.rs` for SPI/query binding and read-only SQL helpers, `crates/plts/src/function_program.rs` for function source resolution/artifact-pointer cache loading, `crates/stopgap/src/deployment_utils.rs` for deploy scan/materialization helpers, `crates/stopgap/src/security.rs` for role/permission checks, and `crates/stopgap/src/runtime_config.rs` + `crates/stopgap/src/domain.rs`.
 - **Module split note:** both extension entrypoints are now thin (`crates/plts/src/lib.rs` and `crates/stopgap/src/lib.rs`), with `plts` split across `api.rs`, `handler.rs`, `runtime.rs`, `compiler.rs`, `runtime_spi.rs`, `function_program.rs`, and `arg_mapping.rs`.
-- **Wrapper parity note:** the in-DB `@stopgap/runtime` module source is now loaded from `packages/runtime/src/embedded.ts`, so wrapper validation/metadata behavior stays aligned between package and runtime.
+- **Wrapper parity note:** the in-DB `@stopgap/runtime` module source is now loaded from `packages/runtime/src/embedded_runtime.js`, so wrapper validation/metadata behavior stays aligned between package and runtime.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
 - **Performance note:** iteration 10 benchmark-backed optimizations are now in place for hot execute paths via backend-local non-pointer function program caching and argument-type caching for regular invocation payload mapping.
 - **Runtime contract note:** `docs/RUNTIME-CONTRACT.md` is now aligned to current runtime behavior and is guarded by dedicated DB-backed tests in `crates/plts/tests/pg/runtime_contract.rs` plus existing runtime contract suites.
@@ -330,17 +330,17 @@ Required verification per meaningful item:
 - [ ] Keep CI/docs parity on the runtime-heavy lane command (`pg17,v8_runtime`).
 
 Minimum implementation evidence:
-- [ ] CI/runtime references aligned in `.github/workflows/ci.yml`, `AGENTS.md`, and `docs/DEVELOPER-QUICKSTART.md`
+- [x] CI/runtime references aligned in `.github/workflows/ci.yml`, `AGENTS.md`, and `docs/DEVELOPER-QUICKSTART.md`
 - [ ] at least one green CI run including `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`
 
 #### 1. Add simple root README
-- [ ] Add root `README.md` with quickstart-first onboarding.
-- [ ] Keep architecture in `docs/` and include only light architecture notes in root README.
-- [ ] Link directly to `docs/PROJECT-OUTLINE.md`, `docs/DEVELOPER-QUICKSTART.md`, `docs/RUNTIME-CONTRACT.md`, and `docs/ROADMAP.md`.
+- [x] Add root `README.md` with quickstart-first onboarding.
+- [x] Keep architecture in `docs/` and include only light architecture notes in root README.
+- [x] Link directly to `docs/PROJECT-OUTLINE.md`, `docs/DEVELOPER-QUICKSTART.md`, `docs/RUNTIME-CONTRACT.md`, and `docs/ROADMAP.md`.
 
 Minimum implementation evidence:
-- [ ] new root `README.md`
-- [ ] docs links validated
+- [x] new root `README.md`
+- [x] docs links validated
 
 #### 2. Hot cache for JS bytecode in `plts`
 - [ ] Add in-memory cache for recently called function bytecode/programs in backend-process hot paths.

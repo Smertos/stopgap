@@ -389,7 +389,8 @@ pub(crate) fn execute_program(
     const PLTS_ARTIFACT_MODULE_SCHEME: &str = "plts+artifact";
     const STOPGAP_RUNTIME_BARE_SPECIFIER: &str = "@stopgap/runtime";
     const STOPGAP_RUNTIME_SPECIFIER: &str = "file:///plts/__stopgap_runtime__.js";
-    const STOPGAP_RUNTIME_SOURCE: &str = include_str!("../../../packages/runtime/src/embedded.ts");
+    const STOPGAP_RUNTIME_SOURCE: &str =
+        include_str!("../../../packages/runtime/src/embedded_runtime.js");
 
     #[derive(Clone)]
     struct PltsModuleLoader {
@@ -637,14 +638,19 @@ pub(crate) fn execute_program(
                 );
             };
 
+            const coreOps = globalThis.Deno?.core?.ops;
+            if (!coreOps) {
+                throw new Error("plts runtime bootstrap failed: Deno core ops are unavailable");
+            }
+
             const ops = {
                 dbQuery(input, params, readOnly = false, paramsProvided = false) {
                     const call = normalizeDbCall(input, params, paramsProvided, "db.query");
-                    return Deno.core.ops.op_plts_db_query(call.sql, call.params, readOnly);
+                    return coreOps.op_plts_db_query(call.sql, call.params, readOnly);
                 },
                 dbExec(input, params, readOnly = false, paramsProvided = false) {
                     const call = normalizeDbCall(input, params, paramsProvided, "db.exec");
-                    return Deno.core.ops.op_plts_db_exec(call.sql, call.params, readOnly);
+                    return coreOps.op_plts_db_exec(call.sql, call.params, readOnly);
                 },
             };
 

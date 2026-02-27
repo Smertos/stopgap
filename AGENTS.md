@@ -4,6 +4,8 @@ This file captures how to work effectively in this repository.
 
 ## Repository shape
 
+- Root docs:
+  - `README.md`: quickstart-first repository onboarding
 - Workspace root: `Cargo.toml`
 - Crates:
   - `crates/common`: shared pure-Rust helpers used by both extensions
@@ -13,6 +15,7 @@ This file captures how to work effectively in this repository.
 - Packages:
   - `packages/runtime`: `@stopgap/runtime` wrappers + TS schema/type helpers
 - Docs:
+  - `docs/ROADMAP.md`: tracked implementation plan and current backlog
   - `docs/PROJECT-OUTLINE.md`: product/architecture source of truth
   - `docs/DEVELOPER-QUICKSTART.md`: local setup + validation command reference
   - `docs/RUNTIME-CONTRACT.md`: `plts` runtime context/return contract

@@ -8,7 +8,7 @@ fn test_artifact_pointer_executes_compiled_program() {
     )
     .expect("artifact-pointer setup schema SQL should succeed");
 
-    let source = "export default (ctx) => ({ mode: 'artifact', echoed: ctx.args.positional[0] });";
+    let source = "export default (ctx) => ({ mode: 'artifact', echoed: ctx.args });";
     let artifact_hash = Spi::get_one_with_args::<String>(
         "SELECT plts.compile_and_store($1::text, '{}'::jsonb)",
         &[source.into()],

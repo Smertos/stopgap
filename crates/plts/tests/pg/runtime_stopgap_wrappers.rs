@@ -188,7 +188,7 @@ fn test_stopgap_query_wrapper_allows_keyword_literals() {
         import { query } from "@stopgap/runtime";
 
         export default query({ type: "object" }, async (_args, ctx) => {
-            const rows = await ctx.db.query("SELECT 'update' AS verb, $$delete$$ AS body", []);
+            const rows = await ctx.db.query("SELECT 'update' AS verb, 'delete' AS body", []);
             return { verb: rows[0].verb, body: rows[0].body, dbMode: ctx.db.mode };
         });
         $$;

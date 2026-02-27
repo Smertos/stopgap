@@ -38,6 +38,7 @@ Both extensions share the same **function execution model**, and `stopgap` store
 
 ```
 stopgap/
+  README.md              # quickstart-first repo onboarding
   crates/
     common/               # shared Rust helpers (no extension-specific semantics)
     plts/                 # Rust extension: language handler, runtime, artifact store
@@ -48,11 +49,13 @@ stopgap/
   packages/
     runtime/              # NPM package: TS types + wrappers (`@stopgap/runtime`)
   docs/
+    ROADMAP.md
     DEVELOPER-QUICKSTART.md
     RUNTIME-CONTRACT.md
     DEPLOYMENT-RUNBOOK.md
     PERFORMANCE-BASELINE.md
     TROUBLESHOOTING.md
+    TECH-DEBT.md
 ```
 
 Near-term structure direction:
@@ -333,7 +336,7 @@ So in DB you can use:
 - `import { query, mutation } from "@stopgap/runtime"`
 
 Current implementation resolves this bare specifier through the runtime module loader.
-The embedded module source is loaded from `packages/runtime/src/embedded.ts` to keep wrapper logic in sync between package and in-DB execution.
+The embedded module source is loaded from `packages/runtime/src/embedded_runtime.js` to keep wrapper logic in sync between package and in-DB execution.
 Runtime module imports currently support:
 - `data:` module specifiers
 - `plts+artifact:<hash>` module specifiers backed by `plts.artifact.compiled_js`

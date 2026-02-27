@@ -9,6 +9,7 @@ use crate::runtime::{
 };
 use pgrx::JsonB;
 use pgrx::prelude::*;
+use serde_json::Value;
 
 #[pg_guard]
 #[unsafe(no_mangle)]
@@ -27,6 +28,20 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
 
     let fn_oid = unsafe { (*flinfo).fn_oid };
     let args_payload = unsafe { build_args_payload(fcinfo, fn_oid) };
+    let is_jsonb_single_arg = is_single_jsonb_arg_function(fn_oid);
+
+    let runtime_args_payload = if is_jsonb_single_arg && unsafe { (*fcinfo).nargs == 1 } {
+        let arg0 = unsafe { (*fcinfo).args.as_ptr() };
+        if !arg0.is_null() && unsafe { !(*arg0).isnull } {
+            unsafe {
+                JsonB::from_datum((*arg0).value, false).map(|value| value.0).unwrap_or(Value::Null)
+            }
+        } else {
+            Value::Null
+        }
+    } else {
+        args_payload.clone()
+    };
 
     if runtime_available() {
         if let Some(program) = load_function_program(fn_oid) {
@@ -35,7 +50,7 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
                 "plts.execute start schema={} fn={} oid={}",
                 program.schema, program.name, program.oid
             ));
-            let context = build_runtime_context(&program, &args_payload);
+            let context = build_runtime_context(&program, &runtime_args_payload);
             match execute_program(&program.source, &program.bare_specifier_map, &context) {
                 Ok(Some(value)) => {
                     record_execute_success(started_at);
@@ -70,7 +85,6 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
         }
     }
 
-    let is_jsonb_single_arg = is_single_jsonb_arg_function(fn_oid);
     if is_jsonb_single_arg && unsafe { (*fcinfo).nargs == 1 } {
         let arg0 = unsafe { (*fcinfo).args.as_ptr() };
         if !arg0.is_null() && unsafe { !(*arg0).isnull } {

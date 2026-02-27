@@ -8,7 +8,7 @@ fn test_regular_args_conversion_for_common_types() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        export default () => null;
+        export default (ctx) => ({ positional: ctx.args.positional, named: ctx.args.named });
         $$;
         ",
     )
