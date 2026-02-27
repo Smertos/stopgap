@@ -77,6 +77,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - DB-backed wrapper enforcement coverage now includes explicit allow/deny tests (`stopgap.query` rejects `db.exec`/write SQL; `stopgap.mutation` allows writes) in `crates/plts/tests/pg/runtime_stopgap_wrappers.rs`.
 - Runtime/package wrapper parity is maintained via shared module source at `packages/runtime/src/embedded.ts`, which is what `plts` loads for the built-in `@stopgap/runtime` module.
 - `packages/runtime` now includes a self-test harness at `packages/runtime/selftest.mjs` to verify wrapper metadata/validation and exported API behavior, and CI baseline executes package `check` + `test`.
+- `stopgap-cli` now has integration-style command tests in `crates/stopgap-cli/tests/command_integration.rs` covering deploy/status/rollback/deployments/diff JSON outputs and query-failure exit code mapping through an injectable API boundary in `crates/stopgap-cli/src/lib.rs`.
 - `plts` runtime now locks down module globals before execution (removing `Deno`, `fetch`, and related web APIs) so handlers only use the explicit `ctx.db` bridge and do not gain filesystem/network runtime surface.
 - `plts` runtime now applies a V8 watchdog per call using the stricter of `statement_timeout` and optional `plts.max_runtime_ms`, and routes pending Postgres cancel/die interrupt flags into the same V8 termination path.
 - `plts` runtime now optionally enforces `plts.max_heap_mb` per call by setting V8 heap limits and terminating execution on near-heap-limit callbacks.

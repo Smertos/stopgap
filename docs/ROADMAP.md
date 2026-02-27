@@ -356,9 +356,13 @@ Minimum implementation evidence:
 - [x] passing pgrx evidence for both allow/deny paths
 
 #### E. stopgap-cli integration coverage
-- [ ] Add integration tests for `deploy`, `status`, `rollback`, `deployments`, optional `diff`.
-- [ ] Validate non-zero exit code behavior on expected failure modes.
-- [ ] Validate JSON output schema for machine-readable mode.
+- [x] Add integration tests for `deploy`, `status`, `rollback`, `deployments`, optional `diff`.
+- [x] Validate non-zero exit code behavior on expected failure modes.
+- [x] Validate JSON output schema for machine-readable mode.
+
+Minimum implementation evidence:
+- [x] new integration suite at `crates/stopgap-cli/tests/command_integration.rs`
+- [x] command execution refactor in `crates/stopgap-cli/src/lib.rs` with injectable API boundary
 
 #### F. `packages/runtime` test coverage
 - [x] Add tests for wrapper metadata (`query`/`mutation`) and validation behavior.
