@@ -310,9 +310,9 @@ This is the active continuation plan for incremental execution. Progress should 
 
 ### 13.1 Execution rules
 
-- [ ] Each change set must complete at least one concrete unchecked item from section 13.2.
-- [ ] Keep change scope small (1 primary item + optional 1 follow-up item).
-- [ ] If work is partial, explicitly leave sub-bullets unchecked.
+- [x] Each change set must complete at least one concrete unchecked item from section 13.2.
+- [x] Keep change scope small (1 primary item + optional 1 follow-up item).
+- [x] If work is partial, explicitly leave sub-bullets unchecked.
 
 Required verification per meaningful item:
 - `cargo check`
@@ -369,7 +369,8 @@ Minimum implementation evidence:
 
 Minimum implementation evidence:
 - `.github/workflows/ci.yml` changed
-- [ ] at least one CI run exercising the new lane
+- [x] at least one CI run exercising the new lane
+  - evidence: runs #7-#10 (`https://github.com/Smertos/stopgap/actions/workflows/ci.yml`) all executed the dedicated `plts runtime v8 (pg17)` job
 
 #### B. CI structure and diagnostics hardening
 - [x] Split/clarify fast baseline vs heavy pgrx/runtime jobs.
