@@ -285,6 +285,7 @@ Legend:
 - **Module split note:** both extension entrypoints are now thin (`crates/plts/src/lib.rs` and `crates/stopgap/src/lib.rs`), with `plts` split across `api.rs`, `handler.rs`, `runtime.rs`, `compiler.rs`, `runtime_spi.rs`, `function_program.rs`, and `arg_mapping.rs`.
 - **Wrapper parity note:** the in-DB `@stopgap/runtime` module source is now loaded from `packages/runtime/src/embedded.ts`, so wrapper validation/metadata behavior stays aligned between package and runtime.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
+- **Performance note:** iteration 10 benchmark-backed optimizations are now in place for hot execute paths via backend-local non-pointer function program caching and argument-type caching for regular invocation payload mapping.
 - **Runtime contract note:** `docs/RUNTIME-CONTRACT.md` is now aligned to current runtime behavior and is guarded by dedicated DB-backed tests in `crates/plts/tests/pg/runtime_contract.rs` plus existing runtime contract suites.
 - **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
 - **Runtime package note:** `packages/runtime` now has a self-test harness (`selftest.mjs`) covering wrapper metadata, validation behavior, and default export API parity, and CI baseline runs package `check` + `test`.
@@ -398,8 +399,8 @@ Minimum implementation evidence:
 - [x] profiling command executed: `cargo pgrx test -p plts pg17 test_runtime_performance_baseline_snapshot`
 
 #### K. Targeted performance changes
-- [ ] Implement only benchmark-backed optimizations from iteration 10.
-- [ ] Validate no regression in runtime safety or contract behavior.
+- [x] Implement only benchmark-backed optimizations from iteration 10.
+- [x] Validate no regression in runtime safety or contract behavior.
 - [ ] Publish before/after benchmark evidence.
 
 #### L. Runtime import/module-graph expansion

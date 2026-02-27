@@ -489,6 +489,7 @@ Current progress snapshot:
 - `stopgap.query/mutation` wrappers available in runtime + TS types package, with JSON Schema arg validation + inferred TS helper types (`InferJsonSchema`)
 - better error messages + stack traces
 - caching compiled artifacts per backend (artifact-pointer source cache now implemented in `plts`)
+- hot-path execute caching for regular/non-pointer functions and argument-type lookup (backend-local in `plts`)
 
 ## P1.5 (structure + interop)
 - introduce and expand `crates/common` for shared helper logic across extensions (workspace + initial helper migration in place)

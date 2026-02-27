@@ -86,6 +86,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - `plts` runtime now optionally enforces `plts.max_heap_mb` per call by setting V8 heap limits and terminating execution on near-heap-limit callbacks.
 - `plts.compile_ts` now transpiles TS->JS via `deno_ast`, reports structured diagnostics, records compiler fingerprint metadata from lockfile-resolved dependency versions, and can persist source-map payloads when `compiler_opts.source_map=true`.
 - `plts` now caches artifact-pointer compiled JS per backend process to avoid repeat `plts.artifact` lookups during live pointer execution.
+- `plts` now also caches non-pointer function program metadata and regular-call argument type OID lookups per backend process to reduce repeated `pg_proc` catalog SPI work on hot execute paths.
 - DB-backed `plts` integration tests cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization, artifact-pointer execution, and async default-export execution under `v8_runtime`.
 - Stopgap deploy still records function kind as a default convention (`mutation`), while runtime enforcement relies on wrapper metadata.
 - Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, checks deploy caller privileges, and ships rollback/status/deployments/diff APIs plus activation/environment introspection views.

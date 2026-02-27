@@ -36,3 +36,19 @@ These are pragmatic guardrails for trend tracking, not hard CI gating thresholds
 2. Reduce allocation pressure in argument mapping and payload construction for regular invocations.
 
 These candidates are intentionally selected before any optimization implementation so changes can stay benchmark-backed.
+
+## Iteration 10 implementation status
+
+- Implemented in `crates/plts/src/function_program.rs`:
+  - backend-local cache for non-pointer `FunctionProgram` metadata (`oid`, schema/name, source)
+  - existing artifact-pointer source cache remains unchanged and is still used for pointer stubs
+- Implemented in `crates/plts/src/arg_mapping.rs`:
+  - backend-local cache for function argument type OIDs to avoid repeated `pg_proc` SPI lookups
+  - lower-allocation payload/value construction for regular invocation args (`positional` + `named`)
+- Validation commands executed after optimization:
+  - `cargo check`
+  - `cargo test`
+  - `cargo pgrx test -p plts`
+  - `cargo pgrx test -p stopgap`
+  - `cargo pgrx regress -p stopgap`
+  - `cargo pgrx test -p plts pg17 test_runtime_performance_baseline_snapshot`
