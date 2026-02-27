@@ -326,13 +326,13 @@ Minimum implementation evidence:
 - [ ] at least one CI run exercising the new lane
 
 #### B. CI structure and diagnostics hardening
-- [ ] Split/clarify fast baseline vs heavy pgrx/runtime jobs.
-- [ ] Add artifact/log upload on failure for runtime/pgrx jobs.
-- [ ] Confirm failed jobs surface actionable logs for debugging.
+- [x] Split/clarify fast baseline vs heavy pgrx/runtime jobs.
+- [x] Add artifact/log upload on failure for runtime/pgrx jobs.
+- [x] Confirm failed jobs surface actionable logs for debugging.
 
 Minimum implementation evidence:
 - `.github/workflows/ci.yml` changed
-- failure-artifact behavior verified in CI (or via dry-run evidence)
+- [x] failure-artifact behavior verified via workflow dry-run evidence (failure-only tar bundles from `PGRX_HOME` and `target/debug`, uploaded with `actions/upload-artifact`)
 
 #### C. First true cross-extension e2e test
 - [ ] Add DB-backed test: `deploy -> live pointer active -> execute -> rollback`.

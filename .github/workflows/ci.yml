@@ -10,7 +10,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check-and-test:
+  baseline-fast:
+    name: baseline fast (check + test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +74,26 @@ jobs:
         if: matrix.package == 'stopgap'
         run: cargo pgrx regress -p stopgap --features pg16 --resetdb
 
+      - name: Collect pgrx diagnostics bundle
+        if: failure()
+        run: |
+          mkdir -p ci-artifacts
+          if [ -d "${PGRX_HOME}" ]; then
+            tar -czf ci-artifacts/pgrx-home-${{ matrix.package }}.tar.gz "${PGRX_HOME}"
+          fi
+          if [ -d target/debug ]; then
+            tar -czf ci-artifacts/target-debug-${{ matrix.package }}.tar.gz target/debug
+          fi
+
+      - name: Upload pgrx diagnostics bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pgrx-diagnostics-${{ matrix.package }}
+          path: ci-artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+
   plts-runtime-v8-tests:
     name: plts runtime v8 (pg16)
     runs-on: ubuntu-latest
@@ -103,3 +124,23 @@ jobs:
 
       - name: Run plts runtime-heavy tests
         run: cargo pgrx test -p plts --features "pg16,v8_runtime"
+
+      - name: Collect runtime diagnostics bundle
+        if: failure()
+        run: |
+          mkdir -p ci-artifacts
+          if [ -d "${PGRX_HOME}" ]; then
+            tar -czf ci-artifacts/pgrx-home-runtime-v8.tar.gz "${PGRX_HOME}"
+          fi
+          if [ -d target/debug ]; then
+            tar -czf ci-artifacts/target-debug-runtime-v8.tar.gz target/debug
+          fi
+
+      - name: Upload runtime diagnostics bundle
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pgrx-diagnostics-runtime-v8
+          path: ci-artifacts/
+          if-no-files-found: warn
+          retention-days: 7
