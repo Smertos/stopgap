@@ -401,7 +401,7 @@ Minimum implementation evidence:
 #### K. Targeted performance changes
 - [x] Implement only benchmark-backed optimizations from iteration 10.
 - [x] Validate no regression in runtime safety or contract behavior.
-- [ ] Publish before/after benchmark evidence.
+- [x] Publish before/after benchmark evidence.
 
 #### L. Runtime import/module-graph expansion
 - [ ] Expand import compatibility beyond current limited support.

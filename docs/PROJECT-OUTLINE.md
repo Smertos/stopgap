@@ -475,6 +475,7 @@ Current progress snapshot:
 - CI workflow now runs a fast baseline lane (`cargo check` + `cargo test`), matrixed `cargo pgrx test` jobs per extension crate, `cargo pgrx regress -p stopgap` (with `plts` installed first), and a dedicated `plts runtime v8 (pg16)` lane for runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage; pgrx/runtime jobs upload failure-only diagnostics artifacts (bundled `PGRX_HOME` + `target/debug`) for debugging
 - repository toolchain and lint/format configs are pinned (`rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`)
 - performance baseline harness now lives in `crates/plts/tests/pg/runtime_performance_baseline.rs` with current measurements/work targets documented in `docs/PERFORMANCE-BASELINE.md`
+- iteration 11 now publishes before/after benchmark evidence for iteration 10 optimizations in `docs/PERFORMANCE-BASELINE.md` (captured via `cargo pgrx test -p plts pg17 test_runtime_performance_baseline_snapshot` wall-clock runs)
 
 **In `stopgap`:**
 - Create catalog tables + minimal `stopgap.deploy` that:

@@ -52,3 +52,23 @@ These candidates are intentionally selected before any optimization implementati
   - `cargo pgrx test -p stopgap`
   - `cargo pgrx regress -p stopgap`
   - `cargo pgrx test -p plts pg17 test_runtime_performance_baseline_snapshot`
+
+## Iteration 11 before/after benchmark evidence
+
+Command used for both runs (warm build cache in each workspace):
+
+```bash
+TIMEFMT='BENCHMARK_WALL_SECONDS=%E'; time cargo pgrx test -p plts pg17 test_runtime_performance_baseline_snapshot
+```
+
+Benchmark snapshots:
+
+- before (pre-optimization commit `4f5f3f4`): `BENCHMARK_WALL_SECONDS=5.40s`
+- after (optimized commit `158139d`): `BENCHMARK_WALL_SECONDS=5.78s`
+- observed delta: `+0.38s` (`+7.0%` in this run)
+
+Interpretation notes:
+
+- This command-level wall clock includes extension rebuild/install and test harness startup overhead in addition to runtime execute-loop work.
+- The before/after publication requirement is now satisfied with measured evidence, but signal quality is still noisy at this granularity.
+- Follow-up profiling should capture loop-level timings directly (compile loop and execute loop separately) so optimization impact is easier to isolate from harness overhead.
