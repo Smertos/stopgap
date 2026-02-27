@@ -286,6 +286,7 @@ Legend:
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
 - **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
 - **CI note:** CI now includes a dedicated `plts runtime v8 (pg16)` job for runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage in addition to the baseline pgrx matrix.
+- **Cross-extension e2e note:** stopgap rollback pg_regress now covers `deploy -> live execute -> rollback` and verifies both execution continuity and pointer rematerialization after rollback.
 - **Docs note:** quickstart, runtime contract, deployment runbook, and troubleshooting guides now live under `docs/`.
 - **Biggest missing pieces:** broader runtime module-graph/bundling import compatibility.
 
@@ -335,13 +336,14 @@ Minimum implementation evidence:
 - [x] failure-artifact behavior verified via workflow dry-run evidence (failure-only tar bundles from `PGRX_HOME` and `target/debug`, uploaded with `actions/upload-artifact`)
 
 #### C. First true cross-extension e2e test
-- [ ] Add DB-backed test: `deploy -> live pointer active -> execute -> rollback`.
-- [ ] Avoid mock-only path for this test.
-- [ ] Assert deployment pointer and live behavior after rollback.
+- [x] Add DB-backed test: `deploy -> live pointer active -> execute -> rollback`.
+- [x] Avoid mock-only path for this test.
+- [x] Assert deployment pointer and live behavior after rollback.
 
 Minimum implementation evidence:
-- new/updated tests under `crates/stopgap/tests/pg/` and/or `crates/plts/tests/pg/`
-- test passes in pgrx lane
+- [x] updated regression scenario at `crates/stopgap/tests/pg_regress/sql/rollback.sql`
+- [x] updated expected output at `crates/stopgap/tests/pg_regress/expected/rollback.out`
+- [x] `cargo pgrx regress -p stopgap --resetdb pg17 rollback`
 
 #### D. Wrapper mode e2e enforcement test
 - [ ] Add e2e test proving `stopgap.query` is read-only (`db.exec` denied).

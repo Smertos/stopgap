@@ -38,6 +38,9 @@ $$;
 
 SELECT stopgap.deploy('rg_rb', 'sg_reg_rb_src', 'two') > 0 AS deployed_two;
 
+SELECT (sg_reg_rb_live.stepper('{"marker":"before"}'::jsonb)->>'marker') = 'before'
+AS live_exec_before_rollback;
+
 SELECT stopgap.rollback('rg_rb', 1, NULL) = (
     SELECT d.id
     FROM stopgap.deployment d
@@ -48,6 +51,9 @@ SELECT stopgap.rollback('rg_rb', 1, NULL) = (
 ) AS rollback_target_is_first;
 
 SELECT stopgap.status('rg_rb')->'active_deployment'->>'label' = 'one' AS active_label_is_first;
+
+SELECT (sg_reg_rb_live.stepper('{"marker":"after"}'::jsonb)->>'marker') = 'after'
+AS live_exec_after_rollback;
 
 SELECT (
     SELECT p.prosrc::jsonb->>'artifact_hash'
