@@ -17,14 +17,15 @@ pub(crate) unsafe fn build_args_payload(
     fn_oid: pg_sys::Oid,
 ) -> Value {
     let arg_oids = get_arg_type_oids(fn_oid);
-    let nargs = (*fcinfo).nargs as usize;
+    let nargs = unsafe { (*fcinfo).nargs as usize };
     let mut positional = Vec::with_capacity(nargs);
     let mut named = serde_json::Map::with_capacity(nargs);
 
     for i in 0..nargs {
-        let arg = *(*fcinfo).args.as_ptr().add(i);
+        let arg = unsafe { *(*fcinfo).args.as_ptr().add(i) };
         let oid = arg_oids.get(i).copied().unwrap_or(pg_sys::UNKNOWNOID);
-        let value = if arg.isnull { Value::Null } else { datum_to_json_value(arg.value, oid) };
+        let value =
+            if arg.isnull { Value::Null } else { unsafe { datum_to_json_value(arg.value, oid) } };
 
         positional.push(value.clone());
         named.insert(i.to_string(), value);
@@ -38,14 +39,18 @@ pub(crate) unsafe fn build_args_payload(
 
 unsafe fn datum_to_json_value(datum: pg_sys::Datum, oid: pg_sys::Oid) -> Value {
     match oid {
-        pg_sys::TEXTOID => {
+        pg_sys::TEXTOID => unsafe {
             String::from_datum(datum, false).map(Value::String).unwrap_or(Value::Null)
-        }
-        pg_sys::INT4OID => i32::from_datum(datum, false)
+        },
+        pg_sys::INT4OID => unsafe { i32::from_datum(datum, false) }
             .map(|v| Value::Number(serde_json::Number::from(v)))
             .unwrap_or(Value::Null),
-        pg_sys::BOOLOID => bool::from_datum(datum, false).map(Value::Bool).unwrap_or(Value::Null),
-        pg_sys::JSONBOID => JsonB::from_datum(datum, false).map(|v| v.0).unwrap_or(Value::Null),
+        pg_sys::BOOLOID => {
+            unsafe { bool::from_datum(datum, false) }.map(Value::Bool).unwrap_or(Value::Null)
+        }
+        pg_sys::JSONBOID => {
+            unsafe { JsonB::from_datum(datum, false) }.map(|v| v.0).unwrap_or(Value::Null)
+        }
         _ => Value::Null,
     }
 }

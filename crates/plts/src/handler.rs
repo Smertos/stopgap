@@ -19,14 +19,14 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
         return pg_sys::Datum::from(0);
     }
 
-    let flinfo = (*fcinfo).flinfo;
+    let flinfo = unsafe { (*fcinfo).flinfo };
     if flinfo.is_null() {
-        (*fcinfo).isnull = true;
+        unsafe { (*fcinfo).isnull = true };
         return pg_sys::Datum::from(0);
     }
 
-    let fn_oid = (*flinfo).fn_oid;
-    let args_payload = build_args_payload(fcinfo, fn_oid);
+    let fn_oid = unsafe { (*flinfo).fn_oid };
+    let args_payload = unsafe { build_args_payload(fcinfo, fn_oid) };
 
     if runtime_available() {
         if let Some(program) = load_function_program(fn_oid) {
@@ -53,7 +53,7 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
                         "plts.execute success-null schema={} fn={} oid={}",
                         program.schema, program.name, program.oid
                     ));
-                    (*fcinfo).isnull = true;
+                    unsafe { (*fcinfo).isnull = true };
                     return pg_sys::Datum::from(0);
                 }
                 Err(err) => {
@@ -71,10 +71,10 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
     }
 
     let is_jsonb_single_arg = is_single_jsonb_arg_function(fn_oid);
-    if is_jsonb_single_arg && (*fcinfo).nargs == 1 {
-        let arg0 = (*fcinfo).args.as_ptr();
-        if !arg0.is_null() && !(*arg0).isnull {
-            return (*arg0).value;
+    if is_jsonb_single_arg && unsafe { (*fcinfo).nargs == 1 } {
+        let arg0 = unsafe { (*fcinfo).args.as_ptr() };
+        if !arg0.is_null() && unsafe { !(*arg0).isnull } {
+            return unsafe { (*arg0).value };
         }
     }
 
@@ -82,7 +82,7 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
         return datum;
     }
 
-    (*fcinfo).isnull = true;
+    unsafe { (*fcinfo).isnull = true };
     pg_sys::Datum::from(0)
 }
 

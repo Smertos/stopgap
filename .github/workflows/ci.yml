@@ -46,7 +46,7 @@ jobs:
         run: cargo test --workspace --all-targets --exclude plts --exclude stopgap
 
   pgrx-tests:
-    name: pgrx baseline (${{ matrix.package }})
+    name: pgrx baseline pg17 (${{ matrix.package }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -54,7 +54,7 @@ jobs:
         package: [plts, stopgap]
     env:
       PGRX_HOME: ${{ github.workspace }}/.pgrx
-      PGRX_DEFAULT_PG_VERSION: pg16
+      PGRX_DEFAULT_PG_VERSION: pg17
     steps:
       - uses: actions/checkout@v4
 
@@ -66,31 +66,31 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install PostgreSQL 16 development packages
+      - name: Install PostgreSQL 17 development packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+          sudo apt-get install -y postgresql-17 postgresql-server-dev-17
 
-      - name: Allow extension install writes for postgres 16 dirs
+      - name: Allow extension install writes for postgres 17 dirs
         run: |
-          sudo chown -R "$USER":"$USER" /usr/lib/postgresql/16/lib /usr/share/postgresql/16/extension
+          sudo chown -R "$USER":"$USER" /usr/lib/postgresql/17/lib /usr/share/postgresql/17/extension
 
       - name: Install cargo-pgrx
         run: cargo install cargo-pgrx --version 0.17.0 --locked
 
       - name: Initialize cargo-pgrx
-        run: cargo pgrx init --pg16 /usr/lib/postgresql/16/bin/pg_config
+        run: cargo pgrx init --pg17 /usr/lib/postgresql/17/bin/pg_config
 
       - name: Run pgrx tests
-        run: cargo pgrx test -p ${{ matrix.package }} --features pg16
+        run: cargo pgrx test --pg17 -p ${{ matrix.package }} --no-default-features --features pg17
 
       - name: Install plts extension for stopgap regress
         if: matrix.package == 'stopgap'
-        run: cargo pgrx install -p plts --pg-config /usr/lib/postgresql/16/bin/pg_config --features pg16 --no-default-features
+        run: cargo pgrx install -p plts --pg-config /usr/lib/postgresql/17/bin/pg_config --no-default-features --features pg17
 
       - name: Run stopgap pg_regress
         if: matrix.package == 'stopgap'
-        run: cargo pgrx regress -p stopgap --features pg16 --resetdb
+        run: cargo pgrx regress --pg17 -p stopgap --no-default-features --features pg17 --resetdb
 
       - name: Collect pgrx diagnostics bundle
         if: failure()
@@ -113,11 +113,11 @@ jobs:
           retention-days: 7
 
   plts-runtime-v8-tests:
-    name: plts runtime v8 (pg16)
+    name: plts runtime v8 (pg17)
     runs-on: ubuntu-latest
     env:
       PGRX_HOME: ${{ github.workspace }}/.pgrx
-      PGRX_DEFAULT_PG_VERSION: pg16
+      PGRX_DEFAULT_PG_VERSION: pg17
     steps:
       - uses: actions/checkout@v4
 
@@ -129,23 +129,23 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install PostgreSQL 16 development packages
+      - name: Install PostgreSQL 17 development packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+          sudo apt-get install -y postgresql-17 postgresql-server-dev-17
 
-      - name: Allow extension install writes for postgres 16 dirs
+      - name: Allow extension install writes for postgres 17 dirs
         run: |
-          sudo chown -R "$USER":"$USER" /usr/lib/postgresql/16/lib /usr/share/postgresql/16/extension
+          sudo chown -R "$USER":"$USER" /usr/lib/postgresql/17/lib /usr/share/postgresql/17/extension
 
       - name: Install cargo-pgrx
         run: cargo install cargo-pgrx --version 0.17.0 --locked
 
       - name: Initialize cargo-pgrx
-        run: cargo pgrx init --pg16 /usr/lib/postgresql/16/bin/pg_config
+        run: cargo pgrx init --pg17 /usr/lib/postgresql/17/bin/pg_config
 
       - name: Run plts runtime-heavy tests
-        run: cargo pgrx test -p plts --features "pg16,v8_runtime"
+        run: cargo pgrx test --pg17 -p plts --no-default-features --features "pg17,v8_runtime"
 
       - name: Collect runtime diagnostics bundle
         if: failure()
