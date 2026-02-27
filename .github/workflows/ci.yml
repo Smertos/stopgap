@@ -39,11 +39,11 @@ jobs:
       - name: Runtime package self-tests
         run: npm run test --prefix packages/runtime
 
-      - name: Cargo check
-        run: cargo check --workspace --all-targets
+      - name: Cargo check (non-pgrx crates)
+        run: cargo check --workspace --all-targets --exclude plts --exclude stopgap
 
-      - name: Cargo test
-        run: cargo test --workspace --all-targets
+      - name: Cargo test (non-pgrx crates)
+        run: cargo test --workspace --all-targets --exclude plts --exclude stopgap
 
   pgrx-tests:
     name: pgrx baseline (${{ matrix.package }})
@@ -70,6 +70,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+
+      - name: Allow extension install writes for postgres 16 dirs
+        run: |
+          sudo chown -R "$USER":"$USER" /usr/lib/postgresql/16/lib /usr/share/postgresql/16/extension
 
       - name: Install cargo-pgrx
         run: cargo install cargo-pgrx --version 0.17.0 --locked
@@ -129,6 +133,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+
+      - name: Allow extension install writes for postgres 16 dirs
+        run: |
+          sudo chown -R "$USER":"$USER" /usr/lib/postgresql/16/lib /usr/share/postgresql/16/extension
 
       - name: Install cargo-pgrx
         run: cargo install cargo-pgrx --version 0.17.0 --locked
