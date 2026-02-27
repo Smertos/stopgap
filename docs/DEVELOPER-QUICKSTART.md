@@ -43,3 +43,9 @@ cargo run -p stopgap-cli -- --help
 ```
 
 The CLI requires a database connection string via `--db` or `STOPGAP_DB`.
+
+## CI lanes
+
+- Baseline CI lane runs workspace `cargo check`/`cargo test` plus matrixed `cargo pgrx test` jobs for `plts` and `stopgap` (and `cargo pgrx regress -p stopgap` on the stopgap matrix leg).
+- Runtime-heavy CI lane runs `cargo pgrx test -p plts --features "pg16,v8_runtime"` as a dedicated `plts runtime v8 (pg16)` job.
+- Expected runtime for the dedicated runtime lane is typically about 10-15 minutes on GitHub-hosted runners.

@@ -285,6 +285,7 @@ Legend:
 - **Wrapper parity note:** the in-DB `@stopgap/runtime` module source is now loaded from `packages/runtime/src/embedded.ts`, so wrapper validation/metadata behavior stays aligned between package and runtime.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
 - **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
+- **CI note:** CI now includes a dedicated `plts runtime v8 (pg16)` job for runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage in addition to the baseline pgrx matrix.
 - **Docs note:** quickstart, runtime contract, deployment runbook, and troubleshooting guides now live under `docs/`.
 - **Biggest missing pieces:** broader runtime module-graph/bundling import compatibility.
 
@@ -316,13 +317,13 @@ Required verification per meaningful item:
 ### 13.2 Ordered backlog (execute top-down)
 
 #### A. CI runtime lane foundation
-- [ ] Add explicit CI lane for `plts` runtime-heavy tests with `--features "pg16,v8_runtime"`.
-- [ ] Ensure lane is visible as a separate job (not hidden in broad matrix noise).
-- [ ] Record expected runtime of the new lane in CI notes.
+- [x] Add explicit CI lane for `plts` runtime-heavy tests with `--features "pg16,v8_runtime"`.
+- [x] Ensure lane is visible as a separate job (not hidden in broad matrix noise).
+- [x] Record expected runtime of the new lane in CI notes.
 
 Minimum implementation evidence:
 - `.github/workflows/ci.yml` changed
-- at least one CI run exercising the new lane
+- [ ] at least one CI run exercising the new lane
 
 #### B. CI structure and diagnostics hardening
 - [ ] Split/clarify fast baseline vs heavy pgrx/runtime jobs.

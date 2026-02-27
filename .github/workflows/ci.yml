@@ -31,6 +31,7 @@ jobs:
         run: cargo test --workspace --all-targets
 
   pgrx-tests:
+    name: pgrx baseline (${{ matrix.package }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -71,3 +72,34 @@ jobs:
       - name: Run stopgap pg_regress
         if: matrix.package == 'stopgap'
         run: cargo pgrx regress -p stopgap --features pg16 --resetdb
+
+  plts-runtime-v8-tests:
+    name: plts runtime v8 (pg16)
+    runs-on: ubuntu-latest
+    env:
+      PGRX_HOME: ${{ github.workspace }}/.pgrx
+      PGRX_DEFAULT_PG_VERSION: pg16
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.1
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install PostgreSQL 16 development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-16 postgresql-server-dev-16
+
+      - name: Install cargo-pgrx
+        run: cargo install cargo-pgrx --version 0.17.0 --locked
+
+      - name: Initialize cargo-pgrx
+        run: cargo pgrx init --pg16 /usr/lib/postgresql/16/bin/pg_config
+
+      - name: Run plts runtime-heavy tests
+        run: cargo pgrx test -p plts --features "pg16,v8_runtime"
