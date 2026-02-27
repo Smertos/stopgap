@@ -10,6 +10,15 @@ BEGIN
     IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'sg_reg_sec_live') THEN
         EXECUTE 'DROP SCHEMA sg_reg_sec_live CASCADE';
     END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'sg_reg_sec_unmanaged_live') THEN
+        EXECUTE 'DROP SCHEMA sg_reg_sec_unmanaged_live CASCADE';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rg_sec_actor') THEN
+        EXECUTE 'DROP OWNED BY rg_sec_actor';
+        EXECUTE 'DROP ROLE rg_sec_actor';
+    END IF;
 END;
 $$;
 
@@ -26,6 +35,49 @@ LANGUAGE plts
 AS $$
 export default (_ctx) => ({ok: true});
 $$;
+
+CREATE ROLE rg_sec_actor;
+GRANT stopgap_deployer TO rg_sec_actor;
+
+DO $$
+BEGIN
+    BEGIN
+        EXECUTE 'SET SESSION AUTHORIZATION rg_sec_actor';
+        PERFORM stopgap.deploy('rg_sec', 'sg_reg_sec_src', 'deny-source-usage');
+        RAISE EXCEPTION 'expected source schema usage permission failure';
+    EXCEPTION
+        WHEN OTHERS THEN
+            EXECUTE 'RESET SESSION AUTHORIZATION';
+            IF POSITION('lacks USAGE on source schema' IN SQLERRM) = 0 THEN
+                RAISE;
+            END IF;
+    END;
+END;
+$$;
+
+GRANT USAGE ON SCHEMA sg_reg_sec_src TO rg_sec_actor;
+
+CREATE SCHEMA sg_reg_sec_unmanaged_live;
+SELECT set_config('stopgap.live_schema', 'sg_reg_sec_unmanaged_live', false);
+
+DO $$
+BEGIN
+    BEGIN
+        EXECUTE 'SET SESSION AUTHORIZATION rg_sec_actor';
+        PERFORM stopgap.deploy('rg_sec', 'sg_reg_sec_src', 'deny-unmanaged-live');
+        RAISE EXCEPTION 'expected unmanaged live schema ownership failure';
+    EXCEPTION
+        WHEN OTHERS THEN
+            EXECUTE 'RESET SESSION AUTHORIZATION';
+            IF POSITION('live schema sg_reg_sec_unmanaged_live is owned by' IN SQLERRM) = 0 THEN
+                RAISE;
+            END IF;
+    END;
+END;
+$$;
+
+DROP SCHEMA sg_reg_sec_unmanaged_live;
+SELECT set_config('stopgap.live_schema', 'sg_reg_sec_live', false);
 
 SELECT stopgap.deploy('rg_sec', 'sg_reg_sec_src', 'sec') > 0 AS deployed_security;
 
@@ -52,3 +104,6 @@ WHERE n.nspname = 'sg_reg_sec_live'
 
 SELECT has_function_privilege('app_user', 'sg_reg_sec_live.secure_fn(jsonb)', 'EXECUTE')
     AS app_user_can_execute;
+
+DROP OWNED BY rg_sec_actor;
+DROP ROLE rg_sec_actor;

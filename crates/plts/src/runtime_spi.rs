@@ -137,8 +137,106 @@ pub(crate) fn is_read_only_sql(sql: &str) -> bool {
         "revoke", "vacuum", "analyze", "reindex", "cluster", "call", "copy",
     ];
 
+    if contains_forbidden_unquoted_token(&normalized, &forbidden) {
+        return false;
+    }
+
+    true
+}
+
+#[cfg(feature = "v8_runtime")]
+fn contains_forbidden_unquoted_token(sql: &str, forbidden: &[&str]) -> bool {
     let mut token = String::new();
-    for ch in normalized.chars() {
+    let mut chars = sql.chars().peekable();
+
+    enum ScanState {
+        Normal,
+        SingleQuoted,
+        DoubleQuoted,
+        DollarQuoted(String),
+    }
+
+    let mut state = ScanState::Normal;
+
+    while let Some(ch) = chars.next() {
+        match &mut state {
+            ScanState::SingleQuoted => {
+                if ch == '\'' {
+                    if chars.peek().copied() == Some('\'') {
+                        chars.next();
+                    } else {
+                        state = ScanState::Normal;
+                    }
+                }
+                continue;
+            }
+            ScanState::DoubleQuoted => {
+                if ch == '"' {
+                    if chars.peek().copied() == Some('"') {
+                        chars.next();
+                    } else {
+                        state = ScanState::Normal;
+                    }
+                }
+                continue;
+            }
+            ScanState::DollarQuoted(delimiter) => {
+                if ch == '$' {
+                    let mut candidate = String::from('$');
+                    while let Some(peek) = chars.peek().copied() {
+                        candidate.push(peek);
+                        chars.next();
+                        if peek == '$' {
+                            break;
+                        }
+                    }
+                    if &candidate == delimiter {
+                        state = ScanState::Normal;
+                    }
+                }
+                continue;
+            }
+            ScanState::Normal => {}
+        }
+
+        if ch == '\'' {
+            token.clear();
+            state = ScanState::SingleQuoted;
+            continue;
+        }
+
+        if ch == '"' {
+            token.clear();
+            state = ScanState::DoubleQuoted;
+            continue;
+        }
+
+        if ch == '$' {
+            let mut delimiter = String::from('$');
+            while let Some(peek) = chars.peek().copied() {
+                delimiter.push(peek);
+                chars.next();
+                if peek == '$' {
+                    break;
+                }
+                if !(peek.is_ascii_alphanumeric() || peek == '_') {
+                    break;
+                }
+            }
+
+            if delimiter.ends_with('$')
+                && delimiter
+                    .chars()
+                    .skip(1)
+                    .take(delimiter.len().saturating_sub(2))
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
+                token.clear();
+                state = ScanState::DollarQuoted(delimiter);
+                continue;
+            }
+        }
+
         if ch.is_ascii_alphanumeric() || ch == '_' {
             token.push(ch);
             continue;
@@ -146,17 +244,17 @@ pub(crate) fn is_read_only_sql(sql: &str) -> bool {
 
         if !token.is_empty() {
             if forbidden.contains(&token.as_str()) {
-                return false;
+                return true;
             }
             token.clear();
         }
     }
 
     if !token.is_empty() && forbidden.contains(&token.as_str()) {
-        return false;
+        return true;
     }
 
-    true
+    false
 }
 
 #[cfg(feature = "v8_runtime")]

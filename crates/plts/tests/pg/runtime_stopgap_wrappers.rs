@@ -176,6 +176,40 @@ fn test_stopgap_query_wrapper_rejects_write_sql_in_db_query() {
 }
 
 #[pg_test]
+fn test_stopgap_query_wrapper_allows_keyword_literals() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_stopgap_query_literal_it CASCADE;
+        CREATE SCHEMA plts_runtime_stopgap_query_literal_it;
+        CREATE OR REPLACE FUNCTION plts_runtime_stopgap_query_literal_it.wrapped(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$
+        import { query } from "@stopgap/runtime";
+
+        export default query({ type: "object" }, async (_args, ctx) => {
+            const rows = await ctx.db.query("SELECT 'update' AS verb, $$delete$$ AS body", []);
+            return { verb: rows[0].verb, body: rows[0].body, dbMode: ctx.db.mode };
+        });
+        $$;
+        "#,
+    )
+    .expect("stopgap query literal keyword setup SQL should succeed");
+
+    let payload =
+        Spi::get_one::<JsonB>("SELECT plts_runtime_stopgap_query_literal_it.wrapped('{}'::jsonb)")
+            .expect("query wrapper literal keyword invocation should succeed")
+            .expect("query wrapper literal keyword invocation should return jsonb");
+
+    assert_eq!(payload.0.get("verb").and_then(Value::as_str), Some("update"));
+    assert_eq!(payload.0.get("body").and_then(Value::as_str), Some("delete"));
+    assert_eq!(payload.0.get("dbMode").and_then(Value::as_str), Some("ro"));
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_stopgap_query_literal_it CASCADE;")
+        .expect("stopgap query literal keyword teardown SQL should succeed");
+}
+
+#[pg_test]
 fn test_stopgap_mutation_wrapper_allows_db_exec() {
     Spi::run(
         r#"

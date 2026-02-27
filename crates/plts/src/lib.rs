@@ -274,6 +274,9 @@ mod unit_tests {
         assert!(crate::is_read_only_sql("-- comment\nSELECT now()"));
         assert!(crate::is_read_only_sql("/* leading */ SELECT * FROM pg_class"));
         assert!(crate::is_read_only_sql("WITH cte AS (SELECT 1) SELECT * FROM cte"));
+        assert!(crate::is_read_only_sql("SELECT 'update' AS verb"));
+        assert!(crate::is_read_only_sql("SELECT $$delete from users$$ AS sql_text"));
+        assert!(crate::is_read_only_sql("SELECT \"drop\" FROM (SELECT 1 AS \"drop\") t"));
 
         assert!(!crate::is_read_only_sql("INSERT INTO t(id) VALUES (1)"));
         assert!(!crate::is_read_only_sql(

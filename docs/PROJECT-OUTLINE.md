@@ -192,6 +192,7 @@ Current implementation status:
 - JS params are bound into SPI calls as typed values (`bool`, `int`, `float`, `text`, `jsonb`, null).
 - Runtime DB calls execute inside the same PostgreSQL transaction as the invoking SQL function call; no independent transaction is started by the runtime.
 - Runtime now reads `@stopgap/runtime` wrapper metadata (`__stopgap_kind`) and switches DB mode accordingly: `query` handlers get `ctx.db.mode='ro'` with `db.exec` denied and read-only-only `db.query` filtering, while `mutation`/regular handlers stay `rw`.
+- Read-only SQL filtering now ignores write-keyword tokens inside SQL string/dollar-quoted/double-quoted literals to reduce false positives while still rejecting write statements.
 - Runtime contract coverage now includes dedicated DB-backed tests at `crates/plts/tests/pg/runtime_contract.rs`.
 
 Current state: P0 baseline remains RW; P1 wrapper-aware read-only gating is now implemented for `stopgap.query` handlers.

@@ -289,6 +289,7 @@ Legend:
 - **Runtime package note:** `packages/runtime` now has a self-test harness (`selftest.mjs`) covering wrapper metadata, validation behavior, and default export API parity, and CI baseline runs package `check` + `test`.
 - **CI note:** CI now includes a dedicated `plts runtime v8 (pg16)` job for runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage in addition to the baseline pgrx matrix.
 - **Cross-extension e2e note:** stopgap rollback pg_regress now covers `deploy -> live execute -> rollback` and verifies both execution continuity and pointer rematerialization after rollback.
+- **Security hardening note:** deploy permission checks now explicitly enforce source-schema existence/USAGE, `plts.compile_and_store` EXECUTE access, and stopgap-owned live schema usage; security pg_regress now includes deny/allow scenarios for source-schema and unmanaged-live-schema paths.
 - **Docs note:** quickstart, runtime contract, deployment runbook, and troubleshooting guides now live under `docs/`.
 - **Biggest missing pieces:** broader runtime module-graph/bundling import compatibility.
 
@@ -376,9 +377,9 @@ Minimum implementation evidence:
 - [x] Add review rule: contract-affecting code changes require doc updates in same PR.
 
 #### H. Security hardening (read-only + privilege checks)
-- [ ] Strengthen `stopgap.query` read-only enforcement edge-case coverage.
-- [ ] Add explicit privilege checks for source + live schema handling during deploy.
-- [ ] Extend pg_regress security cases for deny/allow paths.
+- [x] Strengthen `stopgap.query` read-only enforcement edge-case coverage.
+- [x] Add explicit privilege checks for source + live schema handling during deploy.
+- [x] Extend pg_regress security cases for deny/allow paths.
 
 #### I. Observability depth
 - [ ] Add latency/error-class metrics across compile/execute/deploy/rollback/diff.
