@@ -87,7 +87,7 @@ jobs:
         run: cargo pgrx init --pg17 /usr/lib/postgresql/17/bin/pg_config
 
       - name: Run pgrx tests
-        run: cargo pgrx test --pg17 -p ${{ matrix.package }} --no-default-features --features pg17
+        run: cargo pgrx test pg17 -p ${{ matrix.package }} --no-default-features --features pg17
 
       - name: Install plts extension for stopgap regress
         if: matrix.package == 'stopgap'
@@ -95,7 +95,7 @@ jobs:
 
       - name: Run stopgap pg_regress
         if: matrix.package == 'stopgap'
-        run: cargo pgrx regress --pg17 -p stopgap --no-default-features --features pg17 --resetdb
+        run: cargo pgrx regress pg17 -p stopgap --no-default-features --features pg17 --resetdb
 
       - name: Collect pgrx diagnostics bundle
         if: failure()
@@ -155,7 +155,7 @@ jobs:
         run: cargo pgrx init --pg17 /usr/lib/postgresql/17/bin/pg_config
 
       - name: Run plts runtime-heavy tests
-        run: cargo pgrx test --pg17 -p plts --no-default-features --features "pg17,v8_runtime"
+        run: cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"
 
       - name: Collect runtime diagnostics bundle
         if: failure()
