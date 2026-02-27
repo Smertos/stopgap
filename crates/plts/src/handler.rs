@@ -1,6 +1,9 @@
 use crate::arg_mapping::{build_args_payload, is_single_jsonb_arg_function};
 use crate::function_program::load_function_program;
-use crate::observability::{log_info, log_warn, record_execute_error, record_execute_start};
+use crate::observability::{
+    classify_execute_error, log_info, log_warn, record_execute_error, record_execute_start,
+    record_execute_success,
+};
 use crate::runtime::{
     build_runtime_context, execute_program, format_runtime_error_for_sql, runtime_available,
 };
@@ -27,7 +30,7 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
 
     if runtime_available() {
         if let Some(program) = load_function_program(fn_oid) {
-            record_execute_start();
+            let started_at = record_execute_start();
             log_info(&format!(
                 "plts.execute start schema={} fn={} oid={}",
                 program.schema, program.name, program.oid
@@ -35,6 +38,7 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
             let context = build_runtime_context(&program, &args_payload);
             match execute_program(&program.source, &context) {
                 Ok(Some(value)) => {
+                    record_execute_success(started_at);
                     log_info(&format!(
                         "plts.execute success schema={} fn={} oid={}",
                         program.schema, program.name, program.oid
@@ -44,6 +48,7 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
                     }
                 }
                 Ok(None) => {
+                    record_execute_success(started_at);
                     log_info(&format!(
                         "plts.execute success-null schema={} fn={} oid={}",
                         program.schema, program.name, program.oid
@@ -52,7 +57,9 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
                     return pg_sys::Datum::from(0);
                 }
                 Err(err) => {
-                    record_execute_error();
+                    let error_text = err.to_string();
+                    let error_class = classify_execute_error(error_text.as_str());
+                    record_execute_error(started_at, error_class);
                     log_warn(&format!(
                         "plts.execute failed schema={} fn={} oid={} err={}",
                         program.schema, program.name, program.oid, err

@@ -382,9 +382,9 @@ Minimum implementation evidence:
 - [x] Extend pg_regress security cases for deny/allow paths.
 
 #### I. Observability depth
-- [ ] Add latency/error-class metrics across compile/execute/deploy/rollback/diff.
-- [ ] Add tests/assertions for metrics shape and increment behavior.
-- [ ] Document interpretation guidance in ops docs.
+- [x] Add latency/error-class metrics across compile/execute/deploy/rollback/diff.
+- [x] Add tests/assertions for metrics shape and increment behavior.
+- [x] Document interpretation guidance in ops docs.
 
 #### J. Performance profiling baseline
 - [ ] Capture baseline profiling for compile and runtime execution hotspots.

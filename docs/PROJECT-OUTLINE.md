@@ -80,7 +80,7 @@ Near-term structure direction:
 
 ### Runtime/config
 - `plts.version() -> text`
-- `plts.metrics() -> jsonb` (backend-process counters for compile/execute calls + errors)
+- `plts.metrics() -> jsonb` (backend-process counters for compile/execute calls + errors, latency aggregates, and error-class buckets)
 - GUCs (implemented):
   - `plts.max_runtime_ms`
   - `plts.max_heap_mb`
@@ -268,7 +268,7 @@ GUCs:
 - `stopgap.deploy_lock_key` (if you want override/advisory lock namespace)
 
 Operational metrics/log surface:
-- `stopgap.metrics() -> jsonb` (backend-process counters for deploy/rollback/diff calls + errors)
+- `stopgap.metrics() -> jsonb` (backend-process counters for deploy/rollback/diff calls + errors, latency aggregates, and error-class buckets)
 
 ## 4.4 “Live schema” materialization (how deploy works)
 ### Deployable function signature (strict)
@@ -503,6 +503,7 @@ Current progress snapshot:
 - prune mode + dependency-safe behavior
 - audit + status introspection
 - compile/execute/deploy metrics + log-level gated observability (`plts.metrics()`, `stopgap.metrics()`, `plts.log_level`, `stopgap.log_level`)
+  - current metric payloads include per-operation call/error counters, latency aggregates (`total`/`last`/`max` ms), and error-class buckets for triage
 
 ---
 

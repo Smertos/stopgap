@@ -41,6 +41,33 @@ fn test_metrics_deploy_calls_increase_after_deploy() {
         .and_then(|value| value.get("calls"))
         .and_then(Value::as_u64)
         .expect("deploy.calls should be present");
+    let _deploy_latency_last = after
+        .0
+        .get("deploy")
+        .and_then(|value| value.get("latency_ms"))
+        .and_then(|value| value.get("last"))
+        .and_then(Value::as_u64)
+        .expect("deploy.latency_ms.last should be present");
+    let _rollback_latency_last = after
+        .0
+        .get("rollback")
+        .and_then(|value| value.get("latency_ms"))
+        .and_then(|value| value.get("last"))
+        .and_then(Value::as_u64)
+        .expect("rollback.latency_ms.last should be present");
+    let _diff_latency_last = after
+        .0
+        .get("diff")
+        .and_then(|value| value.get("latency_ms"))
+        .and_then(|value| value.get("last"))
+        .and_then(Value::as_u64)
+        .expect("diff.latency_ms.last should be present");
+    let _diff_error_classes = after
+        .0
+        .get("diff")
+        .and_then(|value| value.get("error_classes"))
+        .and_then(Value::as_object)
+        .expect("diff.error_classes should be an object");
 
     assert!(after_calls > before_calls, "deploy.calls should increase after deploy");
 }
