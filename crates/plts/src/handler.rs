@@ -8,7 +8,7 @@ use pgrx::prelude::*;
 use pgrx::JsonB;
 
 #[pg_guard]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn plts_call_handler(
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> pg_sys::Datum {
@@ -79,19 +79,19 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
     pg_sys::Datum::from(0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn pg_finfo_plts_call_handler() -> &'static pg_sys::Pg_finfo_record {
     const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
     &V1_API
 }
 
 #[pg_guard]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn plts_validator(_fcinfo: pg_sys::FunctionCallInfo) -> pg_sys::Datum {
     pg_sys::Datum::from(0)
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn pg_finfo_plts_validator() -> &'static pg_sys::Pg_finfo_record {
     const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
     &V1_API
