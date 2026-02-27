@@ -261,6 +261,7 @@ Legend:
 - [x] Add developer quickstart (local pgrx setup + commands)
 - [x] Add runtime contract reference (`ctx` shape and return semantics)
 - [x] Add deployment lifecycle and operational runbook
+- [x] Add profiling baseline doc (hotspots, targets, next optimizations)
 - [x] Add troubleshooting guide (common pgrx/test/install issues)
 
 ---
@@ -290,7 +291,7 @@ Legend:
 - **CI note:** CI now includes a dedicated `plts runtime v8 (pg16)` job for runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage in addition to the baseline pgrx matrix.
 - **Cross-extension e2e note:** stopgap rollback pg_regress now covers `deploy -> live execute -> rollback` and verifies both execution continuity and pointer rematerialization after rollback.
 - **Security hardening note:** deploy permission checks now explicitly enforce source-schema existence/USAGE, `plts.compile_and_store` EXECUTE access, and stopgap-owned live schema usage; security pg_regress now includes deny/allow scenarios for source-schema and unmanaged-live-schema paths.
-- **Docs note:** quickstart, runtime contract, deployment runbook, and troubleshooting guides now live under `docs/`.
+- **Docs note:** quickstart, runtime contract, deployment runbook, performance baseline, and troubleshooting guides now live under `docs/`.
 - **Biggest missing pieces:** broader runtime module-graph/bundling import compatibility.
 
 ---
@@ -387,9 +388,14 @@ Minimum implementation evidence:
 - [x] Document interpretation guidance in ops docs.
 
 #### J. Performance profiling baseline
-- [ ] Capture baseline profiling for compile and runtime execution hotspots.
-- [ ] Document measurable bottlenecks and threshold targets.
-- [ ] Choose 1-2 optimizations with expected impact before implementation.
+- [x] Capture baseline profiling for compile and runtime execution hotspots.
+- [x] Document measurable bottlenecks and threshold targets.
+- [x] Choose 1-2 optimizations with expected impact before implementation.
+
+Minimum implementation evidence:
+- [x] baseline harness test at `crates/plts/tests/pg/runtime_performance_baseline.rs`
+- [x] baseline notes at `docs/PERFORMANCE-BASELINE.md`
+- [x] profiling command executed: `cargo pgrx test -p plts pg17 test_runtime_performance_baseline_snapshot`
 
 #### K. Targeted performance changes
 - [ ] Implement only benchmark-backed optimizations from iteration 10.

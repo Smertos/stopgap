@@ -17,6 +17,7 @@ This file captures how to work effectively in this repository.
   - `docs/DEVELOPER-QUICKSTART.md`: local setup + validation command reference
   - `docs/RUNTIME-CONTRACT.md`: `plts` runtime context/return contract
   - `docs/DEPLOYMENT-RUNBOOK.md`: deployment/rollback operational lifecycle
+  - `docs/PERFORMANCE-BASELINE.md`: profiling baseline, bottlenecks, and next optimization targets
   - `docs/TROUBLESHOOTING.md`: common setup/test/runtime issue guide
 
 ## Tooling baseline
@@ -94,6 +95,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 - Stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`; ownership/role hardening baseline is now in place (`stopgap_owner`, `stopgap_deployer`, `app_user`, SECURITY DEFINER deploy/rollback/diff, and live-schema execute grants).
 - Most deploy SQL value binding uses argumentized SPI; remaining interpolation is primarily constrained identifier/DDL construction.
 - Shared helper migration has started via `crates/common` (SQL quoting + bool-setting parsing); plts logic is now split across `crates/plts/src/api.rs`, `crates/plts/src/handler.rs`, `crates/plts/src/runtime.rs`, `crates/plts/src/compiler.rs`, `crates/plts/src/runtime_spi.rs`, `crates/plts/src/function_program.rs`, and `crates/plts/src/arg_mapping.rs` with a thin `crates/plts/src/lib.rs`, while stopgap pure domain/state-transition logic lives in `crates/stopgap/src/domain.rs`, runtime config/SPI helpers live in `crates/stopgap/src/runtime_config.rs`, deploy scan/materialization helpers live in `crates/stopgap/src/deployment_utils.rs`, stopgap deployment-state/rollback helpers live in `crates/stopgap/src/deployment_state.rs`, stopgap deploy/status/diff orchestration helpers live in `crates/stopgap/src/api_ops.rs`, stopgap role/permission helpers live in `crates/stopgap/src/security.rs`, and stopgap SQL API/bootstrap wiring lives in `crates/stopgap/src/api.rs` + `crates/stopgap/src/sql_bootstrap.rs` with a thin `crates/stopgap/src/lib.rs`.
+- Compile/execute profiling baseline is now tracked by `crates/plts/tests/pg/runtime_performance_baseline.rs` and documented in `docs/PERFORMANCE-BASELINE.md`; next optimization candidates are backend caching for non-pointer function metadata and lower-allocation arg payload construction.
 
 ## Do not do without explicit direction
 
