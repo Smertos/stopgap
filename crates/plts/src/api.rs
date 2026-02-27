@@ -6,9 +6,9 @@ use crate::observability::{
 };
 use crate::runtime::bootstrap_v8_isolate;
 use common::sql::quote_literal;
+use pgrx::JsonB;
 use pgrx::iter::TableIterator;
 use pgrx::prelude::*;
-use pgrx::JsonB;
 
 #[pg_schema]
 mod plts {

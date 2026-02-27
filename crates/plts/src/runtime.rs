@@ -4,15 +4,15 @@ use crate::runtime_spi::{exec_sql_with_params, query_json_rows_with_params};
 #[cfg(feature = "v8_runtime")]
 use base64::Engine;
 use pgrx::prelude::*;
-use serde_json::json;
 use serde_json::Value;
+use serde_json::json;
 use std::fmt;
 #[cfg(feature = "v8_runtime")]
 use std::rc::Rc;
 #[cfg(feature = "v8_runtime")]
-use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(feature = "v8_runtime")]
 use std::sync::Arc;
+#[cfg(feature = "v8_runtime")]
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(feature = "v8_runtime")]
 use std::thread::{self, JoinHandle};
 #[cfg(feature = "v8_runtime")]
@@ -66,11 +66,7 @@ pub(crate) fn parse_js_error_details(details: &str) -> (String, Option<String>) 
     if let Some((first, rest)) = trimmed.split_once('\n') {
         let message = first.trim().to_string();
         let stack = rest.trim();
-        if stack.is_empty() {
-            (message, None)
-        } else {
-            (message, Some(stack.to_string()))
-        }
+        if stack.is_empty() { (message, None) } else { (message, Some(stack.to_string())) }
     } else {
         (trimmed.to_string(), None)
     }
@@ -106,11 +102,7 @@ fn current_setting_text(name: &str) -> Option<String> {
     };
     Spi::get_one::<String>(&sql).ok().flatten().and_then(|value| {
         let trimmed = value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
+        if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
     })
 }
 
@@ -329,9 +321,9 @@ pub(crate) fn execute_program(
     context: &Value,
 ) -> Result<Option<Value>, RuntimeExecError> {
     use deno_core::{
-        op2, serde_v8, v8, JsRuntime, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse,
-        ModuleLoader, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType,
-        PollEventLoopOptions, ResolutionKind, RuntimeOptions,
+        JsRuntime, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader,
+        ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, PollEventLoopOptions,
+        ResolutionKind, RuntimeOptions, op2, serde_v8, v8,
     };
 
     const MAIN_MODULE_SPECIFIER: &str = "file:///plts/main.js";
@@ -748,11 +740,7 @@ pub(crate) fn execute_program(
         RuntimeExecError::new("result decode", format!("failed to decode JS result value: {e}"))
     })?;
 
-    if value.is_null() {
-        Ok(None)
-    } else {
-        Ok(Some(value))
-    }
+    if value.is_null() { Ok(None) } else { Ok(Some(value)) }
 }
 
 #[cfg(not(feature = "v8_runtime"))]

@@ -1,15 +1,15 @@
-use pgrx::prelude::*;
 use pgrx::JsonB;
-use serde_json::json;
+use pgrx::prelude::*;
 use serde_json::Value;
+use serde_json::json;
 use std::collections::BTreeSet;
 
 use crate::{
-    compute_diff_rows, ensure_diff_permissions, fetch_deployable_functions, fetch_fn_versions,
-    fetch_live_deployable_functions, harden_live_schema, live_function_has_dependents,
-    load_environment_state, materialize_live_pointer, prune_manifest_item, quote_ident,
-    resolve_prune_enabled, run_sql, run_sql_with_args, transition_deployment_status,
-    update_deployment_manifest, CandidateFn, DeploymentStatus, PruneReport,
+    CandidateFn, DeploymentStatus, PruneReport, compute_diff_rows, ensure_diff_permissions,
+    fetch_deployable_functions, fetch_fn_versions, fetch_live_deployable_functions,
+    harden_live_schema, live_function_has_dependents, load_environment_state,
+    materialize_live_pointer, prune_manifest_item, quote_ident, resolve_prune_enabled, run_sql,
+    run_sql_with_args, transition_deployment_status, update_deployment_manifest,
 };
 
 pub(crate) fn run_deploy_flow(

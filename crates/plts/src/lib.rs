@@ -10,7 +10,7 @@ mod runtime;
 mod runtime_spi;
 
 #[cfg(feature = "v8_runtime")]
-pub(crate) use runtime_spi::{bind_json_params, is_read_only_sql, BoundParam};
+pub(crate) use runtime_spi::{BoundParam, bind_json_params, is_read_only_sql};
 
 ::pgrx::pg_module_magic!(name, version);
 
@@ -132,8 +132,7 @@ mod unit_tests {
 
     #[test]
     fn test_extract_inline_source_map_decodes_payload() {
-        let compiled =
-            "console.log('x');\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozfQ==";
+        let compiled = "console.log('x');\n//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozfQ==";
         let source_map = crate::compiler::extract_inline_source_map(compiled)
             .expect("inline source map should decode from base64 payload");
         assert!(source_map.contains("\"version\":3"));

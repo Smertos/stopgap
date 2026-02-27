@@ -4,8 +4,8 @@ use crate::observability::{log_info, log_warn, record_execute_error, record_exec
 use crate::runtime::{
     build_runtime_context, execute_program, format_runtime_error_for_sql, runtime_available,
 };
-use pgrx::prelude::*;
 use pgrx::JsonB;
+use pgrx::prelude::*;
 
 #[pg_guard]
 #[unsafe(no_mangle)]

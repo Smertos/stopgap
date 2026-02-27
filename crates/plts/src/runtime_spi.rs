@@ -1,13 +1,13 @@
 #[cfg(feature = "v8_runtime")]
+use pgrx::JsonB;
+#[cfg(feature = "v8_runtime")]
 use pgrx::datum::DatumWithOid;
 #[cfg(feature = "v8_runtime")]
 use pgrx::prelude::*;
 #[cfg(feature = "v8_runtime")]
-use pgrx::JsonB;
+use serde_json::Value;
 #[cfg(feature = "v8_runtime")]
 use serde_json::json;
-#[cfg(feature = "v8_runtime")]
-use serde_json::Value;
 
 #[cfg(feature = "v8_runtime")]
 const DEFAULT_MAX_SQL_BYTES: usize = 128 * 1024;
@@ -236,11 +236,7 @@ fn current_setting_text(name: &str) -> Option<String> {
     let sql = format!("SELECT current_setting('{}', true)", name);
     Spi::get_one::<String>(&sql).ok().flatten().and_then(|value| {
         let trimmed = value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
+        if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
     })
 }
 

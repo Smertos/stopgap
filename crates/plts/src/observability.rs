@@ -1,6 +1,6 @@
 use pgrx::prelude::*;
-use serde_json::json;
 use serde_json::Value;
+use serde_json::json;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static COMPILE_CALLS: AtomicU64 = AtomicU64::new(0);

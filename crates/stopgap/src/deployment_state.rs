@@ -1,11 +1,11 @@
-use pgrx::prelude::*;
 use pgrx::JsonB;
-use serde_json::json;
+use pgrx::prelude::*;
 use serde_json::Value;
+use serde_json::json;
 
 use crate::deployment_utils::materialize_live_pointer;
 use crate::domain::{
-    is_allowed_transition, rollback_steps_to_offset, DeploymentStatus, FnVersionRow,
+    DeploymentStatus, FnVersionRow, is_allowed_transition, rollback_steps_to_offset,
 };
 use crate::runtime_config::run_sql_with_args;
 

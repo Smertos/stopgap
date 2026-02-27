@@ -1,7 +1,7 @@
-use pgrx::prelude::*;
 use pgrx::JsonB;
-use serde_json::json;
+use pgrx::prelude::*;
 use serde_json::Value;
+use serde_json::json;
 
 pub(crate) fn is_single_jsonb_arg_function(fn_oid: pg_sys::Oid) -> bool {
     let sql = format!(

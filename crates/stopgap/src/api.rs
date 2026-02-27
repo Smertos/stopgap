@@ -1,14 +1,14 @@
-use pgrx::prelude::*;
 use pgrx::JsonB;
+use pgrx::prelude::*;
 use serde_json::json;
 
 use crate::{
-    ensure_deploy_permissions, ensure_deployment_belongs_to_env,
-    ensure_no_overloaded_plts_functions, ensure_role_membership, find_rollback_target_by_steps,
-    hash_lock_key, load_deployment_status, load_deployments, load_diff, load_environment_state,
-    load_status, observability, reactivate_deployment, resolve_live_schema,
-    rollback_steps_to_offset, run_deploy_flow, run_sql_with_args, transition_deployment_status,
-    transition_if_active, update_failed_manifest, DeploymentStatus, STOPGAP_DEPLOYER_ROLE,
+    DeploymentStatus, STOPGAP_DEPLOYER_ROLE, ensure_deploy_permissions,
+    ensure_deployment_belongs_to_env, ensure_no_overloaded_plts_functions, ensure_role_membership,
+    find_rollback_target_by_steps, hash_lock_key, load_deployment_status, load_deployments,
+    load_diff, load_environment_state, load_status, observability, reactivate_deployment,
+    resolve_live_schema, rollback_steps_to_offset, run_deploy_flow, run_sql_with_args,
+    transition_deployment_status, transition_if_active, update_failed_manifest,
 };
 
 #[pg_extern]

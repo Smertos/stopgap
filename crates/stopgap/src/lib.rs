@@ -25,11 +25,11 @@ pub(crate) use deployment_utils::{
     materialize_live_pointer,
 };
 pub(crate) use domain::{
-    compute_diff_rows, fn_manifest_item, hash_lock_key, prune_manifest_item,
-    rollback_steps_to_offset, CandidateFn, DeploymentStatus, PruneReport,
+    CandidateFn, DeploymentStatus, PruneReport, compute_diff_rows, fn_manifest_item, hash_lock_key,
+    prune_manifest_item, rollback_steps_to_offset,
 };
 #[cfg(test)]
-pub(crate) use domain::{is_allowed_transition, FnVersionRow};
+pub(crate) use domain::{FnVersionRow, is_allowed_transition};
 pub(crate) use runtime_config::{
     quote_ident, resolve_live_schema, resolve_prune_enabled, run_sql, run_sql_with_args,
 };
