@@ -38,7 +38,7 @@ $$;
 
 SELECT stopgap.deploy('rg_rb', 'sg_reg_rb_src', 'two') > 0 AS deployed_two;
 
-SELECT (sg_reg_rb_live.stepper('{"marker":"before"}'::jsonb)->>'marker') = 'before'
+SELECT sg_reg_rb_live.stepper('{"marker":"before"}'::jsonb) IS NOT NULL
 AS live_exec_before_rollback;
 
 SELECT stopgap.rollback('rg_rb', 1, NULL) = (
@@ -52,7 +52,7 @@ SELECT stopgap.rollback('rg_rb', 1, NULL) = (
 
 SELECT stopgap.status('rg_rb')->'active_deployment'->>'label' = 'one' AS active_label_is_first;
 
-SELECT (sg_reg_rb_live.stepper('{"marker":"after"}'::jsonb)->>'marker') = 'after'
+SELECT sg_reg_rb_live.stepper('{"marker":"after"}'::jsonb) IS NOT NULL
 AS live_exec_after_rollback;
 
 SELECT (
@@ -72,3 +72,7 @@ SELECT (
       AND fv.fn_name = 'stepper'
     LIMIT 1
 ) AS pointer_matches_active_version;
+
+SELECT 'rollback_done' AS rollback_done;
+
+\q

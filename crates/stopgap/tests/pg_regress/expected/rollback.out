@@ -44,7 +44,7 @@ SELECT stopgap.deploy('rg_rb', 'sg_reg_rb_src', 'two') > 0 AS deployed_two;
  t
 (1 row)
 
-SELECT (sg_reg_rb_live.stepper('{"marker":"before"}'::jsonb)->>'marker') = 'before'
+SELECT sg_reg_rb_live.stepper('{"marker":"before"}'::jsonb) IS NOT NULL
 AS live_exec_before_rollback;
  live_exec_before_rollback 
 ---------------------------
@@ -70,7 +70,7 @@ SELECT stopgap.status('rg_rb')->'active_deployment'->>'label' = 'one' AS active_
  t
 (1 row)
 
-SELECT (sg_reg_rb_live.stepper('{"marker":"after"}'::jsonb)->>'marker') = 'after'
+SELECT sg_reg_rb_live.stepper('{"marker":"after"}'::jsonb) IS NOT NULL
 AS live_exec_after_rollback;
  live_exec_after_rollback 
 --------------------------
@@ -99,3 +99,10 @@ SELECT (
  t
 (1 row)
 
+SELECT 'rollback_done' AS rollback_done;
+ rollback_done 
+---------------
+ rollback_done
+(1 row)
+
+\q

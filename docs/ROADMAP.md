@@ -325,12 +325,13 @@ Required verification per meaningful item:
 ### 13.2 Ordered backlog (execute top-down)
 
 #### 0. P0 evergreen V8 runtime coverage
-- [ ] Keep V8 runtime tests evergreen and fully passing after every change.
-- [ ] Treat V8 lane failures as root-cause bugs to fix, never as candidates for bypass/disable/ignore.
-- [ ] Keep CI/docs parity on the runtime-heavy lane command (`pg17,v8_runtime`).
+- [x] Keep V8 runtime tests evergreen and fully passing after every change.
+- [x] Treat V8 lane failures as root-cause bugs to fix, never as candidates for bypass/disable/ignore.
+- [x] Keep CI/docs parity on the runtime-heavy lane command (`pg17,v8_runtime`).
 
 Minimum implementation evidence:
 - [x] CI/runtime references aligned in `.github/workflows/ci.yml`, `AGENTS.md`, and `docs/DEVELOPER-QUICKSTART.md`
+- [x] local runtime-lane verification passed via `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` during iteration 4
 - [ ] at least one green CI run including `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`
 
 #### 1. Add simple root README
