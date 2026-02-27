@@ -97,6 +97,15 @@ fn load_compiled_artifact_from_cache_or_db(artifact_hash: &str) -> Option<String
     Some(source)
 }
 
+#[cfg(feature = "v8_runtime")]
+pub(crate) fn load_compiled_artifact_source(artifact_hash: &str) -> Option<String> {
+    if artifact_hash.is_empty() {
+        return None;
+    }
+
+    load_compiled_artifact_from_cache_or_db(artifact_hash)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArtifactPtr {
     pub(crate) artifact_hash: String,

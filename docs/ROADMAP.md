@@ -293,13 +293,13 @@ Legend:
 - **Cross-extension e2e note:** stopgap rollback pg_regress now covers `deploy -> live execute -> rollback` and verifies both execution continuity and pointer rematerialization after rollback.
 - **Security hardening note:** deploy permission checks now explicitly enforce source-schema existence/USAGE, `plts.compile_and_store` EXECUTE access, and stopgap-owned live schema usage; security pg_regress now includes deny/allow scenarios for source-schema and unmanaged-live-schema paths.
 - **Docs note:** quickstart, runtime contract, deployment runbook, performance baseline, and troubleshooting guides now live under `docs/`.
-- **Biggest missing pieces:** broader runtime module-graph/bundling import compatibility.
+- **Biggest missing pieces:** CI evidence capture for runtime-lane execution in GitHub Actions and broader package-style/bundled runtime import compatibility beyond current `data:` + `plts+artifact:` + `@stopgap/runtime` support.
 
 ---
 
 ## 12) Post-Roadmap Follow-up Backlog
 
-- [ ] Expand runtime module-graph/bundling compatibility for arbitrary in-DB imports beyond `data:` URLs and built-in `@stopgap/runtime`.
+- [ ] Expand runtime module-graph/bundling compatibility for package-style imports beyond current `data:` URLs, `plts+artifact:<hash>`, and built-in `@stopgap/runtime`.
 
 ---
 
@@ -404,6 +404,11 @@ Minimum implementation evidence:
 - [x] Publish before/after benchmark evidence.
 
 #### L. Runtime import/module-graph expansion
-- [ ] Expand import compatibility beyond current limited support.
-- [ ] Add compatibility matrix tests + negative cases.
-- [ ] Update docs with supported/unsupported import rules.
+- [x] Expand import compatibility beyond current limited support.
+- [x] Add compatibility matrix tests + negative cases.
+- [x] Update docs with supported/unsupported import rules.
+
+Minimum implementation evidence:
+- [x] runtime loader support for `plts+artifact:<hash>` in `crates/plts/src/runtime.rs`
+- [x] artifact-backed module-source reuse in `crates/plts/src/function_program.rs`
+- [x] compatibility + negative runtime import tests in `crates/plts/tests/pg/runtime_module_imports.rs`

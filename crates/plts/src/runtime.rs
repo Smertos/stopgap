@@ -1,5 +1,7 @@
 use crate::function_program::FunctionProgram;
 #[cfg(feature = "v8_runtime")]
+use crate::function_program::load_compiled_artifact_source;
+#[cfg(feature = "v8_runtime")]
 use crate::runtime_spi::{exec_sql_with_params, query_json_rows_with_params};
 #[cfg(feature = "v8_runtime")]
 use base64::Engine;
@@ -327,6 +329,7 @@ pub(crate) fn execute_program(
     };
 
     const MAIN_MODULE_SPECIFIER: &str = "file:///plts/main.js";
+    const PLTS_ARTIFACT_MODULE_SCHEME: &str = "plts+artifact";
     const STOPGAP_RUNTIME_BARE_SPECIFIER: &str = "@stopgap/runtime";
     const STOPGAP_RUNTIME_SPECIFIER: &str = "file:///plts/__stopgap_runtime__.js";
     const STOPGAP_RUNTIME_SOURCE: &str = include_str!("../../../packages/runtime/src/embedded.ts");
@@ -380,6 +383,21 @@ pub(crate) fn execute_program(
         module_specifier: &ModuleSpecifier,
     ) -> Result<ModuleSource, deno_core::error::ModuleLoaderError> {
         match module_specifier.scheme() {
+            PLTS_ARTIFACT_MODULE_SCHEME => {
+                let artifact_hash = parse_artifact_module_hash(module_specifier)?;
+                let source = load_compiled_artifact_source(&artifact_hash).ok_or_else(|| {
+                    deno_error::JsErrorBox::generic(format!(
+                        "artifact module `{}` could not be loaded: artifact `{}` not found",
+                        module_specifier, artifact_hash
+                    ))
+                })?;
+                Ok(ModuleSource::new(
+                    ModuleType::JavaScript,
+                    ModuleSourceCode::String(source.into()),
+                    module_specifier,
+                    None,
+                ))
+            }
             "data" => {
                 let source = decode_data_url_module_code(module_specifier)?;
                 Ok(ModuleSource::new(
@@ -398,10 +416,30 @@ pub(crate) fn execute_program(
                 ))
             }
             _ => Err(deno_error::JsErrorBox::generic(format!(
-                "unsupported module import `{}`; only `data:` imports and `@stopgap/runtime` are currently allowed",
+                "unsupported module import `{}`; allowed imports are `data:`, `plts+artifact:<hash>`, and `@stopgap/runtime`",
                 module_specifier
             ))),
         }
+    }
+
+    fn parse_artifact_module_hash(
+        module_specifier: &ModuleSpecifier,
+    ) -> Result<String, deno_core::error::ModuleLoaderError> {
+        let raw = module_specifier.as_str();
+        let raw_hash = raw.strip_prefix("plts+artifact:").ok_or_else(|| {
+            deno_error::JsErrorBox::generic(format!(
+                "invalid artifact module specifier `{module_specifier}`"
+            ))
+        })?;
+
+        let artifact_hash = raw_hash.trim_start_matches('/').trim();
+        if artifact_hash.is_empty() {
+            return Err(deno_error::JsErrorBox::generic(format!(
+                "invalid artifact module specifier `{module_specifier}`: artifact hash is required"
+            )));
+        }
+
+        Ok(artifact_hash.to_string())
     }
 
     fn decode_data_url_module_code(

@@ -70,7 +70,7 @@ If SQL outputs or extension entities change, also run/update pg_regress artifact
 
 ## Near-term technical debt to remember
 
-- `plts` runtime handler executes sync + async default-export JS when built with `v8_runtime`, now via ES module loading (including `data:` imports and bare `@stopgap/runtime`); broader arbitrary import-resolution coverage is still pending, but runtime errors surface stage/message/stack with SQL function identity context.
+- `plts` runtime handler executes sync + async default-export JS when built with `v8_runtime`, now via ES module loading (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, and bare `@stopgap/runtime`); broader package/bundling import-resolution coverage is still pending, but runtime errors surface stage/message/stack with SQL function identity context.
 - `plts` runtime `ctx.db.query/exec` now accepts SQL string + params, `{ sql, params }` objects, and Drizzle-style `toSQL(): { sql, params }` inputs while keeping execution on SPI SQL text + bound params.
 - Statement/plan caching has been evaluated for the current runtime DB interop baseline; no explicit runtime statement cache is enabled yet, and SPI SQL+bound-params remains the stable execution model pending profiling-driven need.
 - `plts` runtime now applies deterministic DB API guardrails per call (bounded SQL text size, bound parameter count, and query row count via `plts.max_sql_bytes`, `plts.max_params`, and `plts.max_query_rows`).

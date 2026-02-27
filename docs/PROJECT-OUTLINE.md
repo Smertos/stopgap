@@ -334,6 +334,14 @@ So in DB you can use:
 
 Current implementation resolves this bare specifier through the runtime module loader.
 The embedded module source is loaded from `packages/runtime/src/embedded.ts` to keep wrapper logic in sync between package and in-DB execution.
+Runtime module imports currently support:
+- `data:` module specifiers
+- `plts+artifact:<hash>` module specifiers backed by `plts.artifact.compiled_js`
+- bare `@stopgap/runtime`
+
+Unsupported for now:
+- arbitrary filesystem/network module resolution
+- package-manager style bare imports other than `@stopgap/runtime`
 
 ## 5.2 Schema format
 Pick one schema strategy:
@@ -380,7 +388,7 @@ Current implementation status:
 - Runtime `ctx.db.query/exec` now accepts all three input forms (string+params, `{ sql, params }`, and `toSQL()` objects) and normalizes them to SQL text + bound params before SPI execution.
 - Statement/plan caching evaluation is complete for the current interop baseline; explicit runtime-level statement caching is intentionally deferred until profiling shows a clear need.
 
-Follow-up work can expand import/bundling coverage for richer in-DB Drizzle compatibility.
+Follow-up work can expand package/bundling coverage for richer in-DB Drizzle compatibility.
 
 ---
 
@@ -455,7 +463,7 @@ Current progress snapshot:
 - runtime now wires `ctx.db.query/exec` to SPI with structured JS parameter binding
 - deno_core dependency and feature-gated isolate bootstrap scaffolding are in place
 - async default-export handler execution is now supported in the V8 runtime path
-- runtime now evaluates ES modules via the module loader (including `data:` imports and a built-in bare `@stopgap/runtime` module); broader arbitrary import-resolution strategies are still pending
+- runtime now evaluates ES modules via the module loader (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, and a built-in bare `@stopgap/runtime` module); broader arbitrary import-resolution strategies are still pending
 - `plts.compile_ts` now performs real TS->JS transpilation via `deno_ast` and returns structured diagnostics
 - `plts` compiler fingerprinting now derives from real dependency versions (`deno_ast`/`deno_core`) from workspace lock metadata
 - optional source-map persistence is now supported in `plts.artifact` when `compiler_opts.source_map=true`
