@@ -380,9 +380,9 @@ pub(crate) fn execute_program(
     context: &Value,
 ) -> Result<Option<Value>, RuntimeExecError> {
     use deno_core::{
-        JsRuntime, ModuleLoadOptions, ModuleLoadReferrer, ModuleLoadResponse, ModuleLoader,
-        ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, PollEventLoopOptions,
-        ResolutionKind, RuntimeOptions, op2, serde_v8, v8,
+        JsRuntime, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode,
+        ModuleSpecifier, ModuleType, PollEventLoopOptions, RequestedModuleType, ResolutionKind,
+        RuntimeOptions, op2, serde_v8, v8,
     };
 
     const MAIN_MODULE_SPECIFIER: &str = "file:///plts/main.js";
@@ -412,12 +412,15 @@ pub(crate) fn execute_program(
 
         if target.starts_with("sha256:") {
             let specifier = format!("plts+artifact:{target}");
-            return ModuleSpecifier::parse(&specifier).map_err(deno_error::JsErrorBox::from_err);
+            return Ok(
+                ModuleSpecifier::parse(&specifier).map_err(deno_error::JsErrorBox::from_err)?
+            );
         }
 
         Err(deno_error::JsErrorBox::generic(format!(
             "invalid inline import map target `{target}`; expected absolute module specifier or artifact hash"
-        )))
+        ))
+        .into())
     }
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -447,8 +450,8 @@ pub(crate) fn execute_program(
             _kind: ResolutionKind,
         ) -> Result<ModuleSpecifier, deno_core::error::ModuleLoaderError> {
             if specifier == STOPGAP_RUNTIME_BARE_SPECIFIER {
-                return ModuleSpecifier::parse(STOPGAP_RUNTIME_SPECIFIER)
-                    .map_err(deno_error::JsErrorBox::from_err);
+                return Ok(ModuleSpecifier::parse(STOPGAP_RUNTIME_SPECIFIER)
+                    .map_err(deno_error::JsErrorBox::from_err)?);
             }
 
             if is_bare_module_specifier(specifier) {
@@ -458,17 +461,20 @@ pub(crate) fn execute_program(
 
                 return Err(deno_error::JsErrorBox::generic(format!(
                     "unsupported bare module import `{specifier}`; add an inline import map comment like `// {INLINE_IMPORT_MAP_MARKER} {{\"{specifier}\":\"plts+artifact:sha256:...\"}}`"
-                )));
+                ))
+                .into());
             }
 
-            deno_core::resolve_import(specifier, referrer).map_err(deno_error::JsErrorBox::from_err)
+            Ok(deno_core::resolve_import(specifier, referrer)
+                .map_err(deno_error::JsErrorBox::from_err)?)
         }
 
         fn load(
             &self,
             module_specifier: &ModuleSpecifier,
-            _maybe_referrer: Option<&ModuleLoadReferrer>,
-            _options: ModuleLoadOptions,
+            _maybe_referrer: Option<&ModuleSpecifier>,
+            _is_dyn_import: bool,
+            _requested_module_type: RequestedModuleType,
         ) -> ModuleLoadResponse {
             ModuleLoadResponse::Sync(load_module_source(module_specifier))
         }
@@ -513,7 +519,8 @@ pub(crate) fn execute_program(
             _ => Err(deno_error::JsErrorBox::generic(format!(
                 "unsupported module import `{}`; allowed imports are `data:`, `plts+artifact:<hash>`, and `@stopgap/runtime`",
                 module_specifier
-            ))),
+            ))
+            .into()),
         }
     }
 
@@ -531,7 +538,8 @@ pub(crate) fn execute_program(
         if artifact_hash.is_empty() {
             return Err(deno_error::JsErrorBox::generic(format!(
                 "invalid artifact module specifier `{module_specifier}`: artifact hash is required"
-            )));
+            ))
+            .into());
         }
 
         Ok(artifact_hash.to_string())
@@ -560,11 +568,11 @@ pub(crate) fn execute_program(
                         "failed to decode base64 data URL module `{module_specifier}`: {err}"
                     ))
                 })?;
-            String::from_utf8(decoded).map_err(|err| {
+            Ok(String::from_utf8(decoded).map_err(|err| {
                 deno_error::JsErrorBox::generic(format!(
                     "data URL module `{module_specifier}` is not valid UTF-8: {err}"
                 ))
-            })
+            })?)
         } else {
             Ok(encoded.to_string())
         }
@@ -675,7 +683,7 @@ pub(crate) fn execute_program(
     bare_specifier_map.extend(parse_inline_import_map(source));
 
     let mut runtime = JsRuntime::new(RuntimeOptions {
-        extensions: vec![plts_runtime_ext::init()],
+        extensions: vec![plts_runtime_ext::init_ops()],
         module_loader: Some(Rc::new(PltsModuleLoader { bare_specifier_map })),
         create_params: max_heap_bytes
             .map(|bytes| v8::Isolate::create_params().heap_limits(0, bytes)),
@@ -759,7 +767,7 @@ pub(crate) fn execute_program(
             .get_module_namespace(module_id)
             .map_err(|e| map_runtime_error("module namespace", &e.to_string()))?;
 
-        deno_core::scope!(scope, runtime);
+        let scope = &mut runtime.handle_scope();
         let namespace = v8::Local::new(scope, namespace);
         let default_key = v8::String::new(scope, "default").ok_or_else(|| {
             RuntimeExecError::new("entrypoint resolution", "failed to intern key")
@@ -800,7 +808,7 @@ pub(crate) fn execute_program(
             )
             .map_err(|e| map_runtime_error("handler metadata", &e.to_string()))?;
 
-        deno_core::scope!(scope, runtime);
+        let scope = &mut runtime.handle_scope();
         let local = v8::Local::new(scope, handler_kind_value);
         let handler_kind = serde_v8::from_v8::<Option<String>>(scope, local).map_err(|e| {
             RuntimeExecError::new(
@@ -865,7 +873,7 @@ pub(crate) fn execute_program(
     let value = deno_core::futures::executor::block_on(runtime.resolve_value(value))
         .map_err(|e| map_runtime_error("entrypoint await", &e.to_string()))?;
 
-    deno_core::scope!(scope, runtime);
+    let scope = &mut runtime.handle_scope();
     let local = v8::Local::new(scope, value);
     if local.is_null_or_undefined() {
         return Ok(None);

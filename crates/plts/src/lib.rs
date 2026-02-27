@@ -9,9 +9,6 @@ mod observability;
 mod runtime;
 mod runtime_spi;
 
-#[cfg(feature = "v8_runtime")]
-pub(crate) use runtime_spi::{BoundParam, bind_json_params, is_read_only_sql};
-
 ::pgrx::pg_module_magic!(name, version);
 
 extension_sql!(
@@ -252,7 +249,7 @@ mod unit_tests {
     #[cfg(feature = "v8_runtime")]
     #[test]
     fn test_bind_json_params_maps_common_value_types() {
-        let params = crate::bind_json_params(vec![
+        let params = crate::runtime_spi::bind_json_params(vec![
             serde_json::json!(true),
             serde_json::json!(42),
             serde_json::json!("hello"),
@@ -260,29 +257,31 @@ mod unit_tests {
             serde_json::Value::Null,
         ]);
 
-        assert!(matches!(params[0], crate::BoundParam::Bool(true)));
-        assert!(matches!(params[1], crate::BoundParam::Int(42)));
-        assert!(matches!(params[2], crate::BoundParam::Text(ref v) if v == "hello"));
-        assert!(matches!(params[3], crate::BoundParam::Json(_)));
-        assert!(matches!(params[4], crate::BoundParam::NullText));
+        assert!(matches!(params[0], crate::runtime_spi::BoundParam::Bool(true)));
+        assert!(matches!(params[1], crate::runtime_spi::BoundParam::Int(42)));
+        assert!(matches!(params[2], crate::runtime_spi::BoundParam::Text(ref v) if v == "hello"));
+        assert!(matches!(params[3], crate::runtime_spi::BoundParam::Json(_)));
+        assert!(matches!(params[4], crate::runtime_spi::BoundParam::NullText));
     }
 
     #[cfg(feature = "v8_runtime")]
     #[test]
     fn test_is_read_only_sql_accepts_select_and_rejects_writes() {
-        assert!(crate::is_read_only_sql("SELECT 1"));
-        assert!(crate::is_read_only_sql("-- comment\nSELECT now()"));
-        assert!(crate::is_read_only_sql("/* leading */ SELECT * FROM pg_class"));
-        assert!(crate::is_read_only_sql("WITH cte AS (SELECT 1) SELECT * FROM cte"));
-        assert!(crate::is_read_only_sql("SELECT 'update' AS verb"));
-        assert!(crate::is_read_only_sql("SELECT $$delete from users$$ AS sql_text"));
-        assert!(crate::is_read_only_sql("SELECT \"drop\" FROM (SELECT 1 AS \"drop\") t"));
+        assert!(crate::runtime_spi::is_read_only_sql("SELECT 1"));
+        assert!(crate::runtime_spi::is_read_only_sql("-- comment\nSELECT now()"));
+        assert!(crate::runtime_spi::is_read_only_sql("/* leading */ SELECT * FROM pg_class"));
+        assert!(crate::runtime_spi::is_read_only_sql("WITH cte AS (SELECT 1) SELECT * FROM cte"));
+        assert!(crate::runtime_spi::is_read_only_sql("SELECT 'update' AS verb"));
+        assert!(crate::runtime_spi::is_read_only_sql("SELECT $$delete from users$$ AS sql_text"));
+        assert!(crate::runtime_spi::is_read_only_sql(
+            "SELECT \"drop\" FROM (SELECT 1 AS \"drop\") t"
+        ));
 
-        assert!(!crate::is_read_only_sql("INSERT INTO t(id) VALUES (1)"));
-        assert!(!crate::is_read_only_sql(
+        assert!(!crate::runtime_spi::is_read_only_sql("INSERT INTO t(id) VALUES (1)"));
+        assert!(!crate::runtime_spi::is_read_only_sql(
             "WITH x AS (INSERT INTO t VALUES (1) RETURNING 1) SELECT * FROM x"
         ));
-        assert!(!crate::is_read_only_sql("DELETE FROM t"));
+        assert!(!crate::runtime_spi::is_read_only_sql("DELETE FROM t"));
     }
 }
 
