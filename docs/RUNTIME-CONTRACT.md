@@ -2,6 +2,8 @@
 
 This document captures the `plts` runtime call contract and result semantics.
 
+Planning note (Feb 2026): roadmap continuation is currently in a docs-only planning phase; this file should track implemented behavior and avoid speculative contract drift.
+
 ## Entrypoint shape
 
 `LANGUAGE plts` handlers execute a module default export:
@@ -17,7 +19,7 @@ type PltsContext = {
   db: {
     mode: "ro" | "rw";
     query(input: string | SqlObjectLike, params?: unknown[]): Promise<unknown[]>;
-    exec(input: string | SqlObjectLike, params?: unknown[]): Promise<{ rowCount: number }>;
+    exec(input: string | SqlObjectLike, params?: unknown[]): Promise<{ ok: true }>;
   };
   args: unknown;
   fn: {

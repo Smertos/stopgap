@@ -293,3 +293,100 @@ Legend:
 ## 12) Post-Roadmap Follow-up Backlog
 
 - [ ] Expand runtime module-graph/bundling compatibility for arbitrary in-DB imports beyond `data:` URLs and built-in `@stopgap/runtime`.
+
+---
+
+## 13) Next Work Plan (small increments)
+
+This is the active continuation plan for incremental execution. Progress should be recorded by checking off concrete items below.
+
+### 13.1 Execution rules
+
+- [ ] Each change set must complete at least one concrete unchecked item from section 13.2.
+- [ ] Keep change scope small (1 primary item + optional 1 follow-up item).
+- [ ] If work is partial, explicitly leave sub-bullets unchecked.
+
+Required verification per meaningful item:
+- `cargo check`
+- `cargo test`
+- `cargo pgrx test -p plts`
+- `cargo pgrx test -p stopgap`
+- `cargo pgrx regress -p stopgap`
+
+### 13.2 Ordered backlog (execute top-down)
+
+#### A. CI runtime lane foundation
+- [ ] Add explicit CI lane for `plts` runtime-heavy tests with `--features "pg16,v8_runtime"`.
+- [ ] Ensure lane is visible as a separate job (not hidden in broad matrix noise).
+- [ ] Record expected runtime of the new lane in CI notes.
+
+Minimum implementation evidence:
+- `.github/workflows/ci.yml` changed
+- at least one CI run exercising the new lane
+
+#### B. CI structure and diagnostics hardening
+- [ ] Split/clarify fast baseline vs heavy pgrx/runtime jobs.
+- [ ] Add artifact/log upload on failure for runtime/pgrx jobs.
+- [ ] Confirm failed jobs surface actionable logs for debugging.
+
+Minimum implementation evidence:
+- `.github/workflows/ci.yml` changed
+- failure-artifact behavior verified in CI (or via dry-run evidence)
+
+#### C. First true cross-extension e2e test
+- [ ] Add DB-backed test: `deploy -> live pointer active -> execute -> rollback`.
+- [ ] Avoid mock-only path for this test.
+- [ ] Assert deployment pointer and live behavior after rollback.
+
+Minimum implementation evidence:
+- new/updated tests under `crates/stopgap/tests/pg/` and/or `crates/plts/tests/pg/`
+- test passes in pgrx lane
+
+#### D. Wrapper mode e2e enforcement test
+- [ ] Add e2e test proving `stopgap.query` is read-only (`db.exec` denied).
+- [ ] Add e2e test proving `stopgap.mutation` remains read-write.
+- [ ] Assert clear runtime error message for denied write path.
+
+Minimum implementation evidence:
+- new tests in `crates/plts/tests/pg/` or `crates/stopgap/tests/pg/`
+- passing pgrx evidence for both allow/deny paths
+
+#### E. stopgap-cli integration coverage
+- [ ] Add integration tests for `deploy`, `status`, `rollback`, `deployments`, optional `diff`.
+- [ ] Validate non-zero exit code behavior on expected failure modes.
+- [ ] Validate JSON output schema for machine-readable mode.
+
+#### F. `packages/runtime` test coverage
+- [ ] Add tests for wrapper metadata (`query`/`mutation`) and validation behavior.
+- [ ] Add tests for exported API behavior in `packages/runtime/src/index.ts`.
+- [ ] Wire package test/check execution into CI.
+
+#### G. Contract drift closure
+- [ ] Reconcile `docs/RUNTIME-CONTRACT.md` with current runtime output/API shapes.
+- [ ] Add contract-focused tests guarding documented behavior.
+- [ ] Add review rule: contract-affecting code changes require doc updates in same PR.
+
+#### H. Security hardening (read-only + privilege checks)
+- [ ] Strengthen `stopgap.query` read-only enforcement edge-case coverage.
+- [ ] Add explicit privilege checks for source + live schema handling during deploy.
+- [ ] Extend pg_regress security cases for deny/allow paths.
+
+#### I. Observability depth
+- [ ] Add latency/error-class metrics across compile/execute/deploy/rollback/diff.
+- [ ] Add tests/assertions for metrics shape and increment behavior.
+- [ ] Document interpretation guidance in ops docs.
+
+#### J. Performance profiling baseline
+- [ ] Capture baseline profiling for compile and runtime execution hotspots.
+- [ ] Document measurable bottlenecks and threshold targets.
+- [ ] Choose 1-2 optimizations with expected impact before implementation.
+
+#### K. Targeted performance changes
+- [ ] Implement only benchmark-backed optimizations from iteration 10.
+- [ ] Validate no regression in runtime safety or contract behavior.
+- [ ] Publish before/after benchmark evidence.
+
+#### L. Runtime import/module-graph expansion
+- [ ] Expand import compatibility beyond current limited support.
+- [ ] Add compatibility matrix tests + negative cases.
+- [ ] Update docs with supported/unsupported import rules.
