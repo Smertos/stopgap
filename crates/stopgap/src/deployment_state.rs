@@ -5,7 +5,8 @@ use serde_json::json;
 
 use crate::deployment_utils::materialize_live_pointer;
 use crate::domain::{
-    DeploymentStatus, FnVersionRow, is_allowed_transition, rollback_steps_to_offset,
+    CandidateFn, DeploymentStatus, FnVersionRow, deployment_import_map, is_allowed_transition,
+    rollback_steps_to_offset,
 };
 use crate::runtime_config::run_sql_with_args;
 
@@ -104,13 +105,37 @@ pub(crate) fn transition_if_active(deployment_id: i64, to: DeploymentStatus) -> 
 
 pub(crate) fn reactivate_deployment(live_schema: &str, deployment_id: i64) -> Result<(), String> {
     let rows = fetch_fn_versions(deployment_id)?;
+    let source_schema = load_deployment_source_schema(deployment_id)?;
+    let candidates = rows
+        .iter()
+        .map(|row| CandidateFn {
+            fn_name: row.fn_name.clone(),
+            artifact_hash: row.artifact_hash.clone(),
+        })
+        .collect::<Vec<_>>();
+    let import_map = deployment_import_map(source_schema.as_str(), &candidates);
+
     for row in rows {
         let schema =
             if row.live_fn_schema.is_empty() { live_schema } else { row.live_fn_schema.as_str() };
-        materialize_live_pointer(schema, row.fn_name.as_str(), row.artifact_hash.as_str())?;
+        materialize_live_pointer(
+            schema,
+            row.fn_name.as_str(),
+            row.artifact_hash.as_str(),
+            &import_map,
+        )?;
     }
 
     Ok(())
+}
+
+fn load_deployment_source_schema(deployment_id: i64) -> Result<String, String> {
+    Spi::get_one_with_args::<String>(
+        "SELECT source_schema::text FROM stopgap.deployment WHERE id = $1",
+        &[deployment_id.into()],
+    )
+    .map_err(|e| format!("failed to load source schema for deployment {}: {e}", deployment_id))?
+    .ok_or_else(|| format!("deployment {} is missing source schema", deployment_id))
 }
 
 pub(crate) fn fetch_fn_versions(deployment_id: i64) -> Result<Vec<FnVersionRow>, String> {

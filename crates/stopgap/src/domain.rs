@@ -146,21 +146,46 @@ pub(crate) fn fn_manifest_item(
     fn_name: &str,
     kind: &str,
     artifact_hash: &str,
+    import_map: &serde_json::Map<String, Value>,
 ) -> Value {
+    let mut pointer = json!({
+        "plts": 1,
+        "kind": "artifact_ptr",
+        "artifact_hash": artifact_hash,
+        "export": "default",
+        "mode": "stopgap_deployed"
+    });
+
+    if !import_map.is_empty() {
+        pointer["import_map"] = Value::Object(import_map.clone());
+    }
+
     json!({
         "fn_name": fn_name,
         "source_schema": source_schema,
         "live_schema": live_schema,
         "kind": kind,
         "artifact_hash": artifact_hash,
-        "pointer": {
-            "plts": 1,
-            "kind": "artifact_ptr",
-            "artifact_hash": artifact_hash,
-            "export": "default",
-            "mode": "stopgap_deployed"
-        }
+        "pointer": pointer
     })
+}
+
+pub(crate) fn deployment_import_specifier(source_schema: &str, fn_name: &str) -> String {
+    format!("@stopgap/{source_schema}/{fn_name}")
+}
+
+pub(crate) fn deployment_import_map(
+    source_schema: &str,
+    functions: &[CandidateFn],
+) -> serde_json::Map<String, Value> {
+    let mut import_map = serde_json::Map::new();
+    for function in functions {
+        let specifier = deployment_import_specifier(source_schema, &function.fn_name);
+        let target = format!("plts+artifact:{}", function.artifact_hash);
+        import_map.insert(specifier, Value::String(target));
+    }
+
+    import_map
 }
 
 pub(crate) fn rollback_steps_to_offset(steps: i32) -> Result<i64, String> {

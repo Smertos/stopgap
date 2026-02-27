@@ -36,7 +36,7 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
                 program.schema, program.name, program.oid
             ));
             let context = build_runtime_context(&program, &args_payload);
-            match execute_program(&program.source, &context) {
+            match execute_program(&program.source, &program.bare_specifier_map, &context) {
                 Ok(Some(value)) => {
                     record_execute_success(started_at);
                     log_info(&format!(

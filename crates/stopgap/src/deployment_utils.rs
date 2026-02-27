@@ -136,16 +136,20 @@ pub(crate) fn materialize_live_pointer(
     live_schema: &str,
     fn_name: &str,
     artifact_hash: &str,
+    import_map: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
-    let body = json!({
+    let mut pointer = json!({
         "plts": 1,
         "kind": "artifact_ptr",
         "artifact_hash": artifact_hash,
         "export": "default",
         "mode": "stopgap_deployed"
-    })
-    .to_string()
-    .replace('\'', "''");
+    });
+    if !import_map.is_empty() {
+        pointer["import_map"] = serde_json::Value::Object(import_map.clone());
+    }
+
+    let body = pointer.to_string().replace('\'', "''");
 
     let sql = format!(
         "

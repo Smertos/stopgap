@@ -141,6 +141,69 @@ fn test_runtime_supports_bare_imports_via_inline_import_map() {
 }
 
 #[pg_test]
+fn test_runtime_supports_bare_imports_via_pointer_import_map() {
+    let dependency_hash = Spi::get_one::<String>(
+        r#"
+        SELECT plts.compile_and_store(
+            $$export const base = 40;$$,
+            '{}'::jsonb
+        )
+        "#,
+    )
+    .expect("dependency artifact compile should succeed")
+    .expect("dependency artifact hash should be present");
+
+    let main_hash = Spi::get_one::<String>(
+        r#"
+        SELECT plts.compile_and_store(
+            $$
+            import { base } from "@app/math";
+            export default (ctx) => ({ total: base + ctx.args.delta });
+            $$,
+            '{}'::jsonb
+        )
+        "#,
+    )
+    .expect("main artifact compile should succeed")
+    .expect("main artifact hash should be present");
+
+    let pointer_body = serde_json::json!({
+        "plts": 1,
+        "kind": "artifact_ptr",
+        "artifact_hash": main_hash,
+        "export": "default",
+        "mode": "stopgap_deployed",
+        "import_map": {
+            "@app/math": format!("plts+artifact:{dependency_hash}")
+        }
+    })
+    .to_string();
+
+    let setup_sql = format!(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_module_pointer_map_it CASCADE;
+        CREATE SCHEMA plts_runtime_module_pointer_map_it;
+        CREATE OR REPLACE FUNCTION plts_runtime_module_pointer_map_it.imported(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$ {pointer_body} $$;
+        "#,
+    );
+    Spi::run(&setup_sql).expect("pointer import map setup SQL should succeed");
+
+    let payload = Spi::get_one::<JsonB>(
+        "SELECT plts_runtime_module_pointer_map_it.imported('{\"delta\": 2}'::jsonb)",
+    )
+    .expect("pointer import map invocation should succeed")
+    .expect("pointer import map invocation should return jsonb");
+
+    assert_eq!(payload.0.get("total").and_then(Value::as_i64), Some(42));
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_module_pointer_map_it CASCADE;")
+        .expect("pointer import map teardown SQL should succeed");
+}
+
+#[pg_test]
 fn test_runtime_rejects_unmapped_bare_import_with_actionable_error() {
     Spi::run(
         r#"

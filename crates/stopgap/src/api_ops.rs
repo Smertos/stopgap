@@ -5,11 +5,12 @@ use serde_json::json;
 use std::collections::BTreeSet;
 
 use crate::{
-    CandidateFn, DeploymentStatus, PruneReport, compute_diff_rows, ensure_diff_permissions,
-    fetch_deployable_functions, fetch_fn_versions, fetch_live_deployable_functions,
-    harden_live_schema, live_function_has_dependents, load_environment_state,
-    materialize_live_pointer, prune_manifest_item, quote_ident, resolve_prune_enabled, run_sql,
-    run_sql_with_args, transition_deployment_status, update_deployment_manifest,
+    CandidateFn, DeploymentStatus, PruneReport, compute_diff_rows, deployment_import_map,
+    ensure_diff_permissions, fetch_deployable_functions, fetch_fn_versions,
+    fetch_live_deployable_functions, harden_live_schema, live_function_has_dependents,
+    load_environment_state, materialize_live_pointer, prune_manifest_item, quote_ident,
+    resolve_prune_enabled, run_sql, run_sql_with_args, transition_deployment_status,
+    update_deployment_manifest,
 };
 
 pub(crate) fn run_deploy_flow(
@@ -27,6 +28,7 @@ pub(crate) fn run_deploy_flow(
     harden_live_schema(live_schema)?;
 
     let mut manifest_functions: Vec<Value> = Vec::with_capacity(fns.len());
+    let mut compiled_functions: Vec<CandidateFn> = Vec::with_capacity(fns.len());
 
     for item in &fns {
         let artifact_hash = Spi::get_one_with_args::<String>(
@@ -57,17 +59,25 @@ pub(crate) fn run_deploy_flow(
             "failed to insert stopgap.fn_version",
         )?;
 
-        materialize_live_pointer(live_schema, &item.fn_name, &artifact_hash)?;
+        compiled_functions.push(CandidateFn { fn_name: item.fn_name.clone(), artifact_hash });
+    }
+
+    let import_map = deployment_import_map(from_schema, &compiled_functions);
+
+    for item in &compiled_functions {
+        materialize_live_pointer(live_schema, &item.fn_name, &item.artifact_hash, &import_map)?;
         manifest_functions.push(crate::fn_manifest_item(
             from_schema,
             live_schema,
             &item.fn_name,
             "mutation",
-            &artifact_hash,
+            &item.artifact_hash,
+            &import_map,
         ));
     }
 
-    let deployed_fn_names = fns.iter().map(|item| item.fn_name.clone()).collect::<BTreeSet<_>>();
+    let deployed_fn_names =
+        compiled_functions.iter().map(|item| item.fn_name.clone()).collect::<BTreeSet<_>>();
     let prune_report = if prune_enabled {
         prune_stale_live_functions(live_schema, &deployed_fn_names)?
     } else {

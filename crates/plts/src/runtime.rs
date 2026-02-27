@@ -8,7 +8,6 @@ use base64::Engine;
 use pgrx::prelude::*;
 use serde_json::Value;
 use serde_json::json;
-#[cfg(any(test, feature = "v8_runtime"))]
 use std::collections::HashMap;
 use std::fmt;
 #[cfg(feature = "v8_runtime")]
@@ -377,6 +376,7 @@ pub(crate) fn runtime_available() -> bool {
 #[cfg(feature = "v8_runtime")]
 pub(crate) fn execute_program(
     source: &str,
+    pointer_import_map: &HashMap<String, String>,
     context: &Value,
 ) -> Result<Option<Value>, RuntimeExecError> {
     use deno_core::{
@@ -671,7 +671,8 @@ pub(crate) fn execute_program(
 
     let max_heap_setting = current_plts_max_heap_setting();
     let max_heap_bytes = max_heap_setting.as_deref().and_then(parse_runtime_heap_limit_bytes);
-    let bare_specifier_map = parse_inline_import_map(source);
+    let mut bare_specifier_map = pointer_import_map.clone();
+    bare_specifier_map.extend(parse_inline_import_map(source));
 
     let mut runtime = JsRuntime::new(RuntimeOptions {
         extensions: vec![plts_runtime_ext::init()],
@@ -880,6 +881,7 @@ pub(crate) fn execute_program(
 #[cfg(not(feature = "v8_runtime"))]
 pub(crate) fn execute_program(
     _source: &str,
+    _pointer_import_map: &HashMap<String, String>,
     _context: &Value,
 ) -> Result<Option<Value>, RuntimeExecError> {
     Err(RuntimeExecError::new("runtime bootstrap", "v8_runtime feature is disabled"))

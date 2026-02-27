@@ -15,6 +15,7 @@ pub(crate) struct FunctionProgram {
     pub(crate) schema: String,
     pub(crate) name: String,
     pub(crate) source: String,
+    pub(crate) bare_specifier_map: HashMap<String, String>,
 }
 
 pub(crate) fn load_function_program(fn_oid: pg_sys::Oid) -> Option<FunctionProgram> {
@@ -53,8 +54,9 @@ pub(crate) fn load_function_program(fn_oid: pg_sys::Oid) -> Option<FunctionProgr
     .ok()
     .flatten()?;
 
-    let (source, cacheable) = resolve_program_source(&row.2)?;
-    let program = FunctionProgram { oid: fn_oid, schema: row.0, name: row.1, source };
+    let (source, bare_specifier_map, cacheable) = resolve_program_source(&row.2)?;
+    let program =
+        FunctionProgram { oid: fn_oid, schema: row.0, name: row.1, source, bare_specifier_map };
 
     if cacheable {
         if let Ok(mut cache) = program_cache_mutex.lock() {
@@ -65,13 +67,13 @@ pub(crate) fn load_function_program(fn_oid: pg_sys::Oid) -> Option<FunctionProgr
     Some(program)
 }
 
-fn resolve_program_source(prosrc: &str) -> Option<(String, bool)> {
+fn resolve_program_source(prosrc: &str) -> Option<(String, HashMap<String, String>, bool)> {
     if let Some(ptr) = parse_artifact_ptr(prosrc) {
         return load_compiled_artifact_from_cache_or_db(&ptr.artifact_hash)
-            .map(|source| (source, false));
+            .map(|source| (source, ptr.import_map, false));
     }
 
-    Some((prosrc.to_string(), true))
+    Some((prosrc.to_string(), HashMap::new(), true))
 }
 
 fn load_compiled_artifact_from_cache_or_db(artifact_hash: &str) -> Option<String> {
@@ -109,6 +111,7 @@ pub(crate) fn load_compiled_artifact_source(artifact_hash: &str) -> Option<Strin
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArtifactPtr {
     pub(crate) artifact_hash: String,
+    pub(crate) import_map: HashMap<String, String>,
 }
 
 #[derive(Debug, Default)]
@@ -210,13 +213,30 @@ pub(crate) fn parse_artifact_ptr(prosrc: &str) -> Option<ArtifactPtr> {
         return None;
     }
 
-    Some(ArtifactPtr { artifact_hash })
+    let import_map = parsed
+        .get("import_map")
+        .and_then(Value::as_object)
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(key, value)| {
+                    let target = value.as_str()?.trim();
+                    if key.trim().is_empty() || target.is_empty() {
+                        return None;
+                    }
+                    Some((key.clone(), target.to_string()))
+                })
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    Some(ArtifactPtr { artifact_hash, import_map })
 }
 
 #[cfg(test)]
 mod tests {
     use super::{ArtifactSourceCache, FunctionProgram, FunctionProgramCache};
     use pgrx::pg_sys;
+    use std::collections::HashMap;
 
     #[test]
     fn function_program_cache_promotes_recent_entries() {
@@ -226,12 +246,14 @@ mod tests {
             schema: "public".to_string(),
             name: "f1".to_string(),
             source: "export default () => 1;".to_string(),
+            bare_specifier_map: HashMap::new(),
         };
         let second = FunctionProgram {
             oid: pg_sys::Oid::from(22_u32),
             schema: "public".to_string(),
             name: "f2".to_string(),
             source: "export default () => 2;".to_string(),
+            bare_specifier_map: HashMap::new(),
         };
 
         cache.insert(first.clone());

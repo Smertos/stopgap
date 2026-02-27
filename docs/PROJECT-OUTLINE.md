@@ -294,7 +294,7 @@ create or replace function live_deployment.some_fn(args jsonb)
 returns jsonb
 language plts
 as $$
-{ "plts": 1, "kind": "artifact_ptr", "artifact_hash": "...", "export": "default" }
+{ "plts": 1, "kind": "artifact_ptr", "artifact_hash": "...", "export": "default", "import_map": {"@stopgap/app/other_fn":"plts+artifact:sha256:..."} }
 $$;
 ```
 
@@ -339,10 +339,11 @@ Runtime module imports currently support:
 - `plts+artifact:<hash>` module specifiers backed by `plts.artifact.compiled_js`
 - bare `@stopgap/runtime`
 - additional bare specifiers via inline source comments of the form `// plts-import-map: {"pkg/name":"plts+artifact:sha256:..."}` (also accepts `data:` targets and raw `sha256:...` artifact-hash shorthand)
+- deploy-managed pointer import maps emitted by `stopgap.deploy` for live pointer functions (default specifier convention: `@stopgap/<source_schema>/<fn_name>`)
 
 Unsupported for now:
 - arbitrary filesystem/network module resolution
-- package-manager style bare imports that are not explicitly mapped via `plts-import-map`
+- package-manager style bare imports that are not explicitly mapped via inline or deploy-managed import maps
 
 ## 5.2 Schema format
 Pick one schema strategy:

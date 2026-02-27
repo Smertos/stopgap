@@ -25,8 +25,8 @@ pub(crate) use deployment_utils::{
     materialize_live_pointer,
 };
 pub(crate) use domain::{
-    CandidateFn, DeploymentStatus, PruneReport, compute_diff_rows, fn_manifest_item, hash_lock_key,
-    prune_manifest_item, rollback_steps_to_offset,
+    CandidateFn, DeploymentStatus, PruneReport, compute_diff_rows, deployment_import_map,
+    fn_manifest_item, hash_lock_key, prune_manifest_item, rollback_steps_to_offset,
 };
 #[cfg(test)]
 pub(crate) use domain::{FnVersionRow, is_allowed_transition};
@@ -76,8 +76,14 @@ mod unit_tests {
 
     #[test]
     fn test_fn_manifest_item_shape() {
-        let item =
-            crate::fn_manifest_item("app", "live_deployment", "do_work", "mutation", "sha256:abc");
+        let item = crate::fn_manifest_item(
+            "app",
+            "live_deployment",
+            "do_work",
+            "mutation",
+            "sha256:abc",
+            &serde_json::Map::new(),
+        );
         assert_eq!(item.get("fn_name").and_then(|v| v.as_str()), Some("do_work"));
         assert_eq!(item.get("source_schema").and_then(|v| v.as_str()), Some("app"));
         assert_eq!(item.get("live_schema").and_then(|v| v.as_str()), Some("live_deployment"));
@@ -85,6 +91,57 @@ mod unit_tests {
         assert_eq!(
             item.get("pointer").and_then(|v| v.get("kind")).and_then(|v| v.as_str()),
             Some("artifact_ptr")
+        );
+    }
+
+    #[test]
+    fn test_deployment_import_map_uses_stopgap_namespace_specifiers() {
+        let functions = vec![
+            crate::CandidateFn {
+                fn_name: "alpha".to_string(),
+                artifact_hash: "sha256:a".to_string(),
+            },
+            crate::CandidateFn {
+                fn_name: "beta".to_string(),
+                artifact_hash: "sha256:b".to_string(),
+            },
+        ];
+
+        let import_map = crate::deployment_import_map("app", &functions);
+
+        assert_eq!(
+            import_map.get("@stopgap/app/alpha").and_then(|v| v.as_str()),
+            Some("plts+artifact:sha256:a")
+        );
+        assert_eq!(
+            import_map.get("@stopgap/app/beta").and_then(|v| v.as_str()),
+            Some("plts+artifact:sha256:b")
+        );
+    }
+
+    #[test]
+    fn test_fn_manifest_item_includes_pointer_import_map_when_present() {
+        let mut import_map = serde_json::Map::new();
+        import_map.insert(
+            "@stopgap/app/util".to_string(),
+            serde_json::Value::String("plts+artifact:sha256:util".to_string()),
+        );
+
+        let item = crate::fn_manifest_item(
+            "app",
+            "live_deployment",
+            "do_work",
+            "mutation",
+            "sha256:abc",
+            &import_map,
+        );
+
+        assert_eq!(
+            item.get("pointer")
+                .and_then(|v| v.get("import_map"))
+                .and_then(|v| v.get("@stopgap/app/util"))
+                .and_then(|v| v.as_str()),
+            Some("plts+artifact:sha256:util")
         );
     }
 
