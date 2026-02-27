@@ -324,7 +324,7 @@ and similarly for mutations.
 ## 5.1 Where the wrappers live
 Ship an NPM package `@stopgap/runtime` containing:
 - TypeScript types (nice DX)
-- `argsSchema` helpers (either a small DSL or JSON Schema builder)
+- `argsSchema` helpers (current JSON Schema subset, with roadmap migration to zod/mini)
 - The wrapper implementation for local testing
 
 In Postgres, `plts` exposes wrapper support through a built-in `@stopgap/runtime` module.
@@ -346,17 +346,18 @@ Unsupported for now:
 - package-manager style bare imports that are not explicitly mapped via inline or deploy-managed import maps
 
 ## 5.2 Schema format
-Pick one schema strategy:
+Current state:
 
-- **JSON Schema** (portable, serializable, CLI-friendly)
-- or a minimal DSL (Zod-like) that you control
+- Runtime wrappers validate args with a JSON Schema subset (portable, serializable, and easy to persist).
+- `packages/runtime` mirrors the same behavior for local testing.
 
-Given you need to store schema for inputs, JSON Schema is pragmatic:
-- In TS you can still get types via helper builders.
-- At runtime you validate jsonb args with a Rust JSON schema validator or a lightweight JS validator.
+Planned direction (tracked in roadmap):
 
-Current implementation uses a JSON Schema subset validator inside the runtime wrappers (object/array/scalar `type`, `required`, `properties`, `items`, `enum`, `anyOf`, `additionalProperties=false`) and mirrors the same behavior in `packages/runtime` for local testing.
-`packages/runtime` now includes a self-test harness (`selftest.mjs`) that verifies wrapper metadata, validation behavior, and exported API parity (`query`, `mutation`, `validateArgs`).
+- Migrate wrapper validation to zod/mini and re-export it as `v` from `@stopgap/runtime`.
+- Preserve current validation/error-shape behavior as closely as practical during migration.
+
+Current implementation uses a JSON Schema subset validator inside the runtime wrappers (object/array/scalar `type`, `required`, `properties`, `items`, `enum`, `anyOf`, `additionalProperties=false`).
+`packages/runtime` includes a self-test harness (`selftest.mjs`) that verifies wrapper metadata, validation behavior, and exported API parity (`query`, `mutation`, `validateArgs`).
 
 ## 5.3 Wrapper semantics
 ### `stopgap.query(schema, handler)`
@@ -482,7 +483,7 @@ Current progress snapshot:
 - DB-backed `plts` integration tests now cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization (`null`/`undefined` -> SQL `NULL`), and artifact-pointer execution (under `v8_runtime`)
 - DB-backed `stopgap` integration tests now cover deploy pointer updates, live pointer payload correctness, `fn_version` integrity, overloaded-function rejection, and rollback rematerialization/status transitions
 - stopgap `pg_regress` rollback coverage now exercises a real cross-extension flow (`deploy -> live execute -> rollback`) and asserts both post-rollback live execution and pointer rematerialization
-- CI workflow now runs a fast baseline lane (`cargo check` + `cargo test`), matrixed `cargo pgrx test` jobs per extension crate, `cargo pgrx regress -p stopgap` (with `plts` installed first), and a dedicated `plts runtime v8 (pg16)` lane for runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage; pgrx/runtime jobs upload failure-only diagnostics artifacts (bundled `PGRX_HOME` + `target/debug`) for debugging
+- CI workflow now runs a fast baseline lane (`cargo check` + `cargo test`), matrixed `cargo pgrx test` jobs per extension crate, `cargo pgrx regress -p stopgap` (with `plts` installed first), and a dedicated `plts runtime v8 (pg17)` lane for runtime-heavy `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` coverage; pgrx/runtime jobs upload failure-only diagnostics artifacts (bundled `PGRX_HOME` + `target/debug`) for debugging
 - repository toolchain and lint/format configs are pinned (`rust-toolchain.toml`, `rustfmt.toml`, `clippy.toml`)
 - performance baseline harness now lives in `crates/plts/tests/pg/runtime_performance_baseline.rs` with current measurements/work targets documented in `docs/PERFORMANCE-BASELINE.md`
 - iteration 11 now publishes before/after benchmark evidence for iteration 10 optimizations in `docs/PERFORMANCE-BASELINE.md` (captured via `cargo pgrx test -p plts pg17 test_runtime_performance_baseline_snapshot` wall-clock runs)
@@ -497,7 +498,7 @@ Current progress snapshot:
 ## P1 (DX + correctness)
 - `stopgap.rollback` (implemented SQL API with `steps`/`to_id` targeting)
 - read-only enforcement for queries (implemented for `stopgap.query`; SQL classifier hardening can continue iteratively)
-- `stopgap.query/mutation` wrappers available in runtime + TS types package, with JSON Schema arg validation + inferred TS helper types (`InferJsonSchema`)
+- `stopgap.query/mutation` wrappers available in runtime + TS types package, with current JSON Schema arg validation + inferred TS helper types (`InferJsonSchema`); migration to zod/mini (`v`) is tracked in roadmap
 - better error messages + stack traces
 - caching compiled artifacts per backend (artifact-pointer source cache now implemented in `plts`)
 - hot-path execute caching for regular/non-pointer functions and argument-type lookup (backend-local in `plts`)
@@ -524,7 +525,7 @@ Current progress snapshot:
 # 9) Key design choices to lock now (so you don’t repaint later)
 1) **Engine**: **V8 via `deno_core`**.
 2) **Return null semantics**: JS `undefined` and `null` normalize to SQL `NULL`.
-3) **Schema format**: defer final choice to wrapper/runtime phase (JSON Schema currently preferred).
+3) **Schema format**: current runtime uses a JSON Schema subset; roadmap target migrates wrapper validation to zod/mini (`v`) while preserving current error-shape semantics.
 4) **Deploy compilation location**: **DB compile path** (`plts.compile_ts` / `plts.compile_and_store`).
 5) **Function identity**: **forbid overloading** for stopgap-managed functions.
 6) **Regular `plts` args view**: expose **both positional and named/object forms**.

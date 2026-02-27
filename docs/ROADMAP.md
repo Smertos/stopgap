@@ -289,11 +289,11 @@ Legend:
 - **Runtime contract note:** `docs/RUNTIME-CONTRACT.md` is now aligned to current runtime behavior and is guarded by dedicated DB-backed tests in `crates/plts/tests/pg/runtime_contract.rs` plus existing runtime contract suites.
 - **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
 - **Runtime package note:** `packages/runtime` now has a self-test harness (`selftest.mjs`) covering wrapper metadata, validation behavior, and default export API parity, and CI baseline runs package `check` + `test`.
-- **CI note:** CI now includes a dedicated `plts runtime v8 (pg16)` job for runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage in addition to the baseline pgrx matrix.
+- **CI note:** CI now includes a dedicated `plts runtime v8 (pg17)` job for runtime-heavy `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` coverage in addition to the baseline pgrx matrix.
 - **Cross-extension e2e note:** stopgap rollback pg_regress now covers `deploy -> live execute -> rollback` and verifies both execution continuity and pointer rematerialization after rollback.
 - **Security hardening note:** deploy permission checks now explicitly enforce source-schema existence/USAGE, `plts.compile_and_store` EXECUTE access, and stopgap-owned live schema usage; security pg_regress now includes deny/allow scenarios for source-schema and unmanaged-live-schema paths.
 - **Docs note:** quickstart, runtime contract, deployment runbook, performance baseline, and troubleshooting guides now live under `docs/`.
-- **Biggest missing piece:** CI evidence capture for runtime-lane execution in GitHub Actions.
+- **Biggest missing piece:** keeping the V8 runtime lane evergreen as a non-bypassable release gate for every change.
 
 ---
 
@@ -318,13 +318,51 @@ Required verification per meaningful item:
 - `cargo check`
 - `cargo test`
 - `cargo pgrx test -p plts`
+- `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`
 - `cargo pgrx test -p stopgap`
 - `cargo pgrx regress -p stopgap`
 
 ### 13.2 Ordered backlog (execute top-down)
 
+#### 0. P0 evergreen V8 runtime coverage
+- [ ] Keep V8 runtime tests evergreen and fully passing after every change.
+- [ ] Treat V8 lane failures as root-cause bugs to fix, never as candidates for bypass/disable/ignore.
+- [ ] Keep CI/docs parity on the runtime-heavy lane command (`pg17,v8_runtime`).
+
+Minimum implementation evidence:
+- [ ] CI/runtime references aligned in `.github/workflows/ci.yml`, `AGENTS.md`, and `docs/DEVELOPER-QUICKSTART.md`
+- [ ] at least one green CI run including `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`
+
+#### 1. Add simple root README
+- [ ] Add root `README.md` with quickstart-first onboarding.
+- [ ] Keep architecture in `docs/` and include only light architecture notes in root README.
+- [ ] Link directly to `docs/PROJECT-OUTLINE.md`, `docs/DEVELOPER-QUICKSTART.md`, `docs/RUNTIME-CONTRACT.md`, and `docs/ROADMAP.md`.
+
+Minimum implementation evidence:
+- [ ] new root `README.md`
+- [ ] docs links validated
+
+#### 2. Hot cache for JS bytecode in `plts`
+- [ ] Add in-memory cache for recently called function bytecode/programs in backend-process hot paths.
+- [ ] Define cache keying, invalidation, memory bounds, and eviction policy.
+- [ ] Add benchmark evidence and safety/contract regression checks.
+
+Minimum implementation evidence:
+- [ ] implementation + tests in `crates/plts`
+- [ ] before/after data in `docs/PERFORMANCE-BASELINE.md`
+
+#### 3. Migrate wrapper args schema to zod/mini (`v`)
+- [ ] Move stopgap wrapper arg validation from JSON Schema subset to zod/mini.
+- [ ] Re-export zod/mini as single-letter `v` from `@stopgap/runtime`.
+- [ ] Preserve current validation/error-shape behavior as closely as possible.
+
+Minimum implementation evidence:
+- [ ] runtime package + embedded runtime updates (`packages/runtime/src/*`)
+- [ ] runtime wrapper tests updated (`packages/runtime/selftest.mjs`, `crates/plts/tests/pg/runtime_stopgap_wrappers.rs`)
+- [ ] contract/docs alignment updates in `docs/RUNTIME-CONTRACT.md` and `docs/PROJECT-OUTLINE.md`
+
 #### A. CI runtime lane foundation
-- [x] Add explicit CI lane for `plts` runtime-heavy tests with `--features "pg16,v8_runtime"`.
+- [x] Add explicit CI lane for `plts` runtime-heavy tests with `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`.
 - [x] Ensure lane is visible as a separate job (not hidden in broad matrix noise).
 - [x] Record expected runtime of the new lane in CI notes.
 

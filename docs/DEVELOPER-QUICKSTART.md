@@ -47,5 +47,6 @@ The CLI requires a database connection string via `--db` or `STOPGAP_DB`.
 ## CI lanes
 
 - Baseline CI lane runs workspace `cargo check`/`cargo test` plus matrixed `cargo pgrx test` jobs for `plts` and `stopgap` (and `cargo pgrx regress -p stopgap` on the stopgap matrix leg).
-- Runtime-heavy CI lane runs `cargo pgrx test -p plts --features "pg16,v8_runtime"` as a dedicated `plts runtime v8 (pg16)` job.
+- Runtime-heavy CI lane runs `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` as a dedicated `plts runtime v8 (pg17)` job.
+- This V8 lane is an evergreen quality gate: failures are fixed at the root cause and not bypassed.
 - Expected runtime for the dedicated runtime lane is typically about 10-15 minutes on GitHub-hosted runners.

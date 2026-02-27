@@ -19,12 +19,13 @@ This file captures how to work effectively in this repository.
   - `docs/DEPLOYMENT-RUNBOOK.md`: deployment/rollback operational lifecycle
   - `docs/PERFORMANCE-BASELINE.md`: profiling baseline, bottlenecks, and next optimization targets
   - `docs/TROUBLESHOOTING.md`: common setup/test/runtime issue guide
+  - `docs/TECH-DEBT.md`: current technical debt and follow-up notes
 
 ## Tooling baseline
 
 - Rust toolchain is pinned in `rust-toolchain.toml`.
 - Formatting/lint config is tracked in `rustfmt.toml` and `clippy.toml`.
-- CI workflow lives at `.github/workflows/ci.yml` and runs a fast baseline (`packages/runtime` check/test + `cargo check` + `cargo test`) plus per-crate `cargo pgrx test` matrix jobs; the stopgap matrix job also runs `cargo pgrx regress -p stopgap`, a dedicated `plts runtime v8 (pg16)` lane runs runtime-heavy `cargo pgrx test -p plts --features "pg16,v8_runtime"` coverage, and pgrx/runtime jobs upload failure-only diagnostics artifacts (`PGRX_HOME` + `target/debug` bundles).
+- CI workflow lives at `.github/workflows/ci.yml` and runs a fast baseline (`packages/runtime` check/test + `cargo check` + `cargo test`) plus per-crate `cargo pgrx test` matrix jobs; the stopgap matrix job also runs `cargo pgrx regress -p stopgap`, a dedicated `plts runtime v8 (pg17)` lane runs runtime-heavy `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` coverage, and pgrx/runtime jobs upload failure-only diagnostics artifacts (`PGRX_HOME` + `target/debug` bundles).
 
 ## Current architecture assumptions (locked)
 
@@ -58,50 +59,37 @@ This file captures how to work effectively in this repository.
 - Keep runtime safety defaults conservative (timeouts, memory, no FS/network once runtime lands).
 - If a change alters runtime contract behavior (`ctx` shape, DB API behavior, or return normalization), update `docs/RUNTIME-CONTRACT.md` and add/adjust contract-focused tests in the same change set.
 
+## Quality policy: no shortcuts
+
+- Do not use evasive fixes to make checks pass.
+- Specifically forbidden without explicit maintainer direction:
+  - disabling tests or CI lanes
+  - marking tests as ignored to hide failures
+  - weakening assertions to avoid root-cause fixes
+  - temporary bypass flags that reduce coverage or runtime safety
+- Treat this as the same quality bar as avoiding excessive `any` in TypeScript and unnecessary `unsafe` in Rust.
+- Required approach: find the root cause, fix it directly, and add/adjust coverage so regressions are caught.
+
+## Evergreen V8 expectation (P0)
+
+- The `plts` V8 runtime lane is a release-blocking quality gate.
+- V8 tests must stay green after every change; failing V8 coverage is a bug to fix, not a lane to bypass.
+- Current CI parity command: `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`.
+
 ## Validation checklist for each meaningful change
 
 - `cargo check`
 - `cargo test`
 - `cargo pgrx test -p plts`
+- `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`
 - `cargo pgrx test -p stopgap`
 - `cargo pgrx regress -p stopgap`
 
 If SQL outputs or extension entities change, also run/update pg_regress artifacts where relevant.
-
-## Near-term technical debt to remember
-
-- `plts` runtime handler executes sync + async default-export JS when built with `v8_runtime`, now via ES module loading (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, bare `@stopgap/runtime`, and additional bare specifiers mapped through inline `plts-import-map` source comments); runtime errors surface stage/message/stack with SQL function identity context.
-- Stopgap deploy now emits live-pointer `import_map` metadata for each deployment (default `@stopgap/<source_schema>/<fn_name>` bare specifiers mapped to `plts+artifact:<hash>`), and rollback rematerialization rebuilds those maps from `fn_version` rows.
-- `plts` runtime `ctx.db.query/exec` now accepts SQL string + params, `{ sql, params }` objects, and Drizzle-style `toSQL(): { sql, params }` inputs while keeping execution on SPI SQL text + bound params.
-- Statement/plan caching has been evaluated for the current runtime DB interop baseline; no explicit runtime statement cache is enabled yet, and SPI SQL+bound-params remains the stable execution model pending profiling-driven need.
-- `plts` runtime now applies deterministic DB API guardrails per call (bounded SQL text size, bound parameter count, and query row count via `plts.max_sql_bytes`, `plts.max_params`, and `plts.max_query_rows`).
-- Observability now includes backend-process metrics (`plts.metrics()`, `stopgap.metrics()`) with call/error counters, latency aggregates (`total`/`last`/`max` ms), and error-class buckets, plus log-level gated compile/execute/deploy flow logging (`plts.log_level`, `stopgap.log_level`).
-- `plts` runtime now exposes `ctx.db.query/exec` SPI bindings with structured JSON parameter binding and wrapper-aware DB mode (`stopgap.query` => read-only, `stopgap.mutation`/regular => read-write), with JSON-Schema-based arg validation in runtime wrappers.
-- DB-backed wrapper enforcement coverage now includes explicit allow/deny tests (`stopgap.query` rejects `db.exec`/write SQL; `stopgap.mutation` allows writes) in `crates/plts/tests/pg/runtime_stopgap_wrappers.rs`.
-- Read-only SQL filtering for `stopgap.query` now ignores write-keyword tokens inside SQL string/dollar-quoted/double-quoted literals to avoid false-positive rejections while preserving write-path blocking.
-- Runtime/package wrapper parity is maintained via shared module source at `packages/runtime/src/embedded.ts`, which is what `plts` loads for the built-in `@stopgap/runtime` module.
-- `packages/runtime` now includes a self-test harness at `packages/runtime/selftest.mjs` to verify wrapper metadata/validation and exported API behavior, and CI baseline executes package `check` + `test`.
-- `stopgap-cli` now has integration-style command tests in `crates/stopgap-cli/tests/command_integration.rs` covering deploy/status/rollback/deployments/diff JSON outputs and query-failure exit code mapping through an injectable API boundary in `crates/stopgap-cli/src/lib.rs`.
-- `plts` runtime now locks down module globals before execution (removing `Deno`, `fetch`, and related web APIs) so handlers only use the explicit `ctx.db` bridge and do not gain filesystem/network runtime surface.
-- `plts` runtime now applies a V8 watchdog per call using the stricter of `statement_timeout` and optional `plts.max_runtime_ms`, and routes pending Postgres cancel/die interrupt flags into the same V8 termination path.
-- `plts` runtime now optionally enforces `plts.max_heap_mb` per call by setting V8 heap limits and terminating execution on near-heap-limit callbacks.
-- `plts.compile_ts` now transpiles TS->JS via `deno_ast`, reports structured diagnostics, records compiler fingerprint metadata from lockfile-resolved dependency versions, and can persist source-map payloads when `compiler_opts.source_map=true`.
-- `plts` now caches artifact-pointer compiled JS per backend process to avoid repeat `plts.artifact` lookups during live pointer execution.
-- `plts` now also caches non-pointer function program metadata and regular-call argument type OID lookups per backend process to reduce repeated `pg_proc` catalog SPI work on hot execute paths.
-- DB-backed `plts` integration tests cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization, artifact-pointer execution, and async default-export execution under `v8_runtime`.
-- Stopgap deploy still records function kind as a default convention (`mutation`), while runtime enforcement relies on wrapper metadata.
-- Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, checks deploy caller privileges, and ships rollback/status/deployments/diff APIs plus activation/environment introspection views.
-- Stopgap deploy privilege checks now explicitly validate source schema existence/USAGE, `plts.compile_and_store(text, jsonb)` EXECUTE access, and that pre-existing live schemas are managed by `stopgap_owner`; pg_regress security coverage includes both allow and deny paths.
-- DB-backed `stopgap` integration tests now cover deploy pointer updates, live pointer payload correctness, `fn_version` integrity, overloaded-function rejection, and rollback status/pointer rematerialization.
-- stopgap `pg_regress` rollback scenario now covers a real cross-extension path (`deploy -> live execute -> rollback`) and asserts both live execution continuity and pointer rematerialization after rollback.
-- Stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`; ownership/role hardening baseline is now in place (`stopgap_owner`, `stopgap_deployer`, `app_user`, SECURITY DEFINER deploy/rollback/diff, and live-schema execute grants).
-- Most deploy SQL value binding uses argumentized SPI; remaining interpolation is primarily constrained identifier/DDL construction.
-- Shared helper migration has started via `crates/common` (SQL quoting + bool-setting parsing); plts logic is now split across `crates/plts/src/api.rs`, `crates/plts/src/handler.rs`, `crates/plts/src/runtime.rs`, `crates/plts/src/compiler.rs`, `crates/plts/src/runtime_spi.rs`, `crates/plts/src/function_program.rs`, and `crates/plts/src/arg_mapping.rs` with a thin `crates/plts/src/lib.rs`, while stopgap pure domain/state-transition logic lives in `crates/stopgap/src/domain.rs`, runtime config/SPI helpers live in `crates/stopgap/src/runtime_config.rs`, deploy scan/materialization helpers live in `crates/stopgap/src/deployment_utils.rs`, stopgap deployment-state/rollback helpers live in `crates/stopgap/src/deployment_state.rs`, stopgap deploy/status/diff orchestration helpers live in `crates/stopgap/src/api_ops.rs`, stopgap role/permission helpers live in `crates/stopgap/src/security.rs`, and stopgap SQL API/bootstrap wiring lives in `crates/stopgap/src/api.rs` + `crates/stopgap/src/sql_bootstrap.rs` with a thin `crates/stopgap/src/lib.rs`.
-- Compile/execute profiling baseline is now tracked by `crates/plts/tests/pg/runtime_performance_baseline.rs` and documented in `docs/PERFORMANCE-BASELINE.md`; next optimization candidates are backend caching for non-pointer function metadata and lower-allocation arg payload construction.
-- Iteration 11 now includes published before/after benchmark evidence for the iteration 10 optimization set in `docs/PERFORMANCE-BASELINE.md`; current measurement method is command-level wall clock and should be refined with loop-level instrumentation in follow-up profiling work.
 
 ## Do not do without explicit direction
 
 - Do not add forceful/destructive git operations.
 - Do not change locked P0 decisions above unless requested.
 - Do not introduce network/FS access into the runtime surface.
+- Do not disable, ignore, or bypass V8 runtime tests to unblock merges.

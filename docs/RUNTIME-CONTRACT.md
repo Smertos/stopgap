@@ -36,7 +36,8 @@ type SqlObjectLike =
 ## Argument model
 
 - Regular `plts` functions expose both positional and named/object argument forms.
-- Stopgap-managed deployables are `(args jsonb) returns jsonb`; wrappers validate args via JSON Schema.
+- Stopgap-managed deployables are `(args jsonb) returns jsonb`; wrappers currently validate args via a JSON Schema subset.
+- Roadmap direction is migration to zod/mini wrappers (re-exported as `v` from `@stopgap/runtime`) while preserving current validation/error-shape expectations.
 
 ## DB API mode behavior
 
