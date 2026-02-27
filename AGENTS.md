@@ -13,7 +13,7 @@ This file captures how to work effectively in this repository.
   - `crates/stopgap`: deployment/environment extension
   - `crates/stopgap-cli`: Rust CLI for deploy/rollback/status/deployments/diff flows
 - Packages:
-  - `packages/runtime`: `@stopgap/runtime` wrappers + TS schema/type helpers
+  - `packages/runtime`: `@stopgap/runtime` wrappers + `v` schema/type helpers
 - Docs:
   - `docs/ROADMAP.md`: tracked implementation plan and current backlog
   - `docs/PROJECT-OUTLINE.md`: product/architecture source of truth

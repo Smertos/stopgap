@@ -327,7 +327,7 @@ and similarly for mutations.
 ## 5.1 Where the wrappers live
 Ship an NPM package `@stopgap/runtime` containing:
 - TypeScript types (nice DX)
-- `argsSchema` helpers (current JSON Schema subset, with roadmap migration to zod/mini)
+- `v` schema helpers (`v.object`, `v.int`, etc.) with legacy JSON Schema-subset compatibility
 - The wrapper implementation for local testing
 
 In Postgres, `plts` exposes wrapper support through a built-in `@stopgap/runtime` module.
@@ -351,15 +351,11 @@ Unsupported for now:
 ## 5.2 Schema format
 Current state:
 
-- Runtime wrappers validate args with a JSON Schema subset (portable, serializable, and easy to persist).
+- Runtime wrappers validate args with `v` schemas (zod/mini-style API) and re-export `v` from `@stopgap/runtime`.
+- Runtime wrappers continue accepting the prior JSON Schema subset for compatibility during migration.
 - `packages/runtime` mirrors the same behavior for local testing.
 
-Planned direction (tracked in roadmap):
-
-- Migrate wrapper validation to zod/mini and re-export it as `v` from `@stopgap/runtime`.
-- Preserve current validation/error-shape behavior as closely as practical during migration.
-
-Current implementation uses a JSON Schema subset validator inside the runtime wrappers (object/array/scalar `type`, `required`, `properties`, `items`, `enum`, `anyOf`, `additionalProperties=false`).
+Current implementation uses `v` validation helpers (`object`, `array`, `string`, `number`, `int`, `boolean`, `null`, `literal`, `enum`, `union`) and retains the JSON Schema subset validator fallback (`type`, `required`, `properties`, `items`, `enum`, `anyOf`, `additionalProperties=false`).
 `packages/runtime` includes a self-test harness (`selftest.mjs`) that verifies wrapper metadata, validation behavior, and exported API parity (`query`, `mutation`, `validateArgs`).
 
 ## 5.3 Wrapper semantics
@@ -501,7 +497,7 @@ Current progress snapshot:
 ## P1 (DX + correctness)
 - `stopgap.rollback` (implemented SQL API with `steps`/`to_id` targeting)
 - read-only enforcement for queries (implemented for `stopgap.query`; SQL classifier hardening can continue iteratively)
-- `stopgap.query/mutation` wrappers available in runtime + TS types package, with current JSON Schema arg validation + inferred TS helper types (`InferJsonSchema`); migration to zod/mini (`v`) is tracked in roadmap
+- `stopgap.query/mutation` wrappers available in runtime + TS types package, with `v` schema arg validation + inferred TS helper types (`InferArgsSchema`) and compatibility fallback for legacy JSON Schema inputs
 - better error messages + stack traces
 - caching compiled artifacts per backend (artifact-pointer source cache now implemented in `plts`)
 - hot-path execute caching for regular/non-pointer functions and argument-type lookup (backend-local in `plts`)
@@ -528,7 +524,7 @@ Current progress snapshot:
 # 9) Key design choices to lock now (so you don’t repaint later)
 1) **Engine**: **V8 via `deno_core`**.
 2) **Return null semantics**: JS `undefined` and `null` normalize to SQL `NULL`.
-3) **Schema format**: current runtime uses a JSON Schema subset; roadmap target migrates wrapper validation to zod/mini (`v`) while preserving current error-shape semantics.
+3) **Schema format**: runtime wrapper validation is `v` (zod/mini-style) with compatibility fallback for the legacy JSON Schema subset and preserved error-shape semantics.
 4) **Deploy compilation location**: **DB compile path** (`plts.compile_ts` / `plts.compile_and_store`).
 5) **Function identity**: **forbid overloading** for stopgap-managed functions.
 6) **Regular `plts` args view**: expose **both positional and named/object forms**.

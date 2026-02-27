@@ -175,7 +175,7 @@ Legend:
 - [x] Implement `stopgap.query(schema, handler)` wrapper
 - [x] Implement `stopgap.mutation(schema, handler)` wrapper
 - [x] Expose runtime metadata for handler kind
-- [x] Choose/implement schema strategy (JSON Schema target)
+- [x] Choose/implement schema strategy (`v` helpers with JSON Schema compatibility)
 - [x] Runtime arg validation against schema
 - [x] TS type inference helpers for args/results
 
@@ -352,14 +352,14 @@ Minimum implementation evidence:
 - [ ] before/after data in `docs/PERFORMANCE-BASELINE.md`
 
 #### 3. Migrate wrapper args schema to zod/mini (`v`)
-- [ ] Move stopgap wrapper arg validation from JSON Schema subset to zod/mini.
-- [ ] Re-export zod/mini as single-letter `v` from `@stopgap/runtime`.
-- [ ] Preserve current validation/error-shape behavior as closely as possible.
+- [x] Move stopgap wrapper arg validation from JSON Schema subset to zod/mini-style `v` schemas.
+- [x] Re-export `v` as single-letter schema helper from `@stopgap/runtime`.
+- [x] Preserve current validation/error-shape behavior as closely as possible.
 
 Minimum implementation evidence:
-- [ ] runtime package + embedded runtime updates (`packages/runtime/src/*`)
-- [ ] runtime wrapper tests updated (`packages/runtime/selftest.mjs`, `crates/plts/tests/pg/runtime_stopgap_wrappers.rs`)
-- [ ] contract/docs alignment updates in `docs/RUNTIME-CONTRACT.md` and `docs/PROJECT-OUTLINE.md`
+- [x] runtime package + embedded runtime updates (`packages/runtime/src/*`)
+- [x] runtime wrapper tests updated (`packages/runtime/selftest.mjs`, `crates/plts/tests/pg/runtime_stopgap_wrappers.rs`)
+- [x] contract/docs alignment updates in `docs/RUNTIME-CONTRACT.md` and `docs/PROJECT-OUTLINE.md`
 
 #### A. CI runtime lane foundation
 - [x] Add explicit CI lane for `plts` runtime-heavy tests with `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`.

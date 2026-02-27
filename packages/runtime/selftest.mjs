@@ -1,4 +1,4 @@
-import runtime, { mutation, query, validateArgs } from "./dist/index.js";
+import runtime, { mutation, query, v, validateArgs } from "./dist/index.js";
 
 const assert = (condition, message) => {
   if (!condition) {
@@ -45,14 +45,9 @@ const makeCtx = (args, mode) => ({
 });
 
 const run = async () => {
-  const argsSchema = {
-    type: "object",
-    required: ["id"],
-    additionalProperties: false,
-    properties: {
-      id: { type: "integer" },
-    },
-  };
+  const argsSchema = v.object({
+    id: v.int(),
+  });
 
   const wrappedQuery = query(argsSchema, async (args, ctx) => ({
     kind: "query",
@@ -74,6 +69,10 @@ const run = async () => {
     await wrappedQuery(makeCtx({}, "ro"));
   }, "missing required property");
 
+  await expectThrows(async () => {
+    await wrappedQuery(makeCtx({ id: 1, extra: true }, "ro"));
+  }, "additional properties are not allowed");
+
   const wrappedMutation = mutation(argsSchema, async (args, ctx) => ({
     kind: "mutation",
     id: args.id,
@@ -93,15 +92,17 @@ const run = async () => {
   const passthrough = await schemaLessQuery(makeCtx({ ok: true }, "ro"));
   assertDeepEqual(passthrough, { ok: true }, "schema-less query passes args through");
 
-  validateArgs({ enum: ["a", "b"] }, "a");
-  validateArgs({ anyOf: [{ type: "integer" }, { type: "string" }] }, 10);
+  validateArgs(v.enum(["a", "b"]), "a");
+  validateArgs(v.union([v.int(), v.string()]), 10);
+  validateArgs({ enum: ["x", "y"] }, "x");
 
   await expectThrows(async () => {
-    validateArgs({ enum: ["a", "b"] }, "c");
+    validateArgs(v.enum(["a", "b"]), "c");
   }, "value is not in enum");
 
   assert(runtime.query === query, "default export exposes query");
   assert(runtime.mutation === mutation, "default export exposes mutation");
+  assert(runtime.v === v, "default export exposes v");
   assert(runtime.validateArgs === validateArgs, "default export exposes validateArgs");
 };
 

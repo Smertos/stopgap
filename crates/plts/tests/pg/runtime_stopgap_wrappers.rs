@@ -86,16 +86,11 @@ fn test_stopgap_query_wrapper_validates_json_schema() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        import { query } from "@stopgap/runtime";
+        import { query, v } from "@stopgap/runtime";
 
-        const schema = {
-            type: "object",
-            required: ["id"],
-            additionalProperties: false,
-            properties: {
-                id: { type: "integer" }
-            }
-        };
+        const schema = v.object({
+            id: v.int()
+        });
 
         export default query(schema, async (args, _ctx) => ({ id: args.id }));
         $$;

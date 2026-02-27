@@ -1,6 +1,7 @@
 import {
   mutation as mutationCore,
   query as queryCore,
+  v,
   validateArgs as validateArgsCore,
 } from "./embedded.js";
 
@@ -55,6 +56,19 @@ export type InferJsonSchema<S extends JsonSchema> = S["enum"] extends readonly J
   ? S["enum"][number]
   : InferByType<S>;
 
+type SchemaLike<T = unknown> = {
+  safeParse?: (value: unknown, path?: string, root?: boolean) =>
+    | { success: true; data: T }
+    | { success: false; error: { issues?: Array<{ message?: string }> } };
+  parse?: (value: unknown) => T;
+};
+
+export type InferArgsSchema<S> = S extends SchemaLike<infer T>
+  ? T
+  : S extends JsonSchema
+    ? InferJsonSchema<S>
+    : JsonValue;
+
 export type DbMode = "ro" | "rw";
 
 export type DbApi = {
@@ -72,43 +86,46 @@ export type StopgapContext<TArgs> = {
 
 type StopgapWrapped = ((ctx: unknown) => Promise<unknown>) & {
   __stopgap_kind: "query" | "mutation";
-  __stopgap_args_schema: JsonSchema | null;
+  __stopgap_args_schema: unknown;
 };
 
 type StopgapHandler<TArgs, TResult> = (args: TArgs, ctx: StopgapContext<TArgs>) => TResult | Promise<TResult>;
 
-export const validateArgs = (schema: JsonSchema | null | undefined, value: unknown, path = "$"): void =>
+export const validateArgs = (schema: JsonSchema | SchemaLike | null | undefined, value: unknown, path = "$"): void =>
   validateArgsCore(schema, value, path);
 
-export function query<S extends JsonSchema, TResult>(
+export { v };
+
+export function query<S, TResult>(
   argsSchema: S,
-  handler: StopgapHandler<InferJsonSchema<S>, TResult>
+  handler: StopgapHandler<InferArgsSchema<S>, TResult>
 ): StopgapWrapped;
 export function query<TResult>(
   handler: StopgapHandler<JsonValue, TResult>
 ): StopgapWrapped;
-export function query<S extends JsonSchema, TResult>(
+export function query<S, TResult>(
   argsSchemaOrHandler: S | StopgapHandler<JsonValue, TResult>,
-  maybeHandler?: StopgapHandler<InferJsonSchema<S>, TResult>
+  maybeHandler?: StopgapHandler<InferArgsSchema<S>, TResult>
 ): StopgapWrapped {
   return queryCore(argsSchemaOrHandler, maybeHandler) as StopgapWrapped;
 }
 
-export function mutation<S extends JsonSchema, TResult>(
+export function mutation<S, TResult>(
   argsSchema: S,
-  handler: StopgapHandler<InferJsonSchema<S>, TResult>
+  handler: StopgapHandler<InferArgsSchema<S>, TResult>
 ): StopgapWrapped;
 export function mutation<TResult>(
   handler: StopgapHandler<JsonValue, TResult>
 ): StopgapWrapped;
-export function mutation<S extends JsonSchema, TResult>(
+export function mutation<S, TResult>(
   argsSchemaOrHandler: S | StopgapHandler<JsonValue, TResult>,
-  maybeHandler?: StopgapHandler<InferJsonSchema<S>, TResult>
+  maybeHandler?: StopgapHandler<InferArgsSchema<S>, TResult>
 ): StopgapWrapped {
   return mutationCore(argsSchemaOrHandler, maybeHandler) as StopgapWrapped;
 }
 
 export default {
+  v,
   query,
   mutation,
   validateArgs
