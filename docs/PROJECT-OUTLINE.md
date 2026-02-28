@@ -327,7 +327,7 @@ and similarly for mutations.
 ## 5.1 Where the wrappers live
 Ship an NPM package `@stopgap/runtime` containing:
 - TypeScript types (nice DX)
-- `v` schema helpers (`v.object`, `v.int`, etc.) with legacy JSON Schema-subset compatibility
+- `v` schema helpers (`v.object`, `v.int`, etc.) with legacy JSON Schema-subset compatibility during migration
 - The wrapper implementation for local testing
 
 In Postgres, `plts` exposes wrapper support through a built-in `@stopgap/runtime` module.
@@ -336,7 +336,8 @@ So in DB you can use:
 - `import { query, mutation } from "@stopgap/runtime"`
 
 Current implementation resolves this bare specifier through the runtime module loader.
-The embedded module source is loaded from `packages/runtime/src/embedded_runtime.js` to keep wrapper logic in sync between package and in-DB execution.
+Today, the embedded module source is loaded from `packages/runtime/src/embedded_runtime.js`.
+Planned packaging update: move to TS-only runtime sources and load the embedded module from compiled artifact `packages/runtime/dist/embedded_runtime.js`.
 Runtime module imports currently support:
 - `data:` module specifiers
 - `plts+artifact:<hash>` module specifiers backed by `plts.artifact.compiled_js`
@@ -351,12 +352,17 @@ Unsupported for now:
 ## 5.2 Schema format
 Current state:
 
-- Runtime wrappers validate args with `v` schemas (zod/mini-style API) and re-export `v` from `@stopgap/runtime`.
+- Runtime wrappers validate args with `v` schemas (zod/mini-style API surface) and re-export `v` from `@stopgap/runtime`.
 - Runtime wrappers continue accepting the prior JSON Schema subset for compatibility during migration.
 - `packages/runtime` mirrors the same behavior for local testing.
 
 Current implementation uses `v` validation helpers (`object`, `array`, `string`, `number`, `int`, `boolean`, `null`, `literal`, `enum`, `union`) and retains the JSON Schema subset validator fallback (`type`, `required`, `properties`, `items`, `enum`, `anyOf`, `additionalProperties=false`).
-`packages/runtime` includes a self-test harness (`selftest.mjs`) that verifies wrapper metadata, validation behavior, and exported API parity (`query`, `mutation`, `validateArgs`).
+`packages/runtime` currently includes a self-test harness (`selftest.mjs`) that verifies wrapper metadata, validation behavior, and exported API parity (`query`, `mutation`, `validateArgs`).
+
+Planned near-term update:
+- add direct dependency on `zod >= 4` and export `v` from `import * as v from "zod/mini"`
+- use `safeParse` as the primary wrapper-arg validation path and surface parse issues in thrown errors
+- replace `selftest.mjs` with Vitest-based runtime package tests
 
 ## 5.3 Wrapper semantics
 ### `stopgap.query(schema, handler)`

@@ -37,7 +37,8 @@ type SqlObjectLike =
 
 - Regular `plts` functions expose both positional and named/object argument forms.
 - Stopgap-managed deployables are `(args jsonb) returns jsonb`; wrappers validate args via `v` schemas from `@stopgap/runtime`.
-- Legacy JSON Schema-subset wrapper inputs remain supported as a compatibility path, with equivalent error-shape messaging where practical.
+- Legacy JSON Schema-subset wrapper inputs remain supported as a compatibility path.
+- Near-term runtime package update tracks direct `zod/mini` `safeParse` issue surfacing for wrapper validation failures; exact thrown text may evolve while preserving clear path/issue context.
 
 ## DB API mode behavior
 
