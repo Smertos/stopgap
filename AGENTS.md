@@ -28,7 +28,7 @@ This file captures how to work effectively in this repository.
 
 - Rust toolchain is pinned in `rust-toolchain.toml`.
 - Formatting/lint config is tracked in `rustfmt.toml` and `clippy.toml`.
-- CI workflow lives at `.github/workflows/ci.yml` and runs a fast baseline (`packages/runtime` check/test + `cargo check` + `cargo test`) plus per-crate `cargo pgrx test` matrix jobs; the stopgap matrix job also runs `cargo pgrx regress -p stopgap`, a dedicated `plts runtime v8 (pg17)` lane runs runtime-heavy `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` coverage, and pgrx/runtime jobs upload failure-only diagnostics artifacts (`PGRX_HOME` + `target/debug` bundles).
+- CI workflow lives at `.github/workflows/ci.yml` and runs a fast baseline (`packages/runtime` check/test + `cargo check` + `cargo test`) plus per-crate `cargo pgrx test` matrix jobs; Rust builds also refresh the compiled runtime artifact (`packages/runtime/dist/embedded_runtime.js`) via `crates/plts/build.rs`, the stopgap matrix job also runs `cargo pgrx regress -p stopgap`, a dedicated `plts runtime v8 (pg17)` lane runs runtime-heavy `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` coverage, and pgrx/runtime jobs upload failure-only diagnostics artifacts (`PGRX_HOME` + `target/debug` bundles).
 
 ## Current architecture assumptions (locked)
 

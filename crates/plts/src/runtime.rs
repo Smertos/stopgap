@@ -390,7 +390,7 @@ pub(crate) fn execute_program(
     const STOPGAP_RUNTIME_BARE_SPECIFIER: &str = "@stopgap/runtime";
     const STOPGAP_RUNTIME_SPECIFIER: &str = "file:///plts/__stopgap_runtime__.js";
     const STOPGAP_RUNTIME_SOURCE: &str =
-        include_str!("../../../packages/runtime/src/embedded_runtime.js");
+        include_str!("../../../packages/runtime/dist/embedded_runtime.js");
 
     #[derive(Clone)]
     struct PltsModuleLoader {

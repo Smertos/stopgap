@@ -1,3 +1,5 @@
+import * as zodMini from "zod/mini";
+
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -5,269 +7,146 @@ const formatPath = (base: string, segment: string | number): string =>
   typeof segment === "number" ? `${base}[${segment}]` : `${base}.${segment}`;
 
 type ValidationIssue = {
-  code: string;
-  path: string;
-  message: string;
-  [k: string]: unknown;
+  code?: string;
+  path?: Array<string | number>;
+  message?: string;
+  input?: unknown;
+  keys?: string[];
 };
 
 type ValidationResult<T> =
   | { success: true; data: T }
-  | { success: false; error: { issues: ValidationIssue[] } };
+  | { success: false; error: { issues?: ValidationIssue[] } };
 
 type SchemaLike<T = unknown> = {
-  safeParse?: (value: unknown, path?: string, root?: boolean) => ValidationResult<T>;
+  safeParse?: (value: unknown) => ValidationResult<T>;
   parse?: (value: unknown) => T;
-};
-
-const ok = <T>(data: T): ValidationResult<T> => ({ success: true, data });
-
-const fail = (
-  code: string,
-  path: string,
-  message: string,
-  details: Record<string, unknown> = {}
-): ValidationResult<never> => ({
-  success: false,
-  error: {
-    issues: [{ code, path, message, ...details }],
-  },
-});
-
-const describeValue = (value: unknown): string => {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "array";
-  return typeof value;
 };
 
 const sameJson = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
 
-const schema = <T>(safeParse: (value: unknown, path?: string, root?: boolean) => ValidationResult<T>) => ({
-  safeParse,
-  parse(value: unknown): T {
-    const result = safeParse(value, "$", true);
-    if (result.success) {
-      return result.data;
+const toIssuePath = (path: Array<string | number> | undefined, fallback: string): string => {
+  if (!Array.isArray(path) || path.length === 0) {
+    return fallback;
+  }
+
+  let text = "$";
+  for (const segment of path) {
+    text = formatPath(text, segment);
+  }
+  return text;
+};
+
+const getPathParent = (value: unknown, path: Array<string | number>): unknown => {
+  let current = value;
+  for (let i = 0; i < path.length - 1; i += 1) {
+    const segment = path[i];
+    if (typeof segment === "number") {
+      if (!Array.isArray(current) || segment < 0 || segment >= current.length) {
+        return undefined;
+      }
+      current = current[segment];
+      continue;
     }
-    const issue = result.error.issues[0];
-    throw new TypeError(issue?.message ?? "stopgap args validation failed");
-  },
-});
+
+    if (!isPlainObject(current) || !Object.prototype.hasOwnProperty.call(current, segment)) {
+      return undefined;
+    }
+    current = current[segment];
+  }
+  return current;
+};
+
+const isMissingRequiredIssue = (issue: ValidationIssue, value: unknown): boolean => {
+  if (issue.code !== "invalid_type" || !Array.isArray(issue.path) || issue.path.length === 0) {
+    return false;
+  }
+
+  const lastSegment = issue.path[issue.path.length - 1];
+  if (typeof lastSegment !== "string") {
+    return false;
+  }
+
+  const parent = getPathParent(value, issue.path);
+  return isPlainObject(parent) && !Object.prototype.hasOwnProperty.call(parent, lastSegment);
+};
+
+const formatSafeParseIssue = (
+  issue: ValidationIssue | undefined,
+  fallbackPath: string,
+  value: unknown
+): string => {
+  if (!issue) {
+    return `stopgap args validation failed at ${fallbackPath}: schema rejected value`;
+  }
+
+  const issuePath =
+    issue.code === "unrecognized_keys" && Array.isArray(issue.keys) && issue.keys.length > 0
+      ? formatPath(fallbackPath, issue.keys[0])
+      : toIssuePath(issue.path, fallbackPath);
+
+  if (issue.code === "unrecognized_keys") {
+    return `stopgap args validation failed at ${issuePath}: additional properties are not allowed`;
+  }
+
+  if (isMissingRequiredIssue(issue, value)) {
+    return `stopgap args validation failed at ${issuePath}: missing required property`;
+  }
+
+  const message = issue.message?.trim();
+  if (message && message.length > 0) {
+    return `stopgap args validation failed at ${issuePath}: ${message}`;
+  }
+
+  return `stopgap args validation failed at ${issuePath}: schema rejected value`;
+};
 
 const isSchemaLike = (candidate: unknown): candidate is SchemaLike =>
   isPlainObject(candidate) &&
   (typeof candidate.safeParse === "function" || typeof candidate.parse === "function");
 
-const runSchemaValidation = (
-  schemaValue: unknown,
-  value: unknown,
-  path = "$",
-  root = true
-): ValidationResult<unknown> => {
-  if (!isSchemaLike(schemaValue)) {
-    return fail(
-      "invalid_schema",
-      path,
-      `stopgap args validation failed at ${path}: schema must provide parse/safeParse`,
-      { root }
-    );
-  }
-
+const validateSchemaLikeArgs = (schemaValue: SchemaLike, value: unknown, path = "$", root = true): void => {
   if (typeof schemaValue.safeParse === "function") {
     try {
-      const parsed = schemaValue.safeParse(value, path, root);
+      const parsed = schemaValue.safeParse(value);
       if (parsed.success) {
-        return ok(parsed.data);
+        return;
       }
-      const issue = parsed.error.issues[0];
-      return fail(issue.code ?? "invalid", issue.path ?? path, issue.message, issue);
+
+      throw new TypeError(formatSafeParseIssue(parsed.error?.issues?.[0], path, value));
     } catch (error) {
+      if (error instanceof TypeError) {
+        throw error;
+      }
       const text = error instanceof Error ? error.message : String(error);
-      return fail("invalid", path, text, { root });
+      throw new TypeError(`stopgap args validation failed at ${path}: ${text}`);
     }
   }
 
   if (typeof schemaValue.parse === "function") {
     try {
-      return ok(schemaValue.parse(value));
+      schemaValue.parse(value);
+      return;
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
-      return fail("invalid", path, text, { root });
+      throw new TypeError(`stopgap args validation failed at ${path}: ${text}`);
     }
   }
 
-  return fail("invalid_schema", path, `stopgap args validation failed at ${path}: unsupported schema`, { root });
+  throw new TypeError(
+    `stopgap args validation failed at ${path}: schema must provide parse/safeParse (root=${root})`
+  );
 };
 
 export const v = {
-  unknown: () => schema((value) => ok(value)),
-  any: () => schema((value) => ok(value)),
-  string: () =>
-    schema((value, path = "$", root = false) =>
-      typeof value === "string"
-        ? ok(value)
-        : fail(
-            "invalid_type",
-            path,
-            `stopgap args validation failed at ${path}: expected string, got ${describeValue(value)}`,
-            { expected: "string", received: describeValue(value), root }
-          )
-    ),
-  number: () =>
-    schema((value, path = "$", root = false) =>
-      typeof value === "number" && Number.isFinite(value)
-        ? ok(value)
-        : fail(
-            "invalid_type",
-            path,
-            `stopgap args validation failed at ${path}: expected number, got ${describeValue(value)}`,
-            { expected: "number", received: describeValue(value), root }
-          )
-    ),
-  int: () =>
-    schema((value, path = "$", root = false) =>
-      typeof value === "number" && Number.isInteger(value)
-        ? ok(value)
-        : fail(
-            "invalid_type",
-            path,
-            `stopgap args validation failed at ${path}: expected integer, got ${describeValue(value)}`,
-            { expected: "integer", received: describeValue(value), root }
-          )
-    ),
-  boolean: () =>
-    schema((value, path = "$", root = false) =>
-      typeof value === "boolean"
-        ? ok(value)
-        : fail(
-            "invalid_type",
-            path,
-            `stopgap args validation failed at ${path}: expected boolean, got ${describeValue(value)}`,
-            { expected: "boolean", received: describeValue(value), root }
-          )
-    ),
-  null: () =>
-    schema((value, path = "$", root = false) =>
-      value === null
-        ? ok(value)
-        : fail(
-            "invalid_type",
-            path,
-            `stopgap args validation failed at ${path}: expected null, got ${describeValue(value)}`,
-            { expected: "null", received: describeValue(value), root }
-          )
-    ),
-  literal: (expected: unknown) =>
-    schema((value, path = "$", root = false) =>
-      sameJson(value, expected)
-        ? ok(value)
-        : fail(
-            "invalid_literal",
-            path,
-            `stopgap args validation failed at ${path}: expected literal ${JSON.stringify(expected)}`,
-            { expected, received: value, root }
-          )
-    ),
-  enum: <T>(values: readonly T[]) =>
-    schema((value, path = "$", root = false) =>
-      values.some((entry) => sameJson(entry, value))
-        ? ok(value)
-        : fail(
-            "invalid_enum",
-            path,
-            `stopgap args validation failed at ${path}: value is not in enum`,
-            { options: values, received: value, root }
-          )
-    ),
-  array: (itemSchema: unknown) =>
-    schema((value, path = "$", root = false) => {
-      if (!Array.isArray(value)) {
-        return fail(
-          "invalid_type",
-          path,
-          `stopgap args validation failed at ${path}: expected array, got ${describeValue(value)}`,
-          { expected: "array", received: describeValue(value), root }
-        );
-      }
+  ...zodMini,
+  object: zodMini.strictObject,
+};
 
-      const parsed: unknown[] = [];
-      for (let i = 0; i < value.length; i += 1) {
-        const result = runSchemaValidation(itemSchema, value[i], formatPath(path, i), false);
-        if (!result.success) {
-          return result;
-        }
-        parsed.push(result.data);
-      }
-
-      return ok(parsed);
-    }),
-  object: (shape: Record<string, unknown>) =>
-    schema((value, path = "$", root = false) => {
-      if (!isPlainObject(value)) {
-        return fail(
-          "invalid_type",
-          path,
-          `stopgap args validation failed at ${path}: expected object, got ${describeValue(value)}`,
-          { expected: "object", received: describeValue(value), root }
-        );
-      }
-
-      const parsed: Record<string, unknown> = {};
-      for (const [key, fieldSchema] of Object.entries(shape ?? {})) {
-        if (!Object.prototype.hasOwnProperty.call(value, key)) {
-          return fail(
-            "missing_required",
-            formatPath(path, key),
-            `stopgap args validation failed at ${formatPath(path, key)}: missing required property`,
-            { key, root }
-          );
-        }
-
-        const result = runSchemaValidation(fieldSchema, value[key], formatPath(path, key), false);
-        if (!result.success) {
-          return result;
-        }
-        parsed[key] = result.data;
-      }
-
-      for (const key of Object.keys(value)) {
-        if (!Object.prototype.hasOwnProperty.call(shape ?? {}, key)) {
-          return fail(
-            "unrecognized_key",
-            formatPath(path, key),
-            `stopgap args validation failed at ${formatPath(path, key)}: additional properties are not allowed`,
-            { key, root }
-          );
-        }
-      }
-
-      return ok(parsed);
-    }),
-  union: (schemas: readonly unknown[]) =>
-    schema((value, path = "$", root = false) => {
-      if (!Array.isArray(schemas) || schemas.length === 0) {
-        return fail(
-          "invalid_union",
-          path,
-          `stopgap args validation failed at ${path}: value does not match anyOf branches`,
-          { root }
-        );
-      }
-
-      for (const branch of schemas) {
-        const result = runSchemaValidation(branch, value, path, false);
-        if (result.success) {
-          return result;
-        }
-      }
-
-      return fail(
-        "invalid_union",
-        path,
-        `stopgap args validation failed at ${path}: value does not match anyOf branches`,
-        { root }
-      );
-    }),
+const describeValue = (value: unknown): string => {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  return typeof value;
 };
 
 const typeMatches = (expectedType: string, value: unknown): boolean => {
@@ -293,10 +172,7 @@ const typeMatches = (expectedType: string, value: unknown): boolean => {
 
 export const validateArgs = (schemaValue: unknown, value: unknown, path = "$"): void => {
   if (isSchemaLike(schemaValue)) {
-    const result = runSchemaValidation(schemaValue, value, path, true);
-    if (!result.success) {
-      throw new TypeError(result.error.issues[0]?.message ?? "stopgap args validation failed");
-    }
+    validateSchemaLikeArgs(schemaValue, value, path, true);
     return;
   }
 

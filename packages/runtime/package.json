@@ -1,7 +1,7 @@
 {
   "name": "@stopgap/runtime",
   "version": "0.1.0",
-  "description": "Stopgap runtime wrappers and JSON Schema helpers",
+  "description": "Stopgap runtime wrappers and schema helpers",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,9 +9,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run build:embedded",
+    "build:embedded": "esbuild src/embedded.ts --bundle --format=esm --platform=neutral --target=es2022 --outfile=dist/embedded_runtime.js",
     "check": "tsc --noEmit -p tsconfig.json",
-    "test": "tsc -p tsconfig.json && node selftest.mjs"
+    "test": "vitest run"
   },
   "keywords": [
     "stopgap",
@@ -20,6 +21,9 @@
   ],
   "license": "MIT",
   "devDependencies": {
-    "typescript": "^5.7.3"
+    "esbuild": "^0.25.11",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "zod": "^4.1.11"
   }
 }

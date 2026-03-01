@@ -336,8 +336,8 @@ So in DB you can use:
 - `import { query, mutation } from "@stopgap/runtime"`
 
 Current implementation resolves this bare specifier through the runtime module loader.
-Today, the embedded module source is loaded from `packages/runtime/src/embedded_runtime.js`.
-Planned packaging update: move to TS-only runtime sources and load the embedded module from compiled artifact `packages/runtime/dist/embedded_runtime.js`.
+The embedded module source is loaded from the compiled artifact `packages/runtime/dist/embedded_runtime.js`, built from TS-only runtime sources.
+`plts` now triggers this runtime package build from `crates/plts/build.rs` so Rust builds refresh the embedded artifact before compile-time inclusion.
 Runtime module imports currently support:
 - `data:` module specifiers
 - `plts+artifact:<hash>` module specifiers backed by `plts.artifact.compiled_js`
@@ -357,12 +357,8 @@ Current state:
 - `packages/runtime` mirrors the same behavior for local testing.
 
 Current implementation uses `v` validation helpers (`object`, `array`, `string`, `number`, `int`, `boolean`, `null`, `literal`, `enum`, `union`) and retains the JSON Schema subset validator fallback (`type`, `required`, `properties`, `items`, `enum`, `anyOf`, `additionalProperties=false`).
-`packages/runtime` currently includes a self-test harness (`selftest.mjs`) that verifies wrapper metadata, validation behavior, and exported API parity (`query`, `mutation`, `validateArgs`).
-
-Planned near-term update:
-- add direct dependency on `zod >= 4` and export `v` from `import * as v from "zod/mini"`
-- use `safeParse` as the primary wrapper-arg validation path and surface parse issues in thrown errors
-- replace `selftest.mjs` with Vitest-based runtime package tests
+`packages/runtime` now uses direct `zod >= 4` (`import * as v from "zod/mini"`) and uses `safeParse` as the primary wrapper-arg validation path while surfacing first-issue context in thrown validation errors.
+Runtime package coverage now runs through Vitest tests for wrapper metadata, validation behavior, and exported API parity (`query`, `mutation`, `validateArgs`).
 
 ## 5.3 Wrapper semantics
 ### `stopgap.query(schema, handler)`
@@ -416,7 +412,7 @@ Current implementation status:
 - CLI supports `--output human|json` for operator and automation workflows.
 - CLI uses explicit non-zero exit codes for connection/query/decode/output failures for CI/CD diagnostics.
 - CLI now has integration-style command coverage via an injectable API boundary (`crates/stopgap-cli/tests/command_integration.rs`) validating deploy/status/rollback/deployments/diff JSON payload shapes and query-failure non-zero exit code mapping.
-- CI baseline now runs `packages/runtime` typecheck + self-tests (`npm run check` and `npm run test`) alongside Rust checks/tests.
+- CI baseline now runs `packages/runtime` typecheck + Vitest (`npm run check` and `npm run test`) alongside Rust checks/tests; pgrx/runtime lanes build the embedded runtime artifact before Rust execution.
 
 ## 6.2 Deploy algorithm (single transaction, atomic)
 1) `pg_advisory_xact_lock(...)` per env

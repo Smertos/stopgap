@@ -283,12 +283,12 @@ Legend:
 - **P1 status:** Complete.
 - **What works now:** workspace + extension scaffolds, shared `crates/common` helpers used by both extensions (currently SQL quoting + boolean setting parsing), artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), behavior-focused pgrx integration test files under `crates/*/tests/pg/`, focused `pg_regress` scenario files for deploy/rollback/prune/diff/security, and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime DB APIs now support SQL string + params, `{ sql, params }` inputs, and Drizzle-style `toSQL()` objects while preserving SPI SQL + bound params execution. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution using the stricter of `statement_timeout` and optional `plts.max_runtime_ms` plus pending Postgres cancel/die signals. Ongoing module splitting now includes `crates/plts/src/compiler.rs` for compile/fingerprint/source-map logic, `crates/plts/src/runtime_spi.rs` for SPI/query binding and read-only SQL helpers, `crates/plts/src/function_program.rs` for function source resolution/artifact-pointer cache loading, `crates/stopgap/src/deployment_utils.rs` for deploy scan/materialization helpers, `crates/stopgap/src/security.rs` for role/permission checks, and `crates/stopgap/src/runtime_config.rs` + `crates/stopgap/src/domain.rs`.
 - **Module split note:** both extension entrypoints are now thin (`crates/plts/src/lib.rs` and `crates/stopgap/src/lib.rs`), with `plts` split across `api.rs`, `handler.rs`, `runtime.rs`, `compiler.rs`, `runtime_spi.rs`, `function_program.rs`, and `arg_mapping.rs`.
-- **Wrapper parity note:** today, in-DB `@stopgap/runtime` is still loaded from `packages/runtime/src/embedded_runtime.js`; near-term follow-up migrates this to a TS-only source with compiled embed artifact from `packages/runtime/dist/embedded_runtime.js`.
+- **Wrapper parity note:** in-DB `@stopgap/runtime` is now loaded from the compiled dist artifact at `packages/runtime/dist/embedded_runtime.js`, built from TS-only runtime sources.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
 - **Performance note:** iteration 10 benchmark-backed optimizations are now in place for hot execute paths via backend-local non-pointer function program caching and argument-type caching for regular invocation payload mapping; iteration 12 hardens function-program caching with explicit LRU keying (`fn_oid`), TTL invalidation, and source-byte memory bounds.
 - **Runtime contract note:** `docs/RUNTIME-CONTRACT.md` is now aligned to current runtime behavior and is guarded by dedicated DB-backed tests in `crates/plts/tests/pg/runtime_contract.rs` plus existing runtime contract suites.
 - **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
-- **Runtime package note:** `packages/runtime` currently uses a `selftest.mjs` harness for wrapper metadata/validation/API parity checks; near-term follow-up migrates this to Vitest while keeping CI package `check` + `test` coverage.
+- **Runtime package note:** `packages/runtime` now uses Vitest coverage for wrapper metadata/validation/API parity checks and ships with direct `zod/mini` usage for `v` schemas.
 - **CI note:** CI now includes a dedicated `plts runtime v8 (pg17)` job for runtime-heavy `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` coverage in addition to the baseline pgrx matrix.
 - **Cross-extension e2e note:** stopgap rollback pg_regress now covers `deploy -> live execute -> rollback` and verifies both execution continuity and pointer rematerialization after rollback.
 - **Security hardening note:** deploy permission checks now explicitly enforce source-schema existence/USAGE, `plts.compile_and_store` EXECUTE access, and stopgap-owned live schema usage; security pg_regress now includes deny/allow scenarios for source-schema and unmanaged-live-schema paths.
@@ -360,21 +360,22 @@ Minimum implementation evidence:
 
 Minimum implementation evidence:
 - [x] runtime package + embedded runtime updates (`packages/runtime/src/*`)
-- [x] runtime wrapper tests updated (`packages/runtime/selftest.mjs`, `crates/plts/tests/pg/runtime_stopgap_wrappers.rs`)
+- [x] runtime wrapper tests updated (`packages/runtime/test/runtime.test.ts`, `crates/plts/tests/pg/runtime_stopgap_wrappers.rs`)
 - [x] contract/docs alignment updates in `docs/RUNTIME-CONTRACT.md` and `docs/PROJECT-OUTLINE.md`
 
 #### 4. Runtime package artifact/test refresh (`@stopgap/runtime`)
-- [ ] Remove committed `.js` sources from `packages/runtime/src` and keep TS-only runtime sources.
-- [ ] Build embedded runtime artifact to `packages/runtime/dist/embedded_runtime.js` and update Rust include path to use dist artifact.
-- [ ] Ensure Rust flow compiles runtime package before embedded artifact is utilized.
-- [ ] Adopt real `zod >= 4` dependency, `import * as v from "zod/mini"`, and surface `safeParse` issues for wrapper arg validation errors.
-- [ ] Replace `packages/runtime/selftest.mjs` with Vitest coverage for wrapper metadata, validation, and exported API parity.
+- [x] Remove committed `.js` sources from `packages/runtime/src` and keep TS-only runtime sources.
+- [x] Build embedded runtime artifact to `packages/runtime/dist/embedded_runtime.js` and update Rust include path to use dist artifact.
+- [x] Ensure Rust flow compiles runtime package before embedded artifact is utilized.
+- [x] Adopt real `zod >= 4` dependency, `import * as v from "zod/mini"`, and surface `safeParse` issues for wrapper arg validation errors.
+- [x] Replace `packages/runtime/selftest.mjs` with Vitest coverage for wrapper metadata, validation, and exported API parity.
 
 Minimum implementation evidence:
-- [ ] runtime package scripts/deps updated (`packages/runtime/package.json`) and `selftest.mjs` removed in favor of Vitest tests
-- [ ] embedded runtime source consolidated to TS (`packages/runtime/src/embedded.ts`) with no `.js` files in `packages/runtime/src`
-- [ ] Rust built-in runtime include updated to dist artifact (`crates/plts/src/runtime.rs`)
-- [ ] docs updated for packaging/testing/validation changes (`docs/ROADMAP.md`, `docs/PROJECT-OUTLINE.md`, `docs/RUNTIME-CONTRACT.md`)
+- [x] runtime package scripts/deps updated (`packages/runtime/package.json`) and `selftest.mjs` removed in favor of Vitest tests
+- [x] embedded runtime source consolidated to TS (`packages/runtime/src/embedded.ts`) with no `.js` files in `packages/runtime/src`
+- [x] Rust build path compiles runtime package before embed use (`crates/plts/build.rs`)
+- [x] Rust built-in runtime include updated to dist artifact (`crates/plts/src/runtime.rs`)
+- [x] docs updated for packaging/testing/validation changes (`docs/ROADMAP.md`, `docs/PROJECT-OUTLINE.md`, `docs/RUNTIME-CONTRACT.md`)
 
 #### A. CI runtime lane foundation
 - [x] Add explicit CI lane for `plts` runtime-heavy tests with `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`.

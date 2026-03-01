@@ -57,7 +57,7 @@ export type InferJsonSchema<S extends JsonSchema> = S["enum"] extends readonly J
   : InferByType<S>;
 
 type SchemaLike<T = unknown> = {
-  safeParse?: (value: unknown, path?: string, root?: boolean) =>
+  safeParse?: (value: unknown) =>
     | { success: true; data: T }
     | { success: false; error: { issues?: Array<{ message?: string }> } };
   parse?: (value: unknown) => T;
@@ -124,9 +124,16 @@ export function mutation<S, TResult>(
   return mutationCore(argsSchemaOrHandler, maybeHandler) as StopgapWrapped;
 }
 
-export default {
+const runtimeApi: {
+  v: typeof v;
+  query: typeof query;
+  mutation: typeof mutation;
+  validateArgs: typeof validateArgs;
+} = {
   v,
   query,
   mutation,
-  validateArgs
+  validateArgs,
 };
+
+export default runtimeApi;
