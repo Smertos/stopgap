@@ -1,0 +1,6 @@
+.git
+target
+*.md
+docs
+.github
+Cargo.lock

@@ -15,6 +15,27 @@ Use this project if you want to:
 
 ## Install in your database
 
+### Option 1: Build extensions from source (multi-stage Dockerfile)
+
+Check out example in `Dockerfile.test``
+
+
+
+### Option 2: Install into an existing container
+
+```bash
+# Copy extension files into a running container
+docker cp target/release/plts--*.so container:/usr/lib/postgresql/17/lib/
+docker cp target/release/stopgap--*.so container:/usr/lib/postgresql/17/lib/
+docker cp target/release/plts.control container:/usr/share/postgresql/17/extension/
+docker cp target/release/stopgap.control container:/usr/share/postgresql/17/extension/
+
+# Restart to load and create extensions
+docker restart container
+docker exec -it container psql -U postgres -c "CREATE EXTENSION IF NOT EXISTS plts;"
+docker exec -it container psql -U postgres -c "CREATE EXTENSION IF NOT EXISTS stopgap;"
+```
+
 After installing the extension binaries in Postgres, enable them in SQL:
 
 ```sql
@@ -90,6 +111,39 @@ Use the CLI if you prefer command-line deploy flows over raw SQL:
 cargo run -p stopgap-cli -- --db "$STOPGAP_DB" deploy --env prod --from-schema app --label initial
 cargo run -p stopgap-cli -- --db "$STOPGAP_DB" status --env prod
 cargo run -p stopgap-cli -- --db "$STOPGAP_DB" rollback --env prod --steps 1
+```
+
+## Using the extensions
+
+For stopgap, the CLI is the recommended interface for deployment operations. Direct SQL calls to extension functions are available but the CLI provides better ergonomics and validation.
+
+### Workflow
+
+1. **Create functions in a source schema** - Define your `(args jsonb) returns jsonb language plts` functions in a development schema (e.g., `app`).
+
+2. **Deploy via CLI** - Push the source schema to an environment:
+   ```bash
+   stopgap-cli deploy --env prod --from-schema app --label v1.0
+   ```
+
+3. **Query live functions** - Call deployed functions through the live schema:
+   ```sql
+   SELECT live_deployment.get_user('{"id": 1}'::jsonb);
+   ```
+
+4. **Manage via CLI** - Check status, view history, or rollback:
+   ```bash
+   stopgap-cli status --env prod
+   stopgap-cli deployments --env prod
+   stopgap-cli diff --env prod
+   stopgap-cli rollback --env prod --steps 1
+   ```
+
+### Environment variable
+
+Set `STOPGAP_DB` to avoid passing `--db` on every command:
+```bash
+export STOPGAP_DB="postgres://user:pass@localhost:5432/mydb"
 ```
 
 ## Important SQL APIs
