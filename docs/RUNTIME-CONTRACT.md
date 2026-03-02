@@ -63,7 +63,18 @@ type SqlObjectLike =
   - `plts.max_params`
   - `plts.max_query_rows`
 
+## Static vs dynamic runtime bootstrap
+
+- Static bootstrap (startup snapshot path, one-time per backend process):
+  - runtime-surface lockdown (remove `Deno`/network globals)
+  - install immutable internal DB op bridge (`__plts_internal_ops`)
+- Dynamic wiring (per invocation):
+  - context payload attach (`ctx.args`, `ctx.fn`, `ctx.now`)
+  - wrapper-aware DB mode (`ctx.db.mode`, read-only vs read-write behavior)
+- Boundary requirement: invocation-local state must never be embedded into static bootstrap scripts.
+
 ## Contract verification
 
 - DB-backed contract tests live in `crates/plts/tests/pg/runtime_contract.rs`.
 - Existing behavior suites in `crates/plts/tests/pg/runtime_nulls.rs`, `crates/plts/tests/pg/runtime_db_input_forms.rs`, and `crates/plts/tests/pg/runtime_stopgap_wrappers.rs` also guard this document's guarantees.
+- Static/dynamic boundary unit checks live in `crates/plts/src/runtime.rs`, and invocation-isolation coverage is in `crates/plts/tests/pg/runtime_contract.rs`.

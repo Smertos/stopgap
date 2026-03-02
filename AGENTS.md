@@ -60,6 +60,7 @@ This file captures how to work effectively in this repository.
   - Prefer safe argumentized calls where practical.
   - If interpolating SQL strings, quote literals/idents robustly and keep inputs constrained.
 - Keep backend-local hot caches explicitly bounded/invalidation-aware (for example `plts` function-program cache uses `fn_oid` LRU keying with TTL + source-byte limits).
+- Keep runtime bootstrap boundaries explicit: snapshot/static bootstrap must remain invocation-agnostic, while `ctx` payload wiring and DB-mode selection stay per-invocation.
 - Keep runtime safety defaults conservative (timeouts, memory, no FS/network once runtime lands).
 - If a change alters runtime contract behavior (`ctx` shape, DB API behavior, or return normalization), update `docs/RUNTIME-CONTRACT.md` and add/adjust contract-focused tests in the same change set.
 

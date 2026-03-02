@@ -229,6 +229,11 @@ Runtime initialization should be split into two deterministic phases:
 
 Boundary rule: every runtime feature must explicitly declare whether it belongs to static bootstrap or dynamic wiring. If classification is unclear, default to dynamic wiring.
 
+Current implementation status:
+- Startup snapshot preparation now executes a deterministic static bootstrap manifest once per backend process (currently runtime-surface lockdown + internal DB op bridge install).
+- Invocation-specific wiring remains dynamic per call (`ctx.args`, `ctx.fn`, `ctx.now`, wrapper DB mode, and invocation-local DB bridge closures).
+- Contract tests now include invocation-isolation coverage to ensure dynamic context state does not leak across calls.
+
 ## 3.9 Isolate lifecycle model and reuse policy
 
 Target lifecycle states:

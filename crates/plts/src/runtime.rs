@@ -382,8 +382,11 @@ fn op_plts_db_exec(
 #[cfg(feature = "v8_runtime")]
 deno_core::extension!(plts_runtime_ext, ops = [op_plts_db_query, op_plts_db_exec]);
 
-#[cfg(feature = "v8_runtime")]
-const LOCKDOWN_RUNTIME_SURFACE_SCRIPT: &str = r#"
+#[cfg(any(test, feature = "v8_runtime"))]
+const STATIC_BOOTSTRAP_RUNTIME_LOCKDOWN_SCRIPT_NAME: &str = "plts_runtime_lockdown.js";
+
+#[cfg(any(test, feature = "v8_runtime"))]
+const STATIC_BOOTSTRAP_RUNTIME_LOCKDOWN_SCRIPT: &str = r#"
     (() => {
         const normalizeParams = (raw, opName) => {
             if (raw === undefined) {
@@ -464,6 +467,40 @@ const LOCKDOWN_RUNTIME_SURFACE_SCRIPT: &str = r#"
     })();
 "#;
 
+#[cfg(any(test, feature = "v8_runtime"))]
+fn static_bootstrap_scripts() -> [(&'static str, &'static str); 1] {
+    [(STATIC_BOOTSTRAP_RUNTIME_LOCKDOWN_SCRIPT_NAME, STATIC_BOOTSTRAP_RUNTIME_LOCKDOWN_SCRIPT)]
+}
+
+#[cfg(any(test, feature = "v8_runtime"))]
+fn build_dynamic_context_setup_script(
+    context_json: &str,
+    db_mode_js: &str,
+    db_read_only_js: bool,
+) -> Result<String, RuntimeExecError> {
+    let encoded_context = serde_json::to_string(context_json).map_err(|e| {
+        RuntimeExecError::new(
+            "context encode",
+            format!("failed to encode runtime context string: {e}"),
+        )
+    })?;
+
+    let db_read_only_js = if db_read_only_js { "true" } else { "false" };
+    Ok(format!(
+        "globalThis.__plts_ctx = JSON.parse({});\
+         globalThis.__plts_ctx.db = {{\
+           mode: '{}',\
+           query(input, params) {{\
+             return globalThis.__plts_internal_ops.dbQuery(input, params, {}, arguments.length > 1);\
+           }},\
+           exec(input, params) {{\
+             return globalThis.__plts_internal_ops.dbExec(input, params, {}, arguments.length > 1);\
+           }}\
+          }};",
+        encoded_context, db_mode_js, db_read_only_js, db_read_only_js
+    ))
+}
+
 #[cfg(feature = "v8_runtime")]
 static RUNTIME_STARTUP_SNAPSHOT: OnceLock<Option<&'static [u8]>> = OnceLock::new();
 
@@ -471,7 +508,21 @@ static RUNTIME_STARTUP_SNAPSHOT: OnceLock<Option<&'static [u8]>> = OnceLock::new
 fn build_runtime_startup_snapshot() -> Option<&'static [u8]> {
     use deno_core::{JsRuntimeForSnapshot, RuntimeOptions};
 
-    let runtime = JsRuntimeForSnapshot::new(RuntimeOptions::default());
+    let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
+        extensions: vec![plts_runtime_ext::init_ops()],
+        ..Default::default()
+    });
+
+    for (name, source) in static_bootstrap_scripts() {
+        if let Err(err) = runtime.execute_script(name, source) {
+            warning!(
+                "plts runtime static bootstrap snapshot preparation failed at `{}`: {}",
+                name,
+                err
+            );
+            return None;
+        }
+    }
 
     Some(Box::leak(runtime.snapshot()))
 }
@@ -771,9 +822,13 @@ pub(crate) fn execute_program(
         }
     };
 
-    runtime
-        .execute_script("plts_runtime_lockdown.js", LOCKDOWN_RUNTIME_SURFACE_SCRIPT)
-        .map_err(|e| map_runtime_error("runtime lockdown", &e.to_string()))?;
+    if startup_snapshot.is_none() {
+        for (name, source) in static_bootstrap_scripts() {
+            runtime
+                .execute_script(name, source)
+                .map_err(|e| map_runtime_error("runtime static bootstrap", &e.to_string()))?;
+        }
+    }
 
     let main_specifier = ModuleSpecifier::parse(MAIN_MODULE_SPECIFIER).map_err(|err| {
         RuntimeExecError::new(
@@ -862,29 +917,11 @@ pub(crate) fn execute_program(
         )
     })?;
 
-    let db_mode_js = db_mode.as_js_mode();
-    let db_read_only_js = if db_mode.is_read_only() { "true" } else { "false" };
-    let set_ctx_script = format!(
-        "globalThis.__plts_ctx = JSON.parse({});\
-         globalThis.__plts_ctx.db = {{\
-           mode: '{}',\
-           query(input, params) {{\
-             return globalThis.__plts_internal_ops.dbQuery(input, params, {}, arguments.length > 1);\
-           }},\
-           exec(input, params) {{\
-             return globalThis.__plts_internal_ops.dbExec(input, params, {}, arguments.length > 1);\
-           }}\
-          }};",
-        serde_json::to_string(&context_json).map_err(|e| {
-            RuntimeExecError::new(
-                "context encode",
-                format!("failed to encode runtime context string: {e}"),
-            )
-        })?,
-        db_mode_js,
-        db_read_only_js,
-        db_read_only_js
-    );
+    let set_ctx_script = build_dynamic_context_setup_script(
+        &context_json,
+        db_mode.as_js_mode(),
+        db_mode.is_read_only(),
+    )?;
 
     runtime
         .execute_script("plts_ctx.js", set_ctx_script)
@@ -935,7 +972,9 @@ fn format_js_error(stage: &'static str, details: &str) -> RuntimeExecError {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_inline_import_map;
+    use super::{
+        build_dynamic_context_setup_script, parse_inline_import_map, static_bootstrap_scripts,
+    };
 
     #[test]
     fn parse_inline_import_map_extracts_json_object_after_marker() {
@@ -962,5 +1001,35 @@ mod tests {
         "#;
 
         assert!(parse_inline_import_map(source).is_empty());
+    }
+
+    #[test]
+    fn runtime_static_bootstrap_script_stays_invocation_agnostic() {
+        let scripts = static_bootstrap_scripts();
+        assert!(!scripts.is_empty(), "static runtime bootstrap scripts must exist");
+        for (_name, source) in scripts {
+            assert!(
+                !source.contains("__plts_ctx"),
+                "static runtime bootstrap must not include invocation context wiring"
+            );
+            assert!(
+                !source.contains("ctx.fn"),
+                "static runtime bootstrap must not include function identity data"
+            );
+            assert!(
+                !source.contains("ctx.args"),
+                "static runtime bootstrap must not include invocation args"
+            );
+        }
+    }
+
+    #[test]
+    fn runtime_dynamic_context_setup_script_encodes_invocation_specific_data() {
+        let script = build_dynamic_context_setup_script(r#"{"id":7}"#, "ro", true)
+            .expect("dynamic context setup script should build");
+        assert!(script.contains("__plts_ctx"));
+        assert!(script.contains("mode: 'ro'"));
+        assert!(script.contains("dbQuery"));
+        assert!(script.contains("dbExec"));
     }
 }
