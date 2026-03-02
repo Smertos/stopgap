@@ -214,6 +214,69 @@ Current implementation status:
 - Runtime now also routes pending Postgres cancel/die interrupt flags into the same V8 termination path used by timeout enforcement.
 - Runtime DB bridge calls now apply deterministic per-call guardrails: SQL text byte length (`plts.max_sql_bytes`), bound param count (`plts.max_params`), and query row count (`plts.max_query_rows`).
 
+## 3.8 Runtime bootstrap architecture: static vs dynamic boundary
+
+Runtime initialization should be split into two deterministic phases:
+
+- Static bootstrap (snapshot-safe, one-time per backend process)
+  - initialize runtime primitives and immutable bootstrap helpers;
+  - prepare startup snapshot state that is independent of any single invocation;
+  - avoid embedding request/function-local data or mutable invocation handles.
+- Dynamic wiring (per invocation)
+  - attach invocation context (`ctx.args`, `ctx.fn`, `ctx.now`);
+  - apply DB access mode and invocation-local wrapper behavior;
+  - install execution-local state needed for current call only.
+
+Boundary rule: every runtime feature must explicitly declare whether it belongs to static bootstrap or dynamic wiring. If classification is unclear, default to dynamic wiring.
+
+## 3.9 Isolate lifecycle model and reuse policy
+
+Target lifecycle states:
+
+- `fresh`: new isolate/context, never used.
+- `warm`: healthy isolate/context eligible for reuse.
+- `tainted`: isolate observed unsafe failure (timeout termination, cancel termination, near-heap limit termination, or internal runtime invariant breach).
+- `retired`: removed from active pool and replaced.
+
+Lifecycle policy:
+
+- Reuse is backend-local and subject to health checks on checkout and return.
+- Tainted isolates are never reused.
+- Recycling triggers include max age, max invocation count, repeated termination events, and memory pressure signals.
+- Replacement must be deterministic and transparent to SQL callers (no hidden retry semantics in the same invocation).
+
+## 3.10 Runtime safety model: timeout, memory, termination, recovery
+
+Runtime safety path should be unified:
+
+- timeout, cancellation, and memory-limit events all terminate execution through a single termination contract;
+- failures are classified into stable error classes for SQL/runtime observability;
+- post-failure behavior is deterministic: mark isolate tainted, abort current invocation, schedule replacement;
+- failed invocation state is never reused by subsequent calls.
+
+Non-goals:
+
+- implicit in-runtime retries for failed invocations;
+- preserving execution-local mutable state across isolated failures.
+
+## 3.11 Runtime performance and observability objectives
+
+Runtime evolution should be measured against explicit objectives:
+
+- cold-path startup overhead (init + snapshot load path);
+- warm-path invocation overhead;
+- tail-latency stability under load and failure events.
+
+Required runtime dimensions:
+
+- cold/warm invocation split;
+- isolate pool hit/miss;
+- retire/recycle counts and reasons;
+- termination class counts;
+- error class and latency aggregates by operation.
+
+Operational requirement: regressions must be diagnosable from metrics/logs without requiring local reproduction.
+
 ---
 
 # 4) Stopgap extension (deployments + environments + live schema)
@@ -520,6 +583,28 @@ Current progress snapshot:
 - audit + status introspection
 - compile/execute/deploy metrics + log-level gated observability (`plts.metrics()`, `stopgap.metrics()`, `plts.log_level`, `stopgap.log_level`)
   - current metric payloads include per-operation call/error counters, latency aggregates (`total`/`last`/`max` ms), and error-class buckets for triage
+
+## P3 (runtime lifecycle + startup optimization)
+- formalize runtime static bootstrap vs dynamic wiring boundaries and enforce in implementation/tests
+- introduce backend-local isolate reuse model with lifecycle states and deterministic recycle rules
+- converge timeout/cancel/memory handling into a single termination/recovery contract
+- keep runtime contract behavior stable while reducing warm invocation overhead
+
+Acceptance criteria:
+- startup snapshot boundary rules documented and reflected in runtime contract tests
+- tainted isolate paths are covered and proven non-reusable
+- full runtime-heavy verification lane remains green (`cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`)
+
+## P4 (operational maturity and performance enforcement)
+- define and enforce runtime SLOs for cold/warm latency and failure budgets
+- expand observability dimensions (pool lifecycle + termination classes + cold/warm split)
+- run phased rollout with explicit rollback gates for lifecycle/pooling changes
+- lock regression protections across runtime and stopgap validation lanes
+
+Acceptance criteria:
+- `docs/PERFORMANCE-BASELINE.md` contains tracked SLO targets and benchmark deltas
+- runtime metrics/log payloads surface pool and termination dimensions required for triage
+- release verification includes all required commands from roadmap section 13.1 without bypass
 
 ---
 

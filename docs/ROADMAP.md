@@ -111,6 +111,15 @@ Legend:
 - [x] Add transaction semantics docs for runtime calls
 - [x] Add wrapper-aware RO gate for `stopgap.query` handlers (`db.exec` denied + read-only `db.query` filter)
 
+### 2.7 Runtime Isolate + Snapshot Program (next)
+
+- [ ] Add one-time backend-process runtime init flow that prepares startup snapshot state once per process.
+- [ ] Define and enforce snapshot-safe static bootstrap boundaries vs per-invocation dynamic wiring.
+- [ ] Introduce backend-local isolate lifecycle states (`fresh`, `warm`, `tainted`, `retired`) and reuse policy.
+- [ ] Add deterministic recycle triggers (max age, max invocations, termination history, heap pressure).
+- [ ] Unify failure handling across timeout/cancel/memory events (`terminate -> taint -> replace`).
+- [ ] Expand runtime observability for cold/warm paths, pool hit rate, recycle reasons, and termination classes.
+
 ---
 
 ## 3) `stopgap` Extension: Deployments + Environments
@@ -285,6 +294,7 @@ Legend:
 - **Module split note:** both extension entrypoints are now thin (`crates/plts/src/lib.rs` and `crates/stopgap/src/lib.rs`), with `plts` split across `api.rs`, `handler.rs`, `runtime.rs`, `compiler.rs`, `runtime_spi.rs`, `function_program.rs`, and `arg_mapping.rs`.
 - **Wrapper parity note:** in-DB `@stopgap/runtime` is now loaded from the compiled dist artifact at `packages/runtime/dist/embedded_runtime.js`, built from TS-only runtime sources.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
+- **Runtime evolution note:** next work formalizes startup snapshot boundaries, isolate reuse lifecycle, and deterministic failure recovery semantics for backend-local runtime execution.
 - **Performance note:** iteration 10 benchmark-backed optimizations are now in place for hot execute paths via backend-local non-pointer function program caching and argument-type caching for regular invocation payload mapping; iteration 12 hardens function-program caching with explicit LRU keying (`fn_oid`), TTL invalidation, and source-byte memory bounds.
 - **Runtime contract note:** `docs/RUNTIME-CONTRACT.md` is now aligned to current runtime behavior and is guarded by dedicated DB-backed tests in `crates/plts/tests/pg/runtime_contract.rs` plus existing runtime contract suites.
 - **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
@@ -468,3 +478,53 @@ Minimum implementation evidence:
 - [x] runtime loader support for `plts+artifact:<hash>` in `crates/plts/src/runtime.rs`
 - [x] artifact-backed module-source reuse in `crates/plts/src/function_program.rs`
 - [x] compatibility + negative runtime import tests in `crates/plts/tests/pg/runtime_module_imports.rs`
+
+#### M. Runtime bootstrapping and startup snapshot boundaries
+- [ ] Define a deterministic static bootstrap manifest for runtime setup that is safe to prepare once per backend process.
+- [ ] Keep invocation-specific state out of snapshot path (`ctx`, args payloads, function identity, DB access mode, and per-call clocks).
+- [ ] Gate new runtime bootstrap changes on explicit static-vs-dynamic classification in docs and tests.
+
+Minimum implementation evidence:
+- [ ] static bootstrap boundary docs updated in `docs/PROJECT-OUTLINE.md` and `docs/RUNTIME-CONTRACT.md`
+- [ ] regression tests prove per-invocation context isolation despite shared startup snapshot
+- [ ] V8 runtime lane remains green for boundary changes (`cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`)
+
+#### N. Isolate lifecycle and backend-local reuse pool
+- [ ] Add backend-local isolate pool with explicit lifecycle states (`fresh`, `warm`, `tainted`, `retired`).
+- [ ] Add reuse eligibility checks before checkout and before return-to-pool.
+- [ ] Add isolate replacement policy for unhealthy/tainted instances.
+
+Minimum implementation evidence:
+- [ ] isolate lifecycle state transitions covered by tests
+- [ ] tainted isolates are never reused after watchdog/termination events
+- [ ] pool metrics exported (hit/miss, active isolates, retirements)
+
+#### O. Safety guardrails and deterministic termination semantics
+- [ ] Route timeout, cancel, and heap-limit breaches through a single termination and error-classification path.
+- [ ] Ensure deterministic post-failure behavior (`terminate -> classify -> taint -> replace`) without hidden retries.
+- [ ] Prevent cross-invocation leakage after runtime failure.
+
+Minimum implementation evidence:
+- [ ] failure-mode tests for timeout/cancel/heap-limit with stable error classes
+- [ ] recovery tests prove failed isolate/context does not re-enter execution path
+- [ ] docs/runbook updates in `docs/DEPLOYMENT-RUNBOOK.md` and `docs/TROUBLESHOOTING.md`
+
+#### P. Performance SLOs and observability expansion
+- [ ] Define runtime performance objectives for cold start, warm invocation overhead, and tail latency.
+- [ ] Add metrics dimensions for cold/warm split, pool hit rate, recycle reason, and termination class.
+- [ ] Add profiling cadence and regression thresholds to performance docs.
+
+Minimum implementation evidence:
+- [ ] updated SLO targets and profiling methodology in `docs/PERFORMANCE-BASELINE.md`
+- [ ] metric payload tests cover new runtime dimensions
+- [ ] before/after benchmark evidence captured for each lifecycle optimization increment
+
+#### Q. Rollout phases, acceptance gates, and regression protections
+- [ ] Phase rollout: (1) boundary and instrumentation, (2) conservative reuse defaults, (3) tuning and SLO enforcement.
+- [ ] Define acceptance gates per phase with explicit rollback conditions.
+- [ ] Keep V8 runtime lane and stopgap regression lanes as non-bypassable release checks for runtime lifecycle work.
+
+Minimum implementation evidence:
+- [ ] phase checklist tracked in roadmap and reflected in CI/docs references
+- [ ] acceptance gates include full required verification command set from section 13.1
+- [ ] at least one green CI run per phase including runtime-heavy and stopgap regress lanes
