@@ -15,6 +15,8 @@ use std::rc::Rc;
 #[cfg(feature = "v8_runtime")]
 use std::sync::Arc;
 #[cfg(feature = "v8_runtime")]
+use std::sync::OnceLock;
+#[cfg(feature = "v8_runtime")]
 use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(feature = "v8_runtime")]
 use std::thread::{self, JoinHandle};
@@ -356,8 +358,134 @@ impl Drop for RuntimeInterruptGuard {
 }
 
 #[cfg(feature = "v8_runtime")]
+#[deno_core::op2]
+#[serde]
+fn op_plts_db_query(
+    #[string] sql: String,
+    #[serde] params: Vec<serde_json::Value>,
+    read_only: bool,
+) -> Result<serde_json::Value, deno_error::JsErrorBox> {
+    query_json_rows_with_params(&sql, params, read_only).map_err(deno_error::JsErrorBox::generic)
+}
+
+#[cfg(feature = "v8_runtime")]
+#[deno_core::op2]
+#[serde]
+fn op_plts_db_exec(
+    #[string] sql: String,
+    #[serde] params: Vec<serde_json::Value>,
+    read_only: bool,
+) -> Result<serde_json::Value, deno_error::JsErrorBox> {
+    exec_sql_with_params(&sql, params, read_only).map_err(deno_error::JsErrorBox::generic)
+}
+
+#[cfg(feature = "v8_runtime")]
+deno_core::extension!(plts_runtime_ext, ops = [op_plts_db_query, op_plts_db_exec]);
+
+#[cfg(feature = "v8_runtime")]
+const LOCKDOWN_RUNTIME_SURFACE_SCRIPT: &str = r#"
+    (() => {
+        const normalizeParams = (raw, opName) => {
+            if (raw === undefined) {
+                return [];
+            }
+
+            if (!Array.isArray(raw)) {
+                throw new TypeError(`${opName} params must be an array`);
+            }
+
+            return raw;
+        };
+
+        const normalizeDbCall = (input, params, paramsProvided, opName) => {
+            if (typeof input === "string") {
+                return { sql: input, params: normalizeParams(paramsProvided ? params : [], opName) };
+            }
+
+            if (typeof input === "object" && input !== null) {
+                let resolved = input;
+                if (typeof resolved.toSQL === "function") {
+                    resolved = resolved.toSQL();
+                }
+
+                if (typeof resolved === "object" && resolved !== null && typeof resolved.sql === "string") {
+                    const resolvedParams = paramsProvided ? params : resolved.params;
+                    return { sql: resolved.sql, params: normalizeParams(resolvedParams, opName) };
+                }
+            }
+
+            throw new TypeError(
+                `${opName} expects SQL input as string, { sql, params }, or object with toSQL()`
+            );
+        };
+
+        const coreOps = globalThis.Deno?.core?.ops;
+        if (!coreOps) {
+            throw new Error("plts runtime bootstrap failed: Deno core ops are unavailable");
+        }
+
+        const ops = {
+            dbQuery(input, params, readOnly = false, paramsProvided = false) {
+                const call = normalizeDbCall(input, params, paramsProvided, "db.query");
+                return coreOps.op_plts_db_query(call.sql, call.params, readOnly);
+            },
+            dbExec(input, params, readOnly = false, paramsProvided = false) {
+                const call = normalizeDbCall(input, params, paramsProvided, "db.exec");
+                return coreOps.op_plts_db_exec(call.sql, call.params, readOnly);
+            },
+        };
+
+        Object.defineProperty(globalThis, "__plts_internal_ops", {
+            value: Object.freeze(ops),
+            configurable: false,
+            enumerable: false,
+            writable: false,
+        });
+
+        const stripGlobal = (key) => {
+            try {
+                delete globalThis[key];
+            } catch (_err) {
+                Object.defineProperty(globalThis, key, {
+                    value: undefined,
+                    configurable: true,
+                    enumerable: false,
+                    writable: false,
+                });
+            }
+        };
+
+        stripGlobal("Deno");
+        stripGlobal("fetch");
+        stripGlobal("Request");
+        stripGlobal("Response");
+        stripGlobal("Headers");
+        stripGlobal("WebSocket");
+    })();
+"#;
+
+#[cfg(feature = "v8_runtime")]
+static RUNTIME_STARTUP_SNAPSHOT: OnceLock<Option<&'static [u8]>> = OnceLock::new();
+
+#[cfg(feature = "v8_runtime")]
+fn build_runtime_startup_snapshot() -> Option<&'static [u8]> {
+    use deno_core::{JsRuntimeForSnapshot, RuntimeOptions};
+
+    let runtime = JsRuntimeForSnapshot::new(RuntimeOptions::default());
+
+    Some(Box::leak(runtime.snapshot()))
+}
+
+#[cfg(feature = "v8_runtime")]
+fn runtime_startup_snapshot() -> Option<&'static [u8]> {
+    *RUNTIME_STARTUP_SNAPSHOT.get_or_init(build_runtime_startup_snapshot)
+}
+
+#[cfg(feature = "v8_runtime")]
 pub(crate) fn bootstrap_v8_isolate() {
-    let _runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions::default());
+    if runtime_startup_snapshot().is_none() {
+        let _runtime = deno_core::JsRuntime::new(deno_core::RuntimeOptions::default());
+    }
 }
 
 #[cfg(not(feature = "v8_runtime"))]
@@ -382,7 +510,7 @@ pub(crate) fn execute_program(
     use deno_core::{
         JsRuntime, ModuleLoadResponse, ModuleLoader, ModuleSource, ModuleSourceCode,
         ModuleSpecifier, ModuleType, PollEventLoopOptions, RequestedModuleType, ResolutionKind,
-        RuntimeOptions, op2, serde_v8, v8,
+        RuntimeOptions, serde_v8, v8,
     };
 
     const MAIN_MODULE_SPECIFIER: &str = "file:///plts/main.js";
@@ -579,118 +707,16 @@ pub(crate) fn execute_program(
         }
     }
 
-    #[op2]
-    #[serde]
-    fn op_plts_db_query(
-        #[string] sql: String,
-        #[serde] params: Vec<serde_json::Value>,
-        read_only: bool,
-    ) -> Result<serde_json::Value, deno_error::JsErrorBox> {
-        query_json_rows_with_params(&sql, params, read_only)
-            .map_err(deno_error::JsErrorBox::generic)
-    }
-
-    #[op2]
-    #[serde]
-    fn op_plts_db_exec(
-        #[string] sql: String,
-        #[serde] params: Vec<serde_json::Value>,
-        read_only: bool,
-    ) -> Result<serde_json::Value, deno_error::JsErrorBox> {
-        exec_sql_with_params(&sql, params, read_only).map_err(deno_error::JsErrorBox::generic)
-    }
-
-    deno_core::extension!(plts_runtime_ext, ops = [op_plts_db_query, op_plts_db_exec]);
-
-    const LOCKDOWN_RUNTIME_SURFACE_SCRIPT: &str = r#"
-        (() => {
-            const normalizeParams = (raw, opName) => {
-                if (raw === undefined) {
-                    return [];
-                }
-
-                if (!Array.isArray(raw)) {
-                    throw new TypeError(`${opName} params must be an array`);
-                }
-
-                return raw;
-            };
-
-            const normalizeDbCall = (input, params, paramsProvided, opName) => {
-                if (typeof input === "string") {
-                    return { sql: input, params: normalizeParams(paramsProvided ? params : [], opName) };
-                }
-
-                if (typeof input === "object" && input !== null) {
-                    let resolved = input;
-                    if (typeof resolved.toSQL === "function") {
-                        resolved = resolved.toSQL();
-                    }
-
-                    if (typeof resolved === "object" && resolved !== null && typeof resolved.sql === "string") {
-                        const resolvedParams = paramsProvided ? params : resolved.params;
-                        return { sql: resolved.sql, params: normalizeParams(resolvedParams, opName) };
-                    }
-                }
-
-                throw new TypeError(
-                    `${opName} expects SQL input as string, { sql, params }, or object with toSQL()`
-                );
-            };
-
-            const coreOps = globalThis.Deno?.core?.ops;
-            if (!coreOps) {
-                throw new Error("plts runtime bootstrap failed: Deno core ops are unavailable");
-            }
-
-            const ops = {
-                dbQuery(input, params, readOnly = false, paramsProvided = false) {
-                    const call = normalizeDbCall(input, params, paramsProvided, "db.query");
-                    return coreOps.op_plts_db_query(call.sql, call.params, readOnly);
-                },
-                dbExec(input, params, readOnly = false, paramsProvided = false) {
-                    const call = normalizeDbCall(input, params, paramsProvided, "db.exec");
-                    return coreOps.op_plts_db_exec(call.sql, call.params, readOnly);
-                },
-            };
-
-            Object.defineProperty(globalThis, "__plts_internal_ops", {
-                value: Object.freeze(ops),
-                configurable: false,
-                enumerable: false,
-                writable: false,
-            });
-
-            const stripGlobal = (key) => {
-                try {
-                    delete globalThis[key];
-                } catch (_err) {
-                    Object.defineProperty(globalThis, key, {
-                        value: undefined,
-                        configurable: true,
-                        enumerable: false,
-                        writable: false,
-                    });
-                }
-            };
-
-            stripGlobal("Deno");
-            stripGlobal("fetch");
-            stripGlobal("Request");
-            stripGlobal("Response");
-            stripGlobal("Headers");
-            stripGlobal("WebSocket");
-        })();
-    "#;
-
     let max_heap_setting = current_plts_max_heap_setting();
     let max_heap_bytes = max_heap_setting.as_deref().and_then(parse_runtime_heap_limit_bytes);
     let mut bare_specifier_map = pointer_import_map.clone();
     bare_specifier_map.extend(parse_inline_import_map(source));
+    let startup_snapshot = runtime_startup_snapshot();
 
     let mut runtime = JsRuntime::new(RuntimeOptions {
         extensions: vec![plts_runtime_ext::init_ops()],
         module_loader: Some(Rc::new(PltsModuleLoader { bare_specifier_map })),
+        startup_snapshot,
         create_params: max_heap_bytes
             .map(|bytes| v8::Isolate::create_params().heap_limits(0, bytes)),
         ..Default::default()

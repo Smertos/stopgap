@@ -11,6 +11,13 @@ mod runtime_spi;
 
 ::pgrx::pg_module_magic!(name, version);
 
+#[cfg(not(test))]
+#[allow(non_snake_case)]
+#[pg_guard]
+pub extern "C-unwind" fn _PG_init() {
+    runtime::bootstrap_v8_isolate();
+}
+
 extension_sql!(
     r#"
     CREATE SCHEMA IF NOT EXISTS plts;
