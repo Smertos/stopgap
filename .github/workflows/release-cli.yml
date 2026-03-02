@@ -1,0 +1,113 @@
+name: Release CLI
+
+on:
+  push:
+    tags:
+      - 'cli-v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-cli:
+    name: Build CLI for ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.1
+
+      - name: Get version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/cli-v}" >> $GITHUB_OUTPUT
+
+      - name: Build release binary
+        run: cargo build -p stopgap-cli --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        shell: bash
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          mkdir -p "release/stopgap-cli-${{ matrix.target }}-v${VERSION}"
+
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp target/${{ matrix.target }}/release/stopgap-cli.exe "release/stopgap-cli-${{ matrix.target }}-v${VERSION}/stopgap-cli.exe"
+            cd release
+            zip -q -r "../stopgap-cli-${{ matrix.target }}-v${VERSION}.zip" "stopgap-cli-${{ matrix.target }}-v${VERSION}"
+          else
+            cp target/${{ matrix.target }}/release/stopgap-cli "release/stopgap-cli-${{ matrix.target }}-v${VERSION}/stopgap-cli"
+            cd release
+            tar -czvf "../stopgap-cli-${{ matrix.target }}-v${VERSION}.tgz" "stopgap-cli-${{ matrix.target }}-v${VERSION}"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: |
+            stopgap-cli-${{ matrix.target }}-v*.tgz
+            stopgap-cli-${{ matrix.target }}-v*.zip
+          retention-days: 5
+
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build-cli
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        shell: bash
+        run: |
+          mkdir -p release-files
+          
+          for dir in artifacts/cli-*; do
+            for file in "$dir"/*; do
+              if [ -f "$file" ]; then
+                cp "$file" release-files/
+              fi
+            done
+          done
+          
+          ls -la release-files/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-files/*
+          generate_release_notes: true
+          name: CLI ${{ github.ref_name }}
+          body: |
+            ## Installation
+            
+            ### With cargo-binstall (recommended)
+            ```bash
+            cargo binstall stopgap-cli
+            ```
+            
+            ### Manual
+            Download the appropriate binary for your platform from the assets below.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

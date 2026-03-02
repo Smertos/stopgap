@@ -3,6 +3,18 @@ name = "stopgap-cli"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/stopgap-cli-{ target }-v{ version }{ archive-suffix }"
+bin-dir = "stopgap-cli-{ target }-v{ version }/stopgap-cli{ binary-ext }"
+pkg-fmt = "tgz"
+disabled-strategies = ["quick-install", "compile"]
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
+[package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
+pkg-fmt = "zip"
+
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive", "env"] }

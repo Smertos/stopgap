@@ -1,0 +1,123 @@
+name: Release Extensions
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-extensions:
+    name: Build extensions for PG ${{ matrix.pg_version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pg_version: 17
+            pg_package: postgresql-17
+          - pg_version: 18
+            pg_package: postgresql-18
+    env:
+      PGRX_HOME: ${{ github.workspace }}/.pgrx
+      PGRX_DEFAULT_PG_VERSION: ${{ matrix.pg_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.91.1
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install runtime package dependencies
+        run: npm install --prefix packages/runtime --no-package-lock
+
+      - name: Build embedded runtime artifact
+        run: npm run build --prefix packages/runtime
+
+      - name: Install PostgreSQL ${{ matrix.pg_version }} development packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates curl gnupg
+          sudo install -d -m 0755 /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor | sudo tee /etc/apt/keyrings/postgresql.gpg > /dev/null
+          echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.pg_package }} ${{ matrix.pg_package }}-server-dev-17
+
+      - name: Allow extension install writes
+        run: |
+          sudo chown -R "$USER":"$USER" /usr/lib/postgresql/${{ matrix.pg_version }}/lib /usr/share/postgresql/${{ matrix.pg_version }}/extension
+
+      - name: Install cargo-pgrx
+        run: cargo install cargo-pgrx --version 0.17.0 --locked
+
+      - name: Initialize cargo-pgrx
+        run: cargo pgrx init --pg${{ matrix.pg_version }} /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+
+      - name: Build and install plts extension
+        run: cargo pgrx install -p plts --pg-config /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --no-default-features --features pg${{ matrix.pg_version }}
+
+      - name: Build and install plts with V8 runtime
+        run: cargo pgrx install -p plts --pg-config /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --no-default-features --features "pg${{ matrix.pg_version }},v8_runtime"
+
+      - name: Build and install stopgap extension
+        run: cargo pgrx install -p stopgap --pg-config /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --no-default-features --features pg${{ matrix.pg_version }}
+
+      - name: Package extensions
+        run: |
+          mkdir -p release-pg${{ matrix.pg_version }}
+          
+          # Package plts (base)
+          cp /usr/lib/postgresql/${{ matrix.pg_version }}/lib/plts.so release-pg${{ matrix.pg_version }}/
+          cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/plts*.sql release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
+          cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/plts.control release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
+          
+          # Package plts-v8
+          cp /usr/lib/postgresql/${{ matrix.pg_version }}/lib/plts_v8.so release-pg${{ matrix.pg_version }}/
+          cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/plts_v8*.sql release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
+          cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/plts_v8.control release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
+          
+          # Package stopgap
+          cp /usr/lib/postgresql/${{ matrix.pg_version }}/lib/stopgap.so release-pg${{ matrix.pg_version }}/
+          cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/stopgap*.sql release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
+          cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/stopgap.control release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
+          
+          cd release-pg${{ matrix.pg_version }} && zip -r ../stopgap-extensions-pg${{ matrix.pg_version }}.zip .
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: extensions-pg${{ matrix.pg_version }}
+          path: stopgap-extensions-pg${{ matrix.pg_version }}.zip
+          retention-days: 5
+
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build-extensions
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
