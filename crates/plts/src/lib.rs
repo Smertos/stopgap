@@ -5,6 +5,7 @@ mod arg_mapping;
 mod compiler;
 mod function_program;
 mod handler;
+mod isolate_pool;
 mod observability;
 mod runtime;
 mod runtime_spi;

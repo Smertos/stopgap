@@ -250,6 +250,12 @@ Lifecycle policy:
 - Recycling triggers include max age, max invocation count, repeated termination events, and memory pressure signals.
 - Replacement must be deterministic and transparent to SQL callers (no hidden retry semantics in the same invocation).
 
+Current implementation status:
+- Backend-local isolate pool is implemented in `crates/plts/src/isolate_pool.rs`.
+- Pool supports lifecycle state transitions with reuse eligibility checks.
+- Metrics export: pool hits/misses, active isolates, retired count, recycle reasons, cold/warm invocation tracking.
+- Unit tests cover all lifecycle state transitions and reuse policy.
+
 ## 3.10 Runtime safety model: timeout, memory, termination, recovery
 
 Runtime safety path should be unified:
@@ -263,6 +269,12 @@ Non-goals:
 
 - implicit in-runtime retries for failed invocations;
 - preserving execution-local mutable state across isolated failures.
+
+Current implementation status:
+- Timeout handling via `statement_timeout` and `plts.max_runtime_ms` is wired to V8 watchdog that terminates execution.
+- Cancel/interrupt signals from Postgres are routed into the same termination path.
+- Heap limit enforcement via `plts.max_heap_mb` terminates on near-heap-limit callback.
+- Error classification in `crates/plts/src/observability.rs` tracks timeout/memory/cancel/JS exception counts.
 
 ## 3.11 Runtime performance and observability objectives
 
@@ -279,6 +291,11 @@ Required runtime dimensions:
 - retire/recycle counts and reasons;
 - termination class counts;
 - error class and latency aggregates by operation.
+
+Current implementation status:
+- Observability module exposes compile/execute metrics including latency aggregates and error class buckets.
+- Isolate pool metrics track cold/warm split, pool hits/misses, recycle reasons, and active/retired counts.
+- Performance baseline harness in `crates/plts/tests/pg/runtime_performance_baseline.rs` provides profiling data.
 
 Operational requirement: regressions must be diagnosable from metrics/logs without requiring local reproduction.
 

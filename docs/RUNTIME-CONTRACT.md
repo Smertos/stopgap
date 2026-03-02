@@ -73,6 +73,20 @@ type SqlObjectLike =
   - wrapper-aware DB mode (`ctx.db.mode`, read-only vs read-write behavior)
 - Boundary requirement: invocation-local state must never be embedded into static bootstrap scripts.
 
+## Isolate lifecycle and pool management
+
+The runtime supports backend-local isolate reuse through an isolate pool with explicit lifecycle states:
+
+- **States**:
+  - `fresh`: newly created isolate, never used
+  - `warm`: healthy isolate eligible for reuse
+  - `tainted`: isolate observed failure (timeout, cancel, heap limit, or internal error)
+  - `retired`: removed from active pool
+- **Reuse eligibility**: checked on checkout and check-in
+  - Tainted isolates are never reused
+  - Recycle triggers: max age, max invocations, termination history, heap pressure events
+- **Metrics**: pool hit/miss, active isolates, retired count, recycle reasons, cold/warm invocation split
+
 ## Contract verification
 
 - DB-backed contract tests live in `crates/plts/tests/pg/runtime_contract.rs`.
