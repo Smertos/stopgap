@@ -528,7 +528,7 @@ Current implementation status:
 - CLI deploy now forwards discovered export metadata to DB deploy via transaction-local `stopgap.deploy_exports`; stopgap deploy consumes that metadata to persist `function_path`/`module_path`/`export_name`/`kind` in `stopgap.fn_version` and deployment manifests, while live pointer bodies now set pointer `export` to the selected named export for routed execution.
 - Stopgap deploy now validates export-metadata coverage against discovered deployable functions and fails fast on drift (missing, unknown, or duplicate `stopgap.deploy_exports` entries) before compile/materialization.
 - CLI now has integration-style command coverage via an injectable API boundary (`crates/stopgap-cli/tests/command_integration.rs`) validating deploy/status/rollback/deployments/diff JSON payload shapes and query-failure non-zero exit code mapping.
-- CI baseline now runs `packages/runtime` typecheck + Vitest (`npm run check` and `npm run test`) alongside Rust checks/tests; pgrx/runtime lanes build the embedded runtime artifact before Rust execution.
+- CI baseline now runs `packages/runtime` typecheck + Vitest (`npm run check` and `npm run test`) alongside Rust checks/tests plus explicit `stopgap-cli` command integration coverage; pgrx/runtime lanes build the embedded runtime artifact before Rust execution, and the stopgap pgrx lane includes focused call-fn path-routing tests (`test_call_fn_` filter) in addition to full stopgap test/regress coverage.
 
 Pivot note: current CLI semantics still include pre-pivot SQL-schema-oriented behavior in places; path-based `stopgap/` module deployment behavior is the target direction.
 

@@ -544,7 +544,7 @@ Minimum implementation evidence:
   - [x] Gate A (runtime contract): invocation-isolation + runtime contract tests must pass; rollback if context isolation regresses.
   - [x] Gate B (runtime safety): timeout/cancel/heap-limit termination tests must pass; rollback if tainted isolates are reused.
   - [x] Gate C (release verification): full command set from section 13.1 must pass; rollback if any required lane fails.
-- [ ] Keep V8 runtime lane and stopgap regression lanes as non-bypassable release checks for runtime lifecycle work.
+- [x] Keep V8 runtime lane and stopgap regression lanes as non-bypassable release checks for runtime lifecycle work.
 
 Minimum implementation evidence:
 - [x] phase checklist tracked in roadmap and reflected in CI/docs references
@@ -625,8 +625,8 @@ Minimum implementation evidence:
 ### 14.6 Verification and release gates for pivot work
 
 - [ ] Keep required verification command set from section 13.1 green for each pivot increment.
-- [ ] Keep runtime-heavy V8 lane and stopgap regress lanes release-blocking during migration.
-- [ ] Add CI checks specific to new CLI project model and function-path invocation tests.
+- [x] Keep runtime-heavy V8 lane and stopgap regress lanes release-blocking during migration.
+- [x] Add CI checks specific to new CLI project model and function-path invocation tests.
 
 Minimum implementation evidence:
 - [ ] at least one CI run green with new function-path tests included

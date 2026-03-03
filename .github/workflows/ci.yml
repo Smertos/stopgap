@@ -48,6 +48,9 @@ jobs:
       - name: Cargo test (non-pgrx crates)
         run: cargo test --workspace --all-targets --exclude plts --exclude stopgap
 
+      - name: CLI project-model integration tests
+        run: cargo test -p stopgap-cli --test command_integration
+
   pgrx-tests:
     name: pgrx baseline pg17 (${{ matrix.package }})
     runs-on: ubuntu-latest
@@ -110,6 +113,10 @@ jobs:
       - name: Run stopgap pg_regress
         if: matrix.package == 'stopgap'
         run: cargo pgrx regress pg17 -p stopgap --no-default-features --features pg17 --resetdb
+
+      - name: Run stopgap function-path call_fn tests
+        if: matrix.package == 'stopgap'
+        run: cargo pgrx test pg17 -p stopgap --no-default-features --features pg17 test_call_fn_
 
       - name: Collect pgrx diagnostics bundle
         if: failure()
