@@ -2,8 +2,10 @@
 name = "plts"
 version = "0.1.0"
 edition = "2024"
-authors = ["Mikhail Vedernikov"]
-repository = "https://github.com/Smertos/stopgap"
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Postgres language/runtime extension for TypeScript execution."
 
 [lib]
 crate-type = ["cdylib", "lib"]

@@ -7,6 +7,11 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+authors = ["Mikhail Vedernikov"]
+repository = "https://github.com/Smertos/stopgap"
+license = "MIT"
+
 [workspace.dependencies]
 tracing = "0.1"
 tracing-log = "0.2"

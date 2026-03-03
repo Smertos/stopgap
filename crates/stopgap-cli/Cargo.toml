@@ -2,8 +2,10 @@
 name = "stopgap-cli"
 version = "0.1.0"
 edition = "2024"
-authors = ["Mikhail Vedernikov"]
-repository = "https://github.com/Smertos/stopgap"
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "CLI for deploying and operating stopgap environments."
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/stopgap-cli-{ target }-v{ version }{ archive-suffix }"

@@ -2,8 +2,10 @@
 name = "common"
 version = "0.1.0"
 edition = "2024"
-authors = ["Mikhail Vedernikov"]
-repository = "https://github.com/Smertos/stopgap"
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+description = "Shared Rust utilities for stopgap crates."
 
 [lib]
 path = "src/lib.rs"
