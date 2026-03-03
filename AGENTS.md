@@ -42,6 +42,7 @@ This file captures how to work effectively in this repository.
 - Stopgap observability includes `stopgap.metrics().call_fn` counters with path-route source splits (`exact`/`legacy`) and call-fn error classes.
 - CLI deploy preflight must fail fast when `./stopgap` is missing, discover named `query(...)`/`mutation(...)` exports from `stopgap/**/*.ts`, reject non-wrapper named exports, and normalize function identity to deterministic `api.<module_path_without_ext>.<export_name>` paths.
 - Current migration bridge: `stopgap.call_fn` routes through active deployment metadata, prefers exact `function_path` matches in `stopgap.fn_version`, and falls back to terminal export-segment resolution for legacy rows while full path-keyed deploy catalogs are still being implemented; malformed paths and ambiguous fallback matches must fail with explicit route errors.
+- Runtime pointer metadata supports explicit entrypoint selection (`{"export":"<named_export>"}`) with `default` fallback, so stopgap path routing can target named exports once deployment metadata emits non-default export pointers.
 - Stopgap-managed overloading is forbidden.
 - Regular `plts` calling convention should expose both positional and named/object argument forms.
 - Entrypoint conventions: regular `plts` modules use default export; stopgap app modules use named exports discovered at deploy time.

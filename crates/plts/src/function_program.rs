@@ -18,6 +18,7 @@ pub(crate) struct FunctionProgram {
     pub(crate) schema: String,
     pub(crate) name: String,
     pub(crate) source: String,
+    pub(crate) entrypoint_export: String,
     pub(crate) bare_specifier_map: HashMap<String, String>,
 }
 
@@ -57,9 +58,16 @@ pub(crate) fn load_function_program(fn_oid: pg_sys::Oid) -> Option<FunctionProgr
     .ok()
     .flatten()?;
 
-    let (source, bare_specifier_map, cacheable) = resolve_program_source(&row.2)?;
-    let program =
-        FunctionProgram { oid: fn_oid, schema: row.0, name: row.1, source, bare_specifier_map };
+    let (source, entrypoint_export, bare_specifier_map, cacheable) =
+        resolve_program_source(&row.2)?;
+    let program = FunctionProgram {
+        oid: fn_oid,
+        schema: row.0,
+        name: row.1,
+        source,
+        entrypoint_export,
+        bare_specifier_map,
+    };
 
     if cacheable {
         if let Ok(mut cache) = program_cache_mutex.lock() {
@@ -70,13 +78,13 @@ pub(crate) fn load_function_program(fn_oid: pg_sys::Oid) -> Option<FunctionProgr
     Some(program)
 }
 
-fn resolve_program_source(prosrc: &str) -> Option<(String, HashMap<String, String>, bool)> {
+fn resolve_program_source(prosrc: &str) -> Option<(String, String, HashMap<String, String>, bool)> {
     if let Some(ptr) = parse_artifact_ptr(prosrc) {
         return load_compiled_artifact_from_cache_or_db(&ptr.artifact_hash)
-            .map(|source| (source, ptr.import_map, false));
+            .map(|source| (source, ptr.export_name, ptr.import_map, false));
     }
 
-    Some((prosrc.to_string(), HashMap::new(), true))
+    Some((prosrc.to_string(), "default".to_string(), HashMap::new(), true))
 }
 
 fn load_compiled_artifact_from_cache_or_db(artifact_hash: &str) -> Option<String> {
@@ -114,6 +122,7 @@ pub(crate) fn load_compiled_artifact_source(artifact_hash: &str) -> Option<Strin
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ArtifactPtr {
     pub(crate) artifact_hash: String,
+    pub(crate) export_name: String,
     pub(crate) import_map: HashMap<String, String>,
 }
 
@@ -316,7 +325,15 @@ pub(crate) fn parse_artifact_ptr(prosrc: &str) -> Option<ArtifactPtr> {
         })
         .unwrap_or_default();
 
-    Some(ArtifactPtr { artifact_hash, import_map })
+    let export_name = parsed
+        .get("export")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("default")
+        .to_string();
+
+    Some(ArtifactPtr { artifact_hash, export_name, import_map })
 }
 
 #[cfg(test)]
@@ -334,6 +351,7 @@ mod tests {
             schema: "public".to_string(),
             name: "f1".to_string(),
             source: "export default () => 1;".to_string(),
+            entrypoint_export: "default".to_string(),
             bare_specifier_map: HashMap::new(),
         };
         let second = FunctionProgram {
@@ -341,6 +359,7 @@ mod tests {
             schema: "public".to_string(),
             name: "f2".to_string(),
             source: "export default () => 2;".to_string(),
+            entrypoint_export: "default".to_string(),
             bare_specifier_map: HashMap::new(),
         };
 
@@ -359,6 +378,7 @@ mod tests {
             schema: "public".to_string(),
             name: name.to_string(),
             source: source.to_string(),
+            entrypoint_export: "default".to_string(),
             bare_specifier_map: HashMap::new(),
         };
 
@@ -384,6 +404,7 @@ mod tests {
             schema: "public".to_string(),
             name: "f1".to_string(),
             source: "export default () => 1;".to_string(),
+            entrypoint_export: "default".to_string(),
             bare_specifier_map: HashMap::new(),
         };
 

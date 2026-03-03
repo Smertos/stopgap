@@ -78,6 +78,7 @@ mod unit_tests {
         )
         .expect("expected pointer metadata");
         assert_eq!(ptr.artifact_hash, "sha256:abc");
+        assert_eq!(ptr.export_name, "default");
     }
 
     #[test]

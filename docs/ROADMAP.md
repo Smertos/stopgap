@@ -603,6 +603,7 @@ Minimum implementation evidence:
 
 Progress notes:
 - [x] `stopgap.call_fn` now prefers exact `fn_version.function_path` route resolution and invokes stored `live_fn_name`; legacy rows without `function_path` still fall back to terminal export-segment routing.
+- [x] `plts` artifact pointers now honor pointer metadata `export` for entrypoint resolution (not only `default`), guarded by DB-backed runtime coverage in `crates/plts/tests/pg/runtime_artifact_pointer.rs`.
 
 Minimum implementation evidence:
 - [ ] DB-backed runtime tests for path execution, wrapper mode enforcement, and guardrail behavior

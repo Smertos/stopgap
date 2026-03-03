@@ -6,11 +6,14 @@ Status note (Mar 2026): primary product UX is now Convex-style and TypeScript-fi
 
 ## Entrypoint shape
 
-`LANGUAGE plts` handlers execute a module default export:
+`LANGUAGE plts` handlers execute a module entrypoint export:
 
 ```ts
 type PltsEntrypoint = (ctx: PltsContext) => any | Promise<any>;
 ```
+
+- Direct/source-backed functions use `default` export.
+- Artifact-pointer functions may override entrypoint with pointer metadata (`{"export":"<named_export>"}`); missing/empty export falls back to `default`.
 
 ## `ctx` shape
 

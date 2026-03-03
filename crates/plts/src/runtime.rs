@@ -477,6 +477,7 @@ pub(crate) fn runtime_available() -> bool {
 #[cfg(feature = "v8_runtime")]
 pub(crate) fn execute_program(
     source: &str,
+    entrypoint_export: &str,
     pointer_import_map: &HashMap<String, String>,
     context: &Value,
 ) -> Result<Option<Value>, RuntimeExecError> {
@@ -779,28 +780,31 @@ pub(crate) fn execute_program(
 
         let scope = &mut runtime.handle_scope();
         let namespace = v8::Local::new(scope, namespace);
-        let default_key = v8::String::new(scope, "default").ok_or_else(|| {
+        let entrypoint_key = v8::String::new(scope, entrypoint_export).ok_or_else(|| {
             RuntimeExecError::new("entrypoint resolution", "failed to intern key")
         })?;
-        let default_export = namespace.get(scope, default_key.into()).ok_or_else(|| {
-            RuntimeExecError::new("entrypoint resolution", "module default export is missing")
+        let resolved_export = namespace.get(scope, entrypoint_key.into()).ok_or_else(|| {
+            RuntimeExecError::new(
+                "entrypoint resolution",
+                format!("module export '{}' is missing", entrypoint_export),
+            )
         })?;
 
-        if !default_export.is_function() {
+        if !resolved_export.is_function() {
             return Err(RuntimeExecError::new(
                 "entrypoint resolution",
-                "default export must be a function",
+                format!("module export '{}' must be a function", entrypoint_export),
             ));
         }
 
         let global = scope.get_current_context().global(scope);
-        let global_key = v8::String::new(scope, "__plts_default").ok_or_else(|| {
+        let global_key = v8::String::new(scope, "__plts_entrypoint").ok_or_else(|| {
             RuntimeExecError::new("entrypoint resolution", "failed to intern key")
         })?;
-        if !global.set(scope, global_key.into(), default_export).unwrap_or(false) {
+        if !global.set(scope, global_key.into(), resolved_export).unwrap_or(false) {
             return Err(RuntimeExecError::new(
                 "entrypoint resolution",
-                "failed to install default export entrypoint",
+                format!("failed to install module export '{}' entrypoint", entrypoint_export),
             ));
         }
     }
@@ -811,7 +815,7 @@ pub(crate) fn execute_program(
                 "plts_handler_kind.js",
                 r#"
                 (() => {
-                    const kind = globalThis.__plts_default?.__stopgap_kind;
+                    const kind = globalThis.__plts_entrypoint?.__stopgap_kind;
                     return typeof kind === "string" ? kind : null;
                 })();
                 "#,
@@ -851,10 +855,10 @@ pub(crate) fn execute_program(
         .map_err(|e| map_runtime_error("context setup", &e.to_string()))?;
 
     let invoke_script = r#"
-        if (typeof globalThis.__plts_default !== "function") {
-            throw new Error("default export must be a function");
+        if (typeof globalThis.__plts_entrypoint !== "function") {
+            throw new Error("configured module export must be a function");
         }
-        globalThis.__plts_default(globalThis.__plts_ctx);
+        globalThis.__plts_entrypoint(globalThis.__plts_ctx);
     "#;
 
     let value = runtime
@@ -881,6 +885,7 @@ pub(crate) fn execute_program(
 #[cfg(not(feature = "v8_runtime"))]
 pub(crate) fn execute_program(
     _source: &str,
+    _entrypoint_export: &str,
     _pointer_import_map: &HashMap<String, String>,
     _context: &Value,
 ) -> Result<Option<Value>, RuntimeExecError> {
