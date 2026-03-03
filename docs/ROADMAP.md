@@ -597,14 +597,15 @@ Minimum implementation evidence:
 - [ ] Resolve `stopgap.call_fn(path, args)` -> active deployment -> artifact/module -> named export.
 - [ ] Execute named export with existing wrapper-aware DB mode enforcement (`query` RO, `mutation` RW).
 - [ ] Preserve runtime safety controls (timeout/cancel/heap/SQL guardrails) on routed calls.
-- [ ] Provide clear error classing with path context in messages/metrics.
+- [x] Provide clear error classing with path context in messages/metrics.
 
 Progress notes:
 - [x] `stopgap.call_fn` now prefers exact `fn_version.function_path` route resolution and invokes stored `live_fn_name`; legacy rows without `function_path` still fall back to terminal export-segment routing.
 
 Minimum implementation evidence:
 - [ ] DB-backed runtime tests for path execution, wrapper mode enforcement, and guardrail behavior
-- [ ] metrics include path-routed call counts and error classes
+- [x] metrics include path-routed call counts and error classes
+  - evidence: `stopgap.metrics()` now includes `call_fn` call/error counters, route-source counts (`exact`/`legacy`), and call-fn-specific error classes (`validation`/`state`/`route`/`runtime`) with DB-backed assertions in `crates/stopgap/tests/pg/metrics.rs`
 
 ### 14.5 Auto-generated DB bindings (optional compatibility surface)
 

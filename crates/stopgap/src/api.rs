@@ -11,7 +11,7 @@ use crate::{
     run_sql_with_args, transition_deployment_status, transition_if_active, update_failed_manifest,
 };
 
-fn validate_call_path(path: &str) {
+fn validate_call_path(path: &str) -> Result<(), String> {
     let mut segments = path.split('.');
     let valid_prefix = matches!(segments.next(), Some("api"));
     let rest = segments.collect::<Vec<_>>();
@@ -21,19 +21,33 @@ fn validate_call_path(path: &str) {
     });
 
     if !valid_prefix || !has_min_segments || !has_valid_chars {
-        error!(
+        return Err(format!(
             "stopgap.call_fn invalid path '{}'; expected format api.<module_path>.<export_name>",
             path
-        );
+        ));
     }
+
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum RouteResolutionSource {
+    Exact,
+    Legacy,
+}
+
+struct RouteResolution {
+    live_schema: String,
+    live_fn_name: String,
+    source: RouteResolutionSource,
 }
 
 fn resolve_route(
     deployment_id: i64,
     path: &str,
     export_name: &str,
-) -> Result<Option<(String, String)>, String> {
-    Spi::connect(|client| -> Result<Result<Option<(String, String)>, String>, pgrx::spi::Error> {
+) -> Result<Option<RouteResolution>, String> {
+    Spi::connect(|client| -> Result<Result<Option<RouteResolution>, String>, pgrx::spi::Error> {
         let exact_rows = client
             .select(
                 "
@@ -64,7 +78,11 @@ fn resolve_route(
             let live_fn_name = row
                 .get_by_name::<String, _>("live_fn_name")?
                 .expect("live_fn_name must not be null");
-            return Ok(Ok(Some((live_schema, live_fn_name))));
+            return Ok(Ok(Some(RouteResolution {
+                live_schema,
+                live_fn_name,
+                source: RouteResolutionSource::Exact,
+            })));
         }
 
         let legacy_rows = client
@@ -98,7 +116,11 @@ fn resolve_route(
             let live_fn_name = row
                 .get_by_name::<String, _>("live_fn_name")?
                 .expect("live_fn_name must not be null");
-            Ok::<(String, String), pgrx::spi::Error>((live_schema, live_fn_name))
+            Ok::<RouteResolution, pgrx::spi::Error>(RouteResolution {
+                live_schema,
+                live_fn_name,
+                source: RouteResolutionSource::Legacy,
+            })
         });
 
         Ok(resolved.transpose().map_err(|e| {
@@ -247,7 +269,17 @@ mod stopgap {
 
     #[pg_extern]
     fn call_fn(path: &str, args: JsonB) -> Option<JsonB> {
-        validate_call_path(path);
+        let started_at = observability::record_call_fn_start();
+
+        let fail = |message: String| -> ! {
+            observability::record_call_fn_error(
+                started_at,
+                observability::classify_call_fn_error(message.as_str()),
+            );
+            error!("{message}")
+        };
+
+        validate_call_path(path).unwrap_or_else(|message| fail(message));
 
         let export_name = path.rsplit('.').next().expect("validated non-empty path");
         let env = resolve_default_env();
@@ -276,42 +308,53 @@ mod stopgap {
 
             row.transpose()
         })
-        .unwrap_or_else(|e| error!("stopgap.call_fn failed to load environment '{}': {e}", env));
+        .unwrap_or_else(|e| {
+            fail(format!("stopgap.call_fn failed to load environment '{}': {e}", env))
+        });
 
         let (live_schema, active_deployment_id) = env_row.unwrap_or_else(|| {
-            error!(
+            fail(format!(
                 "stopgap.call_fn missing deployment environment '{}'; run stopgap.deploy first",
                 env
-            )
+            ))
         });
 
         let deployment_id = active_deployment_id.unwrap_or_else(|| {
-            error!(
+            fail(format!(
                 "stopgap.call_fn environment '{}' has no active deployment; run stopgap.deploy first",
                 env
-            )
+            ))
         });
 
-        let (resolved_live_schema, live_fn_name) = resolve_route(deployment_id, path, export_name)
-            .unwrap_or_else(|e| error!("stopgap.call_fn {e}"))
+        let route = resolve_route(deployment_id, path, export_name)
+            .unwrap_or_else(|e| fail(format!("stopgap.call_fn {e}")))
             .unwrap_or_else(|| {
-                error!(
+                fail(format!(
                     "stopgap.call_fn unknown path '{}' for env '{}' deployment {}",
                     path, env, deployment_id
-                )
+                ))
             });
 
+        match route.source {
+            RouteResolutionSource::Exact => observability::record_call_fn_route_exact(),
+            RouteResolutionSource::Legacy => observability::record_call_fn_route_legacy(),
+        }
+
         let target_live_schema =
-            if resolved_live_schema.is_empty() { live_schema } else { resolved_live_schema };
+            if route.live_schema.is_empty() { live_schema } else { route.live_schema.clone() };
 
         let invoke_sql = format!(
             "SELECT {}.{}($1::jsonb)",
             crate::quote_ident(&target_live_schema),
-            crate::quote_ident(&live_fn_name)
+            crate::quote_ident(route.live_fn_name.as_str())
         );
 
-        Spi::get_one_with_args::<JsonB>(invoke_sql.as_str(), &[args.into()])
-            .unwrap_or_else(|e| error!("stopgap.call_fn execution failed for '{}': {e}", path))
+        let result = Spi::get_one_with_args::<JsonB>(invoke_sql.as_str(), &[args.into()])
+            .unwrap_or_else(|e| {
+                fail(format!("stopgap.call_fn execution failed for '{}': {e}", path))
+            });
+        observability::record_call_fn_success(started_at);
+        result
     }
 
     #[pg_extern(security_definer)]

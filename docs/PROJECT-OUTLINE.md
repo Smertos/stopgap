@@ -387,6 +387,7 @@ GUCs:
 
 Operational metrics/log surface:
 - `stopgap.metrics() -> jsonb` (backend-process counters for deploy/rollback/diff calls + errors, latency aggregates, and error-class buckets)
+  - now also includes `call_fn` counters with route-source splits (`exact` vs `legacy`) and call-fn-specific error classes (`validation`, `state`, `route`, `runtime`, `unknown`)
 
 ## 4.4 Deploy source and runtime routing model
 

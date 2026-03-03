@@ -34,6 +34,18 @@ static DIFF_ERROR_VALIDATION: AtomicU64 = AtomicU64::new(0);
 static DIFF_ERROR_STATE: AtomicU64 = AtomicU64::new(0);
 static DIFF_ERROR_SQL: AtomicU64 = AtomicU64::new(0);
 static DIFF_ERROR_UNKNOWN: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_CALLS: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_ERRORS: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_LATENCY_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_LATENCY_LAST_MS: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_LATENCY_MAX_MS: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_ROUTE_EXACT: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_ROUTE_LEGACY: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_ERROR_VALIDATION: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_ERROR_STATE: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_ERROR_RUNTIME: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_ERROR_ROUTE: AtomicU64 = AtomicU64::new(0);
+static CALL_FN_ERROR_UNKNOWN: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum LogLevel {
@@ -153,6 +165,67 @@ pub(crate) fn record_diff_error(started_at: Instant, class: &str) {
     record_diff_success(started_at);
 }
 
+pub(crate) fn record_call_fn_start() -> Instant {
+    CALL_FN_CALLS.fetch_add(1, Ordering::Relaxed);
+    Instant::now()
+}
+
+pub(crate) fn record_call_fn_success(started_at: Instant) {
+    record_latency(
+        started_at,
+        &CALL_FN_LATENCY_TOTAL_MS,
+        &CALL_FN_LATENCY_LAST_MS,
+        &CALL_FN_LATENCY_MAX_MS,
+    );
+}
+
+pub(crate) fn record_call_fn_error(started_at: Instant, class: &str) {
+    CALL_FN_ERRORS.fetch_add(1, Ordering::Relaxed);
+    match class {
+        "validation" => {
+            CALL_FN_ERROR_VALIDATION.fetch_add(1, Ordering::Relaxed);
+        }
+        "state" => {
+            CALL_FN_ERROR_STATE.fetch_add(1, Ordering::Relaxed);
+        }
+        "runtime" => {
+            CALL_FN_ERROR_RUNTIME.fetch_add(1, Ordering::Relaxed);
+        }
+        "route" => {
+            CALL_FN_ERROR_ROUTE.fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {
+            CALL_FN_ERROR_UNKNOWN.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    record_call_fn_success(started_at);
+}
+
+pub(crate) fn record_call_fn_route_exact() {
+    CALL_FN_ROUTE_EXACT.fetch_add(1, Ordering::Relaxed);
+}
+
+pub(crate) fn record_call_fn_route_legacy() {
+    CALL_FN_ROUTE_LEGACY.fetch_add(1, Ordering::Relaxed);
+}
+
+pub(crate) fn classify_call_fn_error(message: &str) -> &'static str {
+    let lowered = message.to_ascii_lowercase();
+    if lowered.contains("invalid path") || lowered.contains("invalid args") {
+        "validation"
+    } else if lowered.contains("no active deployment")
+        || lowered.contains("missing deployment environment")
+    {
+        "state"
+    } else if lowered.contains("unknown path") || lowered.contains("ambiguous") {
+        "route"
+    } else if lowered.contains("execution failed") || lowered.contains("read-only") {
+        "runtime"
+    } else {
+        "unknown"
+    }
+}
+
 pub(crate) fn classify_operation_error(message: &str) -> &'static str {
     let lowered = message.to_ascii_lowercase();
     if lowered.contains("permission") || lowered.contains("must be") {
@@ -220,6 +293,26 @@ pub(crate) fn metrics_json() -> Value {
                 "state": DIFF_ERROR_STATE.load(Ordering::Relaxed),
                 "sql": DIFF_ERROR_SQL.load(Ordering::Relaxed),
                 "unknown": DIFF_ERROR_UNKNOWN.load(Ordering::Relaxed)
+            }
+        },
+        "call_fn": {
+            "calls": CALL_FN_CALLS.load(Ordering::Relaxed),
+            "errors": CALL_FN_ERRORS.load(Ordering::Relaxed),
+            "latency_ms": {
+                "total": CALL_FN_LATENCY_TOTAL_MS.load(Ordering::Relaxed),
+                "last": CALL_FN_LATENCY_LAST_MS.load(Ordering::Relaxed),
+                "max": CALL_FN_LATENCY_MAX_MS.load(Ordering::Relaxed)
+            },
+            "route_counts": {
+                "exact": CALL_FN_ROUTE_EXACT.load(Ordering::Relaxed),
+                "legacy": CALL_FN_ROUTE_LEGACY.load(Ordering::Relaxed)
+            },
+            "error_classes": {
+                "validation": CALL_FN_ERROR_VALIDATION.load(Ordering::Relaxed),
+                "state": CALL_FN_ERROR_STATE.load(Ordering::Relaxed),
+                "runtime": CALL_FN_ERROR_RUNTIME.load(Ordering::Relaxed),
+                "route": CALL_FN_ERROR_ROUTE.load(Ordering::Relaxed),
+                "unknown": CALL_FN_ERROR_UNKNOWN.load(Ordering::Relaxed)
             }
         }
     })
@@ -303,6 +396,8 @@ mod tests {
         let before_rollback_state = metric_u64(&before, &["rollback", "error_classes", "state"]);
         let before_diff_errors = metric_u64(&before, &["diff", "errors"]);
         let before_diff_sql = metric_u64(&before, &["diff", "error_classes", "sql"]);
+        let before_call_fn_errors = metric_u64(&before, &["call_fn", "errors"]);
+        let before_call_fn_route = metric_u64(&before, &["call_fn", "error_classes", "route"]);
 
         let deploy_start = super::record_deploy_start();
         super::record_deploy_error(deploy_start, "validation");
@@ -310,6 +405,9 @@ mod tests {
         super::record_rollback_error(rollback_start, "state");
         let diff_start = super::record_diff_start();
         super::record_diff_error(diff_start, "sql");
+        super::record_call_fn_route_exact();
+        let call_fn_start = super::record_call_fn_start();
+        super::record_call_fn_error(call_fn_start, "route");
 
         let after = super::metrics_json();
         assert!(metric_u64(&after, &["deploy", "errors"]) > before_deploy_errors);
@@ -323,9 +421,32 @@ mod tests {
         );
         assert!(metric_u64(&after, &["diff", "errors"]) > before_diff_errors);
         assert!(metric_u64(&after, &["diff", "error_classes", "sql"]) > before_diff_sql);
+        assert!(metric_u64(&after, &["call_fn", "errors"]) > before_call_fn_errors);
+        assert!(metric_u64(&after, &["call_fn", "error_classes", "route"]) > before_call_fn_route);
         let _ = metric_u64(&after, &["deploy", "latency_ms", "last"]);
         let _ = metric_u64(&after, &["rollback", "latency_ms", "last"]);
         let _ = metric_u64(&after, &["diff", "latency_ms", "last"]);
+        let _ = metric_u64(&after, &["call_fn", "latency_ms", "last"]);
+        let _ = metric_u64(&after, &["call_fn", "route_counts", "exact"]);
+    }
+
+    #[test]
+    fn classify_call_fn_error_maps_expected_categories() {
+        assert_eq!(super::classify_call_fn_error("stopgap.call_fn invalid path 'x'"), "validation");
+        assert_eq!(
+            super::classify_call_fn_error(
+                "stopgap.call_fn environment 'prod' has no active deployment"
+            ),
+            "state"
+        );
+        assert_eq!(
+            super::classify_call_fn_error("stopgap.call_fn unknown path 'api.users.missing'"),
+            "route"
+        );
+        assert_eq!(
+            super::classify_call_fn_error("stopgap.call_fn execution failed for 'api.users.hello'"),
+            "runtime"
+        );
     }
 
     fn metric_u64(root: &Value, path: &[&str]) -> u64 {
