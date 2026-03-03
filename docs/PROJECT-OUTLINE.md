@@ -648,6 +648,16 @@ Acceptance criteria:
 - run phased rollout with explicit rollback gates for lifecycle/pooling changes
 - lock regression protections across runtime and stopgap validation lanes
 
+Phased rollout checkpoints:
+- Phase 1 (boundary + instrumentation): static/dynamic boundary docs/tests, runtime metrics dimensions, and CI gate references must remain aligned.
+- Phase 2 (conservative reuse defaults): backend-local isolate reuse defaults and recycle-policy safety checks validated before widening reuse.
+- Phase 3 (tuning + SLO enforcement): benchmark-backed tuning plus threshold checks for cold/warm and tail-latency objectives.
+
+Acceptance/rollback gate policy:
+- Runtime contract gate: invocation-isolation and runtime contract suites must pass; rollback phase changes if context isolation behavior regresses.
+- Runtime safety gate: timeout/cancel/heap-limit failure-mode suites must pass; rollback if tainted isolate reuse is observed.
+- Release verification gate: full required command set from `docs/ROADMAP.md` section 13.1 must pass before phase promotion.
+
 Acceptance criteria:
 - `docs/PERFORMANCE-BASELINE.md` contains tracked SLO targets and benchmark deltas
 - runtime metrics/log payloads surface pool and termination dimensions required for triage

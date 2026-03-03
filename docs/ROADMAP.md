@@ -537,12 +537,18 @@ Minimum implementation evidence:
 
 #### Q. Rollout phases, acceptance gates, and regression protections
 - [ ] Phase rollout: (1) boundary and instrumentation, (2) conservative reuse defaults, (3) tuning and SLO enforcement.
-- [ ] Define acceptance gates per phase with explicit rollback conditions.
+  - [x] Phase 1 checklist defined: runtime boundary docs/tests, baseline metrics dimensions, and explicit CI gate references.
+  - [ ] Phase 2 checklist pending execution: conservative isolate reuse defaults and recycle-policy validation.
+  - [ ] Phase 3 checklist pending execution: tuning updates, SLO threshold enforcement, and regression benchmark deltas.
+- [x] Define acceptance gates per phase with explicit rollback conditions.
+  - [x] Gate A (runtime contract): invocation-isolation + runtime contract tests must pass; rollback if context isolation regresses.
+  - [x] Gate B (runtime safety): timeout/cancel/heap-limit termination tests must pass; rollback if tainted isolates are reused.
+  - [x] Gate C (release verification): full command set from section 13.1 must pass; rollback if any required lane fails.
 - [ ] Keep V8 runtime lane and stopgap regression lanes as non-bypassable release checks for runtime lifecycle work.
 
 Minimum implementation evidence:
-- [ ] phase checklist tracked in roadmap and reflected in CI/docs references
-- [ ] acceptance gates include full required verification command set from section 13.1
+- [x] phase checklist tracked in roadmap and reflected in CI/docs references
+- [x] acceptance gates include full required verification command set from section 13.1
 - [ ] at least one green CI run per phase including runtime-heavy and stopgap regress lanes
 
 ---

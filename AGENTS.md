@@ -84,6 +84,18 @@ This file captures how to work effectively in this repository.
 - V8 tests must stay green after every change; failing V8 coverage is a bug to fix, not a lane to bypass.
 - Current CI parity command: `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`.
 
+## Runtime rollout gates (P4 lifecycle work)
+
+- Use phased rollout for runtime lifecycle/pooling changes:
+  - Phase 1: boundary + instrumentation
+  - Phase 2: conservative isolate reuse defaults
+  - Phase 3: tuning + SLO enforcement
+- Acceptance gates per phase:
+  - runtime contract gate: invocation isolation + runtime contract suites must pass
+  - runtime safety gate: timeout/cancel/heap-limit suites must pass and tainted isolates must remain non-reusable
+  - release verification gate: full command set in the checklist below must pass before phase promotion
+- Rollback condition: if any acceptance gate regresses, revert to the prior stable phase defaults and re-validate all required lanes before retrying rollout.
+
 ## Validation checklist for each meaningful change
 
 - `cargo check`

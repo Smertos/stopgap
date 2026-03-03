@@ -203,3 +203,15 @@ jobs:
           path: ci-artifacts/
           if-no-files-found: warn
           retention-days: 7
+
+  release-gates:
+    name: release gates (runtime + regress)
+    runs-on: ubuntu-latest
+    needs:
+      - baseline-fast
+      - pgrx-tests
+      - plts-runtime-v8-tests
+    steps:
+      - name: Confirm release-blocking lanes passed
+        run: |
+          echo "baseline-fast, pgrx-tests, and plts-runtime-v8-tests all passed"
