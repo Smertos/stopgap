@@ -356,6 +356,7 @@ Create schema `stopgap`:
 - `source_root text not null` (CLI project source root, default `stopgap/`)
 - `status text not null` (`open`, `sealed`, `active`, `rolled_back`, `failed`)
 - `manifest jsonb not null` (functions + metadata + artifact hashes)
+  - includes ordered `functions` and canonical `functions_by_path` keyed by `function_path`
 
 ### `stopgap.fn_version`
 Key point: includes path-addressable exported stopgap functions discovered from `stopgap/**/*.ts` module exports.
@@ -407,6 +408,7 @@ SELECT stopgap.call_fn('api.coolApi.myFn', '{"id":1}'::jsonb);
 Current implementation status:
 - `stopgap.call_fn(path, args)` is now implemented in the `stopgap` extension and routes against the active deployment in `stopgap.default_env` (fallback `prod`).
 - Current routing bridge first resolves exact `stopgap.fn_version.function_path` matches and invokes the stored `live_fn_name`; legacy rows without `function_path` still fall back to terminal export-segment lookup while SQL-scan catalogs remain in place.
+- Deployment manifests now persist both ordered `functions` entries and canonical `functions_by_path` entries for deterministic path-addressable introspection.
 - Runtime artifact pointers now honor `{"export":"<named_export>"}` metadata during entrypoint resolution (with `default` as fallback), enabling named-export invocation when stopgap route metadata/pointers provide it.
 - `stopgap.call_fn` path validation now enforces canonical segment format (`api` prefix and non-empty alphanumeric/underscore segments) and rejects malformed paths up front.
 - Routed execution failures now surface explicit path-aware semantics for invalid wrapper args (`invalid args`) and query/mutation mode violations (`wrong wrapper mode`) while preserving underlying runtime detail text.

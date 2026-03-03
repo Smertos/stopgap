@@ -55,6 +55,10 @@ extension_sql!(
     ALTER TABLE stopgap.fn_version
         ALTER COLUMN live_fn_name SET NOT NULL;
 
+    CREATE UNIQUE INDEX IF NOT EXISTS stopgap_fn_version_deployment_path_key
+        ON stopgap.fn_version (deployment_id, function_path)
+        WHERE function_path IS NOT NULL;
+
     CREATE TABLE IF NOT EXISTS stopgap.activation_log (
         id bigserial PRIMARY KEY,
         env text NOT NULL,

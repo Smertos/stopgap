@@ -127,6 +127,24 @@ fn test_deploy_uses_cli_export_metadata_for_pointer() {
     assert_eq!(row.0.get("export_name").and_then(|value| value.as_str()), Some("hello"));
     assert_eq!(row.0.get("kind").and_then(|value| value.as_str()), Some("query"));
 
+    let manifest = Spi::get_one_with_args::<JsonB>(
+        "SELECT manifest FROM stopgap.deployment WHERE id = $1",
+        &[deployment_id.into()],
+    )
+    .expect("deployment manifest lookup should succeed")
+    .expect("deployment manifest row should exist");
+
+    assert_eq!(
+        manifest
+            .0
+            .get("functions_by_path")
+            .and_then(|value| value.get("api.admin.users.hello"))
+            .and_then(|value| value.get("module_path"))
+            .and_then(|value| value.as_str()),
+        Some("admin/users"),
+        "deployment manifest should include function-path keyed metadata"
+    );
+
     let pointer = Spi::get_one::<String>(
         "
         SELECT p.prosrc::text
@@ -259,4 +277,68 @@ fn test_deploy_rejects_unknown_export_metadata_entries() {
         "#,
     )
     .expect("deploy should reject unknown metadata entries");
+}
+
+#[pg_test]
+fn test_deploy_rejects_duplicate_function_path_metadata_entries() {
+    ensure_mock_plts_runtime();
+
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS sg_meta_dupe_path_src CASCADE;
+        DROP SCHEMA IF EXISTS sg_meta_dupe_path_live CASCADE;
+        CREATE SCHEMA sg_meta_dupe_path_src;
+        SELECT set_config('stopgap.live_schema', 'sg_meta_dupe_path_live', true);
+        SELECT set_config(
+            'stopgap.deploy_exports',
+            '[
+                {
+                    "module_path": "users",
+                    "export_name": "alpha",
+                    "function_path": "api.users.shared",
+                    "kind": "query"
+                },
+                {
+                    "module_path": "users",
+                    "export_name": "beta",
+                    "function_path": "api.users.shared",
+                    "kind": "mutation"
+                }
+            ]',
+            true
+        );
+        "#,
+    )
+    .expect("duplicate function-path setup should succeed");
+
+    create_deployable_function(
+        "sg_meta_dupe_path_src",
+        "alpha",
+        "BEGIN RETURN jsonb_build_object('ok', true); END",
+    );
+    create_deployable_function(
+        "sg_meta_dupe_path_src",
+        "beta",
+        "BEGIN RETURN jsonb_build_object('ok', true); END",
+    );
+
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM stopgap.deploy('it_env_meta_dupe_path', 'sg_meta_dupe_path_src', 'meta-dupe-path');
+            RAISE EXCEPTION 'expected deploy duplicate function_path metadata failure';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('duplicate function_path' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+                IF POSITION('api.users.shared' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END
+        $$;
+        "#,
+    )
+    .expect("deploy should reject duplicate function-path metadata entries");
 }

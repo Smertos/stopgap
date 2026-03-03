@@ -43,6 +43,7 @@ fn deploy_export_overrides() -> Result<BTreeMap<String, DeployExportOverride>, S
     })?;
 
     let mut overrides = BTreeMap::new();
+    let mut used_paths = BTreeSet::new();
     for entry in entries {
         let export_name = entry
             .get("export_name")
@@ -78,6 +79,13 @@ fn deploy_export_overrides() -> Result<BTreeMap<String, DeployExportOverride>, S
             return Err(format!(
                 "stopgap.deploy duplicate export_name '{}' in stopgap.deploy_exports",
                 export_name
+            ));
+        }
+
+        if !used_paths.insert(function_path.clone()) {
+            return Err(format!(
+                "stopgap.deploy duplicate function_path '{}' in stopgap.deploy_exports",
+                function_path
             ));
         }
 
@@ -143,6 +151,7 @@ pub(crate) fn run_deploy_flow(
     harden_live_schema(live_schema)?;
 
     let mut manifest_functions: Vec<Value> = Vec::with_capacity(fns.len());
+    let mut manifest_functions_by_path = serde_json::Map::new();
     let mut deployed_functions: Vec<DeployedFunction> = Vec::with_capacity(fns.len());
 
     for item in &fns {
@@ -231,7 +240,7 @@ pub(crate) fn run_deploy_flow(
             &item.export_name,
             &import_map,
         )?;
-        manifest_functions.push(crate::fn_manifest_item(
+        let manifest_item = crate::fn_manifest_item(
             from_schema,
             live_schema,
             &item.fn_name,
@@ -241,7 +250,9 @@ pub(crate) fn run_deploy_flow(
             &item.kind,
             &item.artifact_hash,
             &import_map,
-        ));
+        );
+        manifest_functions_by_path.insert(item.function_path.clone(), manifest_item.clone());
+        manifest_functions.push(manifest_item);
     }
 
     let deployed_fn_names =
@@ -256,6 +267,7 @@ pub(crate) fn run_deploy_flow(
         deployment_id,
         json!({
             "functions": manifest_functions,
+            "functions_by_path": Value::Object(manifest_functions_by_path),
             "prune": prune_manifest_item(&prune_report)
         }),
     )?;
