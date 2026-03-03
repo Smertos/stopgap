@@ -36,6 +36,16 @@ pub(crate) fn resolve_prune_enabled() -> bool {
     raw.as_deref().and_then(parse_bool_setting).unwrap_or(false)
 }
 
+pub(crate) fn resolve_default_env() -> String {
+    let env = Spi::get_one::<String>(
+        "SELECT COALESCE(current_setting('stopgap.default_env', true), 'prod')",
+    )
+    .ok()
+    .flatten();
+
+    env.unwrap_or_else(|| "prod".to_string())
+}
+
 pub(crate) fn parse_bool_setting(value: &str) -> Option<bool> {
     common::settings::parse_bool_setting(value)
 }

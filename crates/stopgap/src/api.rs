@@ -7,8 +7,8 @@ use crate::{
     ensure_deployment_belongs_to_env, ensure_no_overloaded_plts_functions, ensure_role_membership,
     find_rollback_target_by_steps, hash_lock_key, load_deployment_status, load_deployments,
     load_diff, load_environment_state, load_status, observability, reactivate_deployment,
-    resolve_live_schema, rollback_steps_to_offset, run_deploy_flow, run_sql_with_args,
-    transition_deployment_status, transition_if_active, update_failed_manifest,
+    resolve_default_env, resolve_live_schema, rollback_steps_to_offset, run_deploy_flow,
+    run_sql_with_args, transition_deployment_status, transition_if_active, update_failed_manifest,
 };
 
 #[pg_extern]
@@ -141,6 +141,97 @@ mod stopgap {
     #[pg_extern]
     fn deployments(env: &str) -> JsonB {
         JsonB(load_deployments(env))
+    }
+
+    #[pg_extern]
+    fn call_fn(path: &str, args: JsonB) -> Option<JsonB> {
+        if !path.starts_with("api.")
+            || path.split('.').any(str::is_empty)
+            || path.matches('.').count() < 2
+        {
+            error!(
+                "stopgap.call_fn invalid path '{}'; expected format api.<module_path>.<export_name>",
+                path
+            );
+        }
+
+        let export_name = path.rsplit('.').next().expect("validated non-empty path");
+        let env = resolve_default_env();
+
+        let env_row = Spi::connect(|client| {
+            let mut rows = client
+                .select(
+                    "
+                    SELECT live_schema::text AS live_schema,
+                           active_deployment_id
+                    FROM stopgap.environment
+                    WHERE env = $1
+                    ",
+                    None,
+                    &[env.as_str().into()],
+                )?
+                .into_iter();
+
+            let row = rows.next().map(|row| {
+                let live_schema = row
+                    .get_by_name::<String, _>("live_schema")?
+                    .expect("live_schema must not be null");
+                let active_deployment_id = row.get_by_name::<i64, _>("active_deployment_id")?;
+                Ok::<(String, Option<i64>), pgrx::spi::Error>((live_schema, active_deployment_id))
+            });
+
+            row.transpose()
+        })
+        .unwrap_or_else(|e| error!("stopgap.call_fn failed to load environment '{}': {e}", env));
+
+        let (live_schema, active_deployment_id) = env_row.unwrap_or_else(|| {
+            error!(
+                "stopgap.call_fn missing deployment environment '{}'; run stopgap.deploy first",
+                env
+            )
+        });
+
+        let deployment_id = active_deployment_id.unwrap_or_else(|| {
+            error!(
+                "stopgap.call_fn environment '{}' has no active deployment; run stopgap.deploy first",
+                env
+            )
+        });
+
+        let route_exists = Spi::get_one_with_args::<bool>(
+            "
+            SELECT EXISTS (
+                SELECT 1
+                FROM stopgap.fn_version fv
+                WHERE fv.deployment_id = $1
+                  AND fv.fn_name = $2
+            )
+            ",
+            &[deployment_id.into(), export_name.into()],
+        )
+        .unwrap_or_else(|e| {
+            error!(
+                "stopgap.call_fn failed to resolve path '{}' in deployment {}: {e}",
+                path, deployment_id
+            )
+        })
+        .unwrap_or(false);
+
+        if !route_exists {
+            error!(
+                "stopgap.call_fn unknown path '{}' for env '{}' deployment {}",
+                path, env, deployment_id
+            );
+        }
+
+        let invoke_sql = format!(
+            "SELECT {}.{}($1::jsonb)",
+            crate::quote_ident(&live_schema),
+            crate::quote_ident(export_name)
+        );
+
+        Spi::get_one_with_args::<JsonB>(invoke_sql.as_str(), &[args.into()])
+            .unwrap_or_else(|e| error!("stopgap.call_fn execution failed for '{}': {e}", path))
     }
 
     #[pg_extern(security_definer)]

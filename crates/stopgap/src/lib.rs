@@ -31,7 +31,8 @@ pub(crate) use domain::{
 #[cfg(test)]
 pub(crate) use domain::{FnVersionRow, is_allowed_transition};
 pub(crate) use runtime_config::{
-    quote_ident, resolve_live_schema, resolve_prune_enabled, run_sql, run_sql_with_args,
+    quote_ident, resolve_default_env, resolve_live_schema, resolve_prune_enabled, run_sql,
+    run_sql_with_args,
 };
 pub(crate) use security::{
     ensure_deploy_permissions, ensure_diff_permissions, ensure_role_membership,

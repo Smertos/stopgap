@@ -118,18 +118,22 @@ extension_sql!(
     ALTER FUNCTION stopgap.deploy(text, text, text) SECURITY DEFINER;
     ALTER FUNCTION stopgap.rollback(text, integer, bigint) SECURITY DEFINER;
     ALTER FUNCTION stopgap.diff(text, text) SECURITY DEFINER;
+    ALTER FUNCTION stopgap.call_fn(text, jsonb) SECURITY INVOKER;
 
     ALTER FUNCTION stopgap.deploy(text, text, text) SET search_path TO pg_catalog, pg_temp;
     ALTER FUNCTION stopgap.rollback(text, integer, bigint) SET search_path TO pg_catalog, pg_temp;
     ALTER FUNCTION stopgap.diff(text, text) SET search_path TO pg_catalog, pg_temp;
+    ALTER FUNCTION stopgap.call_fn(text, jsonb) SET search_path TO pg_catalog, pg_temp;
 
     REVOKE ALL ON FUNCTION stopgap.deploy(text, text, text) FROM PUBLIC;
     REVOKE ALL ON FUNCTION stopgap.rollback(text, integer, bigint) FROM PUBLIC;
     REVOKE ALL ON FUNCTION stopgap.diff(text, text) FROM PUBLIC;
+    REVOKE ALL ON FUNCTION stopgap.call_fn(text, jsonb) FROM PUBLIC;
 
     GRANT EXECUTE ON FUNCTION stopgap.deploy(text, text, text) TO stopgap_deployer;
     GRANT EXECUTE ON FUNCTION stopgap.rollback(text, integer, bigint) TO stopgap_deployer;
     GRANT EXECUTE ON FUNCTION stopgap.diff(text, text) TO stopgap_deployer;
+    GRANT EXECUTE ON FUNCTION stopgap.call_fn(text, jsonb) TO app_user;
     "#,
     name = "stopgap_security_finalize",
     finalize

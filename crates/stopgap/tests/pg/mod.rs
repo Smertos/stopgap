@@ -3,6 +3,7 @@ use pgrx::prelude::*;
 use serde_json::Value;
 
 include!("helpers.rs");
+include!("call_fn.rs");
 include!("deploy_overload_rejection.rs");
 include!("deploy_import_map.rs");
 include!("deploy_pointer.rs");

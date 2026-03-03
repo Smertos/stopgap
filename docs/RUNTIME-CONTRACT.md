@@ -50,7 +50,7 @@ type SqlObjectLike =
 - `stopgap/coolApi.ts` exporting `myFn` => `api.coolApi.myFn`
 - `stopgap/admin/users.ts` exporting `list` => `api.admin.users.list`
 
-### `stopgap.call_fn` contract (target)
+### `stopgap.call_fn` contract
 
 ```sql
 SELECT stopgap.call_fn('api.coolApi.myFn', '{"id":1}'::jsonb);
@@ -59,6 +59,11 @@ SELECT stopgap.call_fn('api.coolApi.myFn', '{"id":1}'::jsonb);
 - `path` resolves against the active deployment for the selected environment.
 - `args` is delivered as runtime `ctx.args` and validated by wrapper schema.
 - Unknown path, missing deployment, and validation failures must return stable, explicit errors with path context.
+
+Current implementation status:
+- `stopgap.call_fn(path, args)` is implemented and routes via the active deployment for `stopgap.default_env` (fallback `prod`).
+- Invalid path format, missing environment/active deployment, and unknown routed path return explicit `stopgap.call_fn` errors.
+- While legacy SQL-name catalogs remain, route lookup currently resolves using the terminal export segment from `api.<module_path>.<export_name>`.
 
 ## DB API mode behavior
 
@@ -112,4 +117,4 @@ The runtime supports backend-local isolate reuse through an isolate pool with ex
 - DB-backed contract tests live in `crates/plts/tests/pg/runtime_contract.rs`.
 - Existing behavior suites in `crates/plts/tests/pg/runtime_nulls.rs`, `crates/plts/tests/pg/runtime_db_input_forms.rs`, and `crates/plts/tests/pg/runtime_stopgap_wrappers.rs` also guard this document's guarantees.
 - Static/dynamic boundary unit checks live in `crates/plts/src/runtime.rs`, and invocation-isolation coverage is in `crates/plts/tests/pg/runtime_contract.rs`.
-- Pivot-specific path-routing coverage should be tracked as dedicated tests for `stopgap.call_fn` during the Convex-style migration.
+- Pivot-specific path-routing coverage now includes DB-backed tests at `crates/stopgap/tests/pg/call_fn.rs`; expand these alongside full function-path catalog migration.
