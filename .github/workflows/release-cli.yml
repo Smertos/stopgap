@@ -33,29 +33,46 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: 1.91.1
+          targets: ${{ matrix.target }}
+
+      - name: Ensure Rust target is installed
+        run: rustup target add ${{ matrix.target }}
 
       - name: Get version
         id: version
+        shell: bash
         run: echo "VERSION=${GITHUB_REF#refs/tags/cli-v}" >> $GITHUB_OUTPUT
 
+      - name: Install Linux ARM64 cross toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+
       - name: Build release binary
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.target == 'aarch64-unknown-linux-gnu' && 'aarch64-linux-gnu-gcc' || '' }}
         run: cargo build -p stopgap-cli --release --target ${{ matrix.target }}
 
-      - name: Package binary
+      - name: Package binary (unix)
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
           mkdir -p "release/stopgap-cli-${{ matrix.target }}-v${VERSION}"
+          cp target/${{ matrix.target }}/release/stopgap-cli "release/stopgap-cli-${{ matrix.target }}-v${VERSION}/stopgap-cli"
+          cd release
+          tar -czvf "../stopgap-cli-${{ matrix.target }}-v${VERSION}.tgz" "stopgap-cli-${{ matrix.target }}-v${VERSION}"
 
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            cp target/${{ matrix.target }}/release/stopgap-cli.exe "release/stopgap-cli-${{ matrix.target }}-v${VERSION}/stopgap-cli.exe"
-            cd release
-            zip -q -r "../stopgap-cli-${{ matrix.target }}-v${VERSION}.zip" "stopgap-cli-${{ matrix.target }}-v${VERSION}"
-          else
-            cp target/${{ matrix.target }}/release/stopgap-cli "release/stopgap-cli-${{ matrix.target }}-v${VERSION}/stopgap-cli"
-            cd release
-            tar -czvf "../stopgap-cli-${{ matrix.target }}-v${VERSION}.tgz" "stopgap-cli-${{ matrix.target }}-v${VERSION}"
-          fi
+      - name: Package binary (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+          $dir = "release/stopgap-cli-${{ matrix.target }}-v$version"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/stopgap-cli.exe" "$dir/stopgap-cli.exe"
+          Compress-Archive -Path $dir -DestinationPath "stopgap-cli-${{ matrix.target }}-v$version.zip" -Force
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

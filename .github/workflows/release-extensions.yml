@@ -83,11 +83,6 @@ jobs:
           cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/plts*.sql release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
           cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/plts.control release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
           
-          # Package plts-v8
-          cp /usr/lib/postgresql/${{ matrix.pg_version }}/lib/plts_v8.so release-pg${{ matrix.pg_version }}/
-          cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/plts_v8*.sql release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
-          cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/plts_v8.control release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
-          
           # Package stopgap
           cp /usr/lib/postgresql/${{ matrix.pg_version }}/lib/stopgap.so release-pg${{ matrix.pg_version }}/
           cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/stopgap*.sql release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
