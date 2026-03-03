@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,9 +59,18 @@ pub struct IsolatePoolConfig {
     pub enable_reuse: bool,
 }
 
+const DEFAULT_MAX_AGE_SECONDS: u64 = 120;
+const DEFAULT_MAX_INVOCATIONS: u64 = 250;
+const DEFAULT_MAX_POOL_SIZE: usize = 2;
+
 impl Default for IsolatePoolConfig {
     fn default() -> Self {
-        Self { max_age_seconds: 300, max_invocations: 1000, max_pool_size: 4, enable_reuse: true }
+        Self {
+            max_age_seconds: DEFAULT_MAX_AGE_SECONDS,
+            max_invocations: DEFAULT_MAX_INVOCATIONS,
+            max_pool_size: DEFAULT_MAX_POOL_SIZE,
+            enable_reuse: true,
+        }
     }
 }
 
@@ -407,5 +416,34 @@ mod tests {
         assert_eq!(format!("{}", IsolateState::Warm), "warm");
         assert_eq!(format!("{}", IsolateState::Tainted), "tainted");
         assert_eq!(format!("{}", IsolateState::Retired), "retired");
+    }
+
+    #[test]
+    fn isolate_pool_default_config_uses_conservative_reuse_limits() {
+        let config = IsolatePoolConfig::default();
+        assert_eq!(config.max_age_seconds, DEFAULT_MAX_AGE_SECONDS);
+        assert_eq!(config.max_invocations, DEFAULT_MAX_INVOCATIONS);
+        assert_eq!(config.max_pool_size, DEFAULT_MAX_POOL_SIZE);
+        assert!(config.enable_reuse);
+    }
+
+    #[test]
+    fn pooled_isolate_recycles_after_default_invocation_budget() {
+        let mut isolate = PooledIsolate::new();
+        let config = IsolatePoolConfig::default();
+
+        for _ in 0..config.max_invocations {
+            assert!(
+                isolate.check_out(&config),
+                "isolate should be reusable until invocation budget is reached"
+            );
+            isolate.check_in(true);
+        }
+
+        assert!(
+            !isolate.check_out(&config),
+            "isolate should recycle when max invocation budget is reached"
+        );
+        assert_eq!(isolate.recycle_reason(&config), "max_invocations");
     }
 }
