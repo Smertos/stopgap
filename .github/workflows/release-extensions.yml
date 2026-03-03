@@ -3,7 +3,7 @@ name: Release Extensions
 on:
   push:
     tags:
-      - 'v*'
+      - 'ext-v*'
 
 env:
   CARGO_TERM_COLOR: always
