@@ -31,8 +31,8 @@ pub(crate) use domain::{
 #[cfg(test)]
 pub(crate) use domain::{FnVersionRow, is_allowed_transition};
 pub(crate) use runtime_config::{
-    quote_ident, resolve_default_env, resolve_live_schema, resolve_prune_enabled, run_sql,
-    run_sql_with_args,
+    quote_ident, resolve_default_env, resolve_deploy_exports_json, resolve_live_schema,
+    resolve_prune_enabled, run_sql, run_sql_with_args,
 };
 pub(crate) use security::{
     ensure_deploy_permissions, ensure_diff_permissions, ensure_role_membership,
@@ -81,11 +81,17 @@ mod unit_tests {
             "app",
             "live_deployment",
             "do_work",
+            "api.workers.do_work",
+            "workers",
+            "do_work",
             "mutation",
             "sha256:abc",
             &serde_json::Map::new(),
         );
         assert_eq!(item.get("fn_name").and_then(|v| v.as_str()), Some("do_work"));
+        assert_eq!(item.get("function_path").and_then(|v| v.as_str()), Some("api.workers.do_work"));
+        assert_eq!(item.get("module_path").and_then(|v| v.as_str()), Some("workers"));
+        assert_eq!(item.get("export_name").and_then(|v| v.as_str()), Some("do_work"));
         assert_eq!(item.get("source_schema").and_then(|v| v.as_str()), Some("app"));
         assert_eq!(item.get("live_schema").and_then(|v| v.as_str()), Some("live_deployment"));
         assert_eq!(item.get("artifact_hash").and_then(|v| v.as_str()), Some("sha256:abc"));
@@ -132,6 +138,9 @@ mod unit_tests {
             "app",
             "live_deployment",
             "do_work",
+            "api.workers.do_work",
+            "workers",
+            "do_work",
             "mutation",
             "sha256:abc",
             &import_map,
@@ -160,6 +169,7 @@ mod unit_tests {
                 fn_name: "alpha".to_string(),
                 live_fn_name: "alpha".to_string(),
                 function_path: None,
+                export_name: None,
                 live_fn_schema: "live_deployment".to_string(),
                 artifact_hash: "sha256:1".to_string(),
             },
@@ -167,6 +177,7 @@ mod unit_tests {
                 fn_name: "beta".to_string(),
                 live_fn_name: "beta".to_string(),
                 function_path: None,
+                export_name: None,
                 live_fn_schema: "live_deployment".to_string(),
                 artifact_hash: "sha256:2".to_string(),
             },
@@ -174,6 +185,7 @@ mod unit_tests {
                 fn_name: "delta".to_string(),
                 live_fn_name: "delta".to_string(),
                 function_path: None,
+                export_name: None,
                 live_fn_schema: "live_deployment".to_string(),
                 artifact_hash: "sha256:4".to_string(),
             },

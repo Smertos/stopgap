@@ -136,13 +136,14 @@ pub(crate) fn materialize_live_pointer(
     live_schema: &str,
     fn_name: &str,
     artifact_hash: &str,
+    entrypoint_export: &str,
     import_map: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), String> {
     let mut pointer = json!({
         "plts": 1,
         "kind": "artifact_ptr",
         "artifact_hash": artifact_hash,
-        "export": "default",
+        "export": entrypoint_export,
         "mode": "stopgap_deployed"
     });
     if !import_map.is_empty() {

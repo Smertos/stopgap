@@ -17,6 +17,7 @@ struct MockApi {
     status_result: Result<Option<Value>>,
     deployments_result: Result<Value>,
     diff_result: Result<Value>,
+    deploy_exports_json: Option<String>,
 }
 
 impl Default for MockApi {
@@ -27,6 +28,7 @@ impl Default for MockApi {
             status_result: Ok(None),
             deployments_result: Ok(json!([])),
             diff_result: Ok(json!({})),
+            deploy_exports_json: None,
         }
     }
 }
@@ -38,7 +40,9 @@ impl StopgapApi for MockApi {
         _from_schema: &str,
         _label: Option<&str>,
         _prune: bool,
+        deploy_exports_json: Option<&str>,
     ) -> Result<i64> {
+        self.deploy_exports_json = deploy_exports_json.map(str::to_string);
         self.deploy_result.as_ref().map(|value| *value).map_err(clone_error)
     }
 
@@ -108,6 +112,17 @@ fn deploy_json_output_schema_is_stable() {
     assert_eq!(payload["function_paths"][2], "api.coolApi.list");
     assert_eq!(payload["deployment_id"], 42);
     assert_eq!(payload["prune"], true);
+
+    let deploy_exports = api
+        .deploy_exports_json
+        .as_ref()
+        .map(|value| {
+            serde_json::from_str::<Value>(value).expect("deploy exports json should decode")
+        })
+        .expect("deploy exports json should be forwarded to api layer");
+    assert_eq!(deploy_exports.as_array().map(|items| items.len()), Some(3));
+    assert_eq!(deploy_exports[0]["function_path"], "api.admin.users.get");
+    assert_eq!(deploy_exports[1]["kind"], "mutation");
 }
 
 #[test]

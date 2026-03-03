@@ -13,6 +13,77 @@ use crate::{
     update_deployment_manifest,
 };
 
+#[derive(Debug)]
+struct DeployExportOverride {
+    function_path: String,
+    module_path: String,
+    export_name: String,
+    kind: String,
+}
+
+#[derive(Debug)]
+struct DeployedFunction {
+    fn_name: String,
+    artifact_hash: String,
+    function_path: String,
+    module_path: String,
+    export_name: String,
+    kind: String,
+}
+
+fn deploy_export_overrides()
+-> Result<std::collections::BTreeMap<String, DeployExportOverride>, String> {
+    let Some(raw) = crate::resolve_deploy_exports_json() else {
+        return Ok(std::collections::BTreeMap::new());
+    };
+
+    let parsed = serde_json::from_str::<serde_json::Value>(&raw)
+        .map_err(|e| format!("stopgap.deploy invalid stopgap.deploy_exports JSON: {e}"))?;
+    let entries = parsed.as_array().ok_or_else(|| {
+        "stopgap.deploy expected stopgap.deploy_exports to be a JSON array of exports".to_string()
+    })?;
+
+    let mut overrides = std::collections::BTreeMap::new();
+    for entry in entries {
+        let export_name = entry
+            .get("export_name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                "stopgap.deploy expected each stopgap.deploy_exports item to include export_name"
+                    .to_string()
+            })?
+            .to_string();
+        let function_path = entry
+            .get("function_path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                format!(
+                    "stopgap.deploy export '{}' missing function_path in stopgap.deploy_exports",
+                    export_name
+                )
+            })?
+            .to_string();
+        let module_path = entry
+            .get("module_path")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                format!(
+                    "stopgap.deploy export '{}' missing module_path in stopgap.deploy_exports",
+                    export_name
+                )
+            })?
+            .to_string();
+        let kind = entry.get("kind").and_then(Value::as_str).unwrap_or("mutation").to_string();
+
+        overrides.insert(
+            export_name.clone(),
+            DeployExportOverride { function_path, module_path, export_name, kind },
+        );
+    }
+
+    Ok(overrides)
+}
+
 pub(crate) fn run_deploy_flow(
     deployment_id: i64,
     env: &str,
@@ -20,6 +91,7 @@ pub(crate) fn run_deploy_flow(
     live_schema: &str,
 ) -> Result<(), String> {
     let fns = fetch_deployable_functions(from_schema)?;
+    let export_overrides = deploy_export_overrides()?;
     let prune_enabled = resolve_prune_enabled();
     run_sql(
         &format!("CREATE SCHEMA IF NOT EXISTS {}", quote_ident(live_schema)),
@@ -28,9 +100,22 @@ pub(crate) fn run_deploy_flow(
     harden_live_schema(live_schema)?;
 
     let mut manifest_functions: Vec<Value> = Vec::with_capacity(fns.len());
-    let mut compiled_functions: Vec<CandidateFn> = Vec::with_capacity(fns.len());
+    let mut deployed_functions: Vec<DeployedFunction> = Vec::with_capacity(fns.len());
 
     for item in &fns {
+        let override_meta = export_overrides.get(item.fn_name.as_str());
+        let function_path = override_meta
+            .map(|meta| meta.function_path.clone())
+            .unwrap_or_else(|| format!("api.legacy.{}", item.fn_name));
+        let module_path = override_meta
+            .map(|meta| meta.module_path.clone())
+            .unwrap_or_else(|| "legacy".to_string());
+        let export_name = override_meta
+            .map(|meta| meta.export_name.clone())
+            .unwrap_or_else(|| "default".to_string());
+        let kind =
+            override_meta.map(|meta| meta.kind.clone()).unwrap_or_else(|| "mutation".to_string());
+
         let artifact_hash = Spi::get_one_with_args::<String>(
             "SELECT plts.compile_and_store($1::text, '{}'::jsonb)",
             &[item.prosrc.as_str().into()],
@@ -58,7 +143,7 @@ pub(crate) fn run_deploy_flow(
                         kind,
                         artifact_hash
                     )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'mutation', $9)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ",
             &[
                 deployment_id.into(),
@@ -66,33 +151,58 @@ pub(crate) fn run_deploy_flow(
                 from_schema.into(),
                 live_schema.into(),
                 item.fn_name.as_str().into(),
-                format!("api.legacy.{}", item.fn_name).into(),
-                "legacy".into(),
-                item.fn_name.as_str().into(),
+                function_path.as_str().into(),
+                module_path.as_str().into(),
+                export_name.as_str().into(),
+                kind.as_str().into(),
                 artifact_hash.as_str().into(),
             ],
             "failed to insert stopgap.fn_version",
         )?;
 
-        compiled_functions.push(CandidateFn { fn_name: item.fn_name.clone(), artifact_hash });
+        deployed_functions.push(DeployedFunction {
+            fn_name: item.fn_name.clone(),
+            artifact_hash,
+            function_path,
+            module_path,
+            export_name,
+            kind,
+        });
     }
+
+    let compiled_functions = deployed_functions
+        .iter()
+        .map(|item| CandidateFn {
+            fn_name: item.fn_name.clone(),
+            artifact_hash: item.artifact_hash.clone(),
+        })
+        .collect::<Vec<_>>();
 
     let import_map = deployment_import_map(from_schema, &compiled_functions);
 
-    for item in &compiled_functions {
-        materialize_live_pointer(live_schema, &item.fn_name, &item.artifact_hash, &import_map)?;
+    for item in &deployed_functions {
+        materialize_live_pointer(
+            live_schema,
+            &item.fn_name,
+            &item.artifact_hash,
+            &item.export_name,
+            &import_map,
+        )?;
         manifest_functions.push(crate::fn_manifest_item(
             from_schema,
             live_schema,
             &item.fn_name,
-            "mutation",
+            &item.function_path,
+            &item.module_path,
+            &item.export_name,
+            &item.kind,
             &item.artifact_hash,
             &import_map,
         ));
     }
 
     let deployed_fn_names =
-        compiled_functions.iter().map(|item| item.fn_name.clone()).collect::<BTreeSet<_>>();
+        deployed_functions.iter().map(|item| item.fn_name.clone()).collect::<BTreeSet<_>>();
     let prune_report = if prune_enabled {
         prune_stale_live_functions(live_schema, &deployed_fn_names)?
     } else {

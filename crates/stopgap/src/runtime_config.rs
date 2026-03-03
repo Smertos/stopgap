@@ -46,6 +46,14 @@ pub(crate) fn resolve_default_env() -> String {
     env.unwrap_or_else(|| "prod".to_string())
 }
 
+pub(crate) fn resolve_deploy_exports_json() -> Option<String> {
+    Spi::get_one::<String>(
+        "SELECT NULLIF(COALESCE(current_setting('stopgap.deploy_exports', true), ''), '')",
+    )
+    .ok()
+    .flatten()
+}
+
 pub(crate) fn parse_bool_setting(value: &str) -> Option<bool> {
     common::settings::parse_bool_setting(value)
 }

@@ -122,6 +122,7 @@ pub(crate) fn reactivate_deployment(live_schema: &str, deployment_id: i64) -> Re
             schema,
             row.live_fn_name.as_str(),
             row.artifact_hash.as_str(),
+            row.export_name.as_deref().unwrap_or("default"),
             &import_map,
         )?;
     }
@@ -145,6 +146,7 @@ pub(crate) fn fetch_fn_versions(deployment_id: i64) -> Result<Vec<FnVersionRow>,
             SELECT fn_name::text AS fn_name,
                    live_fn_name::text AS live_fn_name,
                    function_path::text AS function_path,
+                   export_name::text AS export_name,
                    live_fn_schema::text AS live_fn_schema,
                    artifact_hash::text AS artifact_hash
             FROM stopgap.fn_version
@@ -172,6 +174,9 @@ pub(crate) fn fetch_fn_versions(deployment_id: i64) -> Result<Vec<FnVersionRow>,
             let function_path = row
                 .get_by_name::<String, _>("function_path")
                 .expect("function_path must be text when present");
+            let export_name = row
+                .get_by_name::<String, _>("export_name")
+                .expect("export_name must be text when present");
             let artifact_hash = row
                 .get_by_name::<String, _>("artifact_hash")
                 .expect("artifact_hash must be text")
@@ -180,6 +185,7 @@ pub(crate) fn fetch_fn_versions(deployment_id: i64) -> Result<Vec<FnVersionRow>,
                 fn_name,
                 live_fn_name,
                 function_path,
+                export_name,
                 live_fn_schema,
                 artifact_hash,
             });

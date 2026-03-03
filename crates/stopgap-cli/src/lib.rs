@@ -12,7 +12,7 @@ pub const EXIT_RESPONSE_DECODE: u8 = 12;
 pub const EXIT_OUTPUT_FORMAT: u8 = 13;
 pub const EXIT_PROJECT_LAYOUT: u8 = 14;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct StopgapExport {
     pub module_path: String,
     pub export_name: String,
@@ -124,6 +124,7 @@ pub trait StopgapApi {
         from_schema: &str,
         label: Option<&str>,
         prune: bool,
+        deploy_exports_json: Option<&str>,
     ) -> Result<i64>;
 
     fn rollback(&mut self, env: &str, steps: i32, to_id: Option<i64>) -> Result<i64>;
@@ -153,10 +154,14 @@ impl StopgapApi for PgStopgapApi {
         from_schema: &str,
         label: Option<&str>,
         prune: bool,
+        deploy_exports_json: Option<&str>,
     ) -> Result<i64> {
         let mut tx = self.client.build_transaction().start()?;
         let prune_setting = if prune { "on" } else { "off" };
         tx.batch_execute(&format!("SET LOCAL stopgap.prune = '{prune_setting}'"))?;
+        if let Some(raw_exports) = deploy_exports_json {
+            tx.execute("SELECT set_config('stopgap.deploy_exports', $1, true)", &[&raw_exports])?;
+        }
         let row = tx.query_one(
             "SELECT stopgap.deploy($1, $2, $3) AS deployment_id",
             &[&env, &from_schema, &label],
@@ -224,8 +229,16 @@ pub fn execute_command_with_project_root(
             module_paths.dedup();
             let function_paths =
                 exports.iter().map(|item| item.function_path.clone()).collect::<Vec<_>>();
+            let deploy_exports_json = serde_json::to_string(&exports)
+                .map_err(|err| AppError::ProjectLayout(err.into()))?;
             let deployment_id = api
-                .deploy(&env, &from_schema, label.as_deref(), prune)
+                .deploy(
+                    &env,
+                    &from_schema,
+                    label.as_deref(),
+                    prune,
+                    Some(deploy_exports_json.as_str()),
+                )
                 .map_err(AppError::DbQuery)?;
             let payload = json!({
                 "command": "deploy",

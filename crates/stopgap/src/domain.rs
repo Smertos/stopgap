@@ -7,6 +7,7 @@ pub(crate) struct FnVersionRow {
     pub(crate) live_fn_name: String,
     #[allow(dead_code)]
     pub(crate) function_path: Option<String>,
+    pub(crate) export_name: Option<String>,
     pub(crate) live_fn_schema: String,
     pub(crate) artifact_hash: String,
 }
@@ -147,6 +148,9 @@ pub(crate) fn fn_manifest_item(
     source_schema: &str,
     live_schema: &str,
     fn_name: &str,
+    function_path: &str,
+    module_path: &str,
+    export_name: &str,
     kind: &str,
     artifact_hash: &str,
     import_map: &serde_json::Map<String, Value>,
@@ -155,7 +159,7 @@ pub(crate) fn fn_manifest_item(
         "plts": 1,
         "kind": "artifact_ptr",
         "artifact_hash": artifact_hash,
-        "export": "default",
+        "export": export_name,
         "mode": "stopgap_deployed"
     });
 
@@ -165,6 +169,9 @@ pub(crate) fn fn_manifest_item(
 
     json!({
         "fn_name": fn_name,
+        "function_path": function_path,
+        "module_path": module_path,
+        "export_name": export_name,
         "source_schema": source_schema,
         "live_schema": live_schema,
         "kind": kind,
