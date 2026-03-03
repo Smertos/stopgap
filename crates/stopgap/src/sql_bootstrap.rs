@@ -27,10 +27,33 @@ extension_sql!(
         fn_name name NOT NULL,
         fn_schema name NOT NULL,
         live_fn_schema name NOT NULL,
+        live_fn_name name NOT NULL,
+        function_path text,
+        module_path text,
+        export_name text,
         kind text NOT NULL,
         artifact_hash text NOT NULL,
         PRIMARY KEY (deployment_id, fn_schema, fn_name)
     );
+
+    ALTER TABLE stopgap.fn_version
+        ADD COLUMN IF NOT EXISTS live_fn_name name;
+
+    ALTER TABLE stopgap.fn_version
+        ADD COLUMN IF NOT EXISTS function_path text;
+
+    ALTER TABLE stopgap.fn_version
+        ADD COLUMN IF NOT EXISTS module_path text;
+
+    ALTER TABLE stopgap.fn_version
+        ADD COLUMN IF NOT EXISTS export_name text;
+
+    UPDATE stopgap.fn_version
+       SET live_fn_name = fn_name
+     WHERE live_fn_name IS NULL;
+
+    ALTER TABLE stopgap.fn_version
+        ALTER COLUMN live_fn_name SET NOT NULL;
 
     CREATE TABLE IF NOT EXISTS stopgap.activation_log (
         id bigserial PRIMARY KEY,

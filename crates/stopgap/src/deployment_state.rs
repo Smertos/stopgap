@@ -109,7 +109,7 @@ pub(crate) fn reactivate_deployment(live_schema: &str, deployment_id: i64) -> Re
     let candidates = rows
         .iter()
         .map(|row| CandidateFn {
-            fn_name: row.fn_name.clone(),
+            fn_name: row.live_fn_name.clone(),
             artifact_hash: row.artifact_hash.clone(),
         })
         .collect::<Vec<_>>();
@@ -120,7 +120,7 @@ pub(crate) fn reactivate_deployment(live_schema: &str, deployment_id: i64) -> Re
             if row.live_fn_schema.is_empty() { live_schema } else { row.live_fn_schema.as_str() };
         materialize_live_pointer(
             schema,
-            row.fn_name.as_str(),
+            row.live_fn_name.as_str(),
             row.artifact_hash.as_str(),
             &import_map,
         )?;
@@ -143,11 +143,13 @@ pub(crate) fn fetch_fn_versions(deployment_id: i64) -> Result<Vec<FnVersionRow>,
         let rows = client.select(
             "
             SELECT fn_name::text AS fn_name,
+                   live_fn_name::text AS live_fn_name,
+                   function_path::text AS function_path,
                    live_fn_schema::text AS live_fn_schema,
                    artifact_hash::text AS artifact_hash
             FROM stopgap.fn_version
             WHERE deployment_id = $1
-            ORDER BY fn_name
+            ORDER BY COALESCE(function_path::text, fn_name::text)
             ",
             None,
             &[deployment_id.into()],
@@ -163,11 +165,24 @@ pub(crate) fn fetch_fn_versions(deployment_id: i64) -> Result<Vec<FnVersionRow>,
                 .get_by_name::<String, _>("live_fn_schema")
                 .expect("live_fn_schema must be text")
                 .expect("live_fn_schema cannot be null");
+            let live_fn_name = row
+                .get_by_name::<String, _>("live_fn_name")
+                .expect("live_fn_name must be text")
+                .expect("live_fn_name cannot be null");
+            let function_path = row
+                .get_by_name::<String, _>("function_path")
+                .expect("function_path must be text when present");
             let artifact_hash = row
                 .get_by_name::<String, _>("artifact_hash")
                 .expect("artifact_hash must be text")
                 .expect("artifact_hash cannot be null");
-            out.push(FnVersionRow { fn_name, live_fn_schema, artifact_hash });
+            out.push(FnVersionRow {
+                fn_name,
+                live_fn_name,
+                function_path,
+                live_fn_schema,
+                artifact_hash,
+            });
         }
 
         Ok::<Vec<FnVersionRow>, pgrx::spi::Error>(out)

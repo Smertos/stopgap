@@ -364,6 +364,7 @@ Key point: includes path-addressable exported stopgap functions discovered from 
 - `function_path text not null` (for example `api.coolApi.myFn`)
 - `module_path text not null` (for example `coolApi.ts`, `admin/users.ts`)
 - `export_name text not null` (for example `myFn`)
+- `live_fn_name name not null` (live-schema function identifier used for invocation/materialization)
 - `kind text not null` (`query`|`mutation`) (optional but useful)
 - `artifact_hash text not null` references `plts.artifact(artifact_hash)`
 - primary key `(deployment_id, function_path)`
@@ -404,7 +405,7 @@ SELECT stopgap.call_fn('api.coolApi.myFn', '{"id":1}'::jsonb);
 
 Current implementation status:
 - `stopgap.call_fn(path, args)` is now implemented in the `stopgap` extension and routes against the active deployment in `stopgap.default_env` (fallback `prod`).
-- Current routing bridge resolves the final path segment to deployed function name (`api.<...>.<export_name>` -> `<export_name>`) while legacy SQL-scan catalogs are still in place.
+- Current routing bridge first resolves exact `stopgap.fn_version.function_path` matches and invokes the stored `live_fn_name`; legacy rows without `function_path` still fall back to terminal export-segment lookup while SQL-scan catalogs remain in place.
 - Full collision-safe path identity (`function_path`) remains tracked work under roadmap section 14.3.
 
 Legacy/compatibility note: live-schema pointer-function materialization may remain as an optional bridge during migration, but it is not the primary authoring UX.

@@ -28,10 +28,36 @@ fn test_call_fn_invokes_active_route() {
             updated_at = now()
         WHERE env = 'prod';
 
-        INSERT INTO stopgap.fn_version (deployment_id, fn_name, fn_schema, live_fn_schema, kind, artifact_hash)
-        VALUES (91001, 'hello', 'call_fn_src', 'call_fn_live', 'mutation', 'sha256:callfn-hello')
+        INSERT INTO stopgap.fn_version (
+            deployment_id,
+            fn_name,
+            fn_schema,
+            live_fn_schema,
+            live_fn_name,
+            function_path,
+            module_path,
+            export_name,
+            kind,
+            artifact_hash
+        )
+        VALUES (
+            91001,
+            'hello',
+            'call_fn_src',
+            'call_fn_live',
+            'hello',
+            'api.users.hello',
+            'users',
+            'hello',
+            'mutation',
+            'sha256:callfn-hello'
+        )
         ON CONFLICT (deployment_id, fn_schema, fn_name) DO UPDATE
         SET artifact_hash = EXCLUDED.artifact_hash,
+            function_path = EXCLUDED.function_path,
+            module_path = EXCLUDED.module_path,
+            export_name = EXCLUDED.export_name,
+            live_fn_name = EXCLUDED.live_fn_name,
             live_fn_schema = EXCLUDED.live_fn_schema,
             kind = EXCLUDED.kind;
         "#,
@@ -151,8 +177,30 @@ fn test_call_fn_reports_unknown_path() {
             updated_at = now()
         WHERE env = 'unknown_path_env';
 
-        INSERT INTO stopgap.fn_version (deployment_id, fn_name, fn_schema, live_fn_schema, kind, artifact_hash)
-        VALUES (91002, 'known', 'call_fn_src', 'call_fn_live', 'mutation', 'sha256:known')
+        INSERT INTO stopgap.fn_version (
+            deployment_id,
+            fn_name,
+            fn_schema,
+            live_fn_schema,
+            live_fn_name,
+            function_path,
+            module_path,
+            export_name,
+            kind,
+            artifact_hash
+        )
+        VALUES (
+            91002,
+            'known',
+            'call_fn_src',
+            'call_fn_live',
+            'known',
+            'api.users.known',
+            'users',
+            'known',
+            'mutation',
+            'sha256:known'
+        )
         ON CONFLICT (deployment_id, fn_schema, fn_name) DO NOTHING;
 
         SELECT set_config('stopgap.default_env', 'unknown_path_env', true);
@@ -176,4 +224,82 @@ fn test_call_fn_reports_unknown_path() {
         "#,
     )
     .expect("unknown path should fail with clear error");
+}
+
+#[pg_test]
+fn test_call_fn_routes_by_full_function_path() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS call_fn_path_live CASCADE;
+        CREATE SCHEMA call_fn_path_live;
+
+        CREATE OR REPLACE FUNCTION call_fn_path_live.route_impl(args jsonb)
+        RETURNS jsonb
+        LANGUAGE sql
+        AS $$
+            SELECT jsonb_build_object('route', 'impl', 'args', args)
+        $$;
+
+        INSERT INTO stopgap.environment (env, live_schema, active_deployment_id)
+        VALUES ('call_fn_path_env', 'call_fn_path_live', NULL)
+        ON CONFLICT (env) DO UPDATE
+        SET live_schema = EXCLUDED.live_schema,
+            active_deployment_id = NULL,
+            updated_at = now();
+
+        INSERT INTO stopgap.deployment (id, env, label, source_schema, status, manifest)
+        VALUES (91003, 'call_fn_path_env', 'call-fn-path', 'call_fn_src', 'active', '{"functions":[]}'::jsonb)
+        ON CONFLICT (id) DO NOTHING;
+
+        UPDATE stopgap.environment
+        SET active_deployment_id = 91003,
+            updated_at = now()
+        WHERE env = 'call_fn_path_env';
+
+        INSERT INTO stopgap.fn_version (
+            deployment_id,
+            fn_name,
+            fn_schema,
+            live_fn_schema,
+            live_fn_name,
+            function_path,
+            module_path,
+            export_name,
+            kind,
+            artifact_hash
+        )
+        VALUES (
+            91003,
+            'legacy_hello',
+            'call_fn_src',
+            'call_fn_path_live',
+            'route_impl',
+            'api.users.hello',
+            'users',
+            'hello',
+            'mutation',
+            'sha256:path-route'
+        )
+        ON CONFLICT (deployment_id, fn_schema, fn_name) DO NOTHING;
+
+        SELECT set_config('stopgap.default_env', 'call_fn_path_env', true);
+        "#,
+    )
+    .expect("test should prepare function-path routing fixtures");
+
+    let out =
+        Spi::get_one::<JsonB>(r#"SELECT stopgap.call_fn('api.users.hello', '{"id":7}'::jsonb)"#)
+            .expect("path-routed call_fn execution should succeed")
+            .expect("path-routed call_fn should return jsonb");
+
+    assert_eq!(
+        out.0.get("route").and_then(|value| value.as_str()),
+        Some("impl"),
+        "call_fn should route via function_path metadata"
+    );
+    assert_eq!(
+        out.0.get("args").and_then(|value| value.get("id")).and_then(|value| value.as_i64()),
+        Some(7),
+        "call_fn should pass args to path-routed live function"
+    );
 }

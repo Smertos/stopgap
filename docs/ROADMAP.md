@@ -588,7 +588,7 @@ Minimum implementation evidence:
 - [ ] Keep versioned rollback semantics with function-path addressability.
 
 Minimum implementation evidence:
-- [ ] deploy metadata/catalog schema supports `function_path` entries
+- [x] deploy metadata/catalog schema supports `function_path` entries
 - [ ] deploy/rollback tests covering multiple exports from one module
 
 ### 14.4 Runtime execution routing
@@ -597,6 +597,9 @@ Minimum implementation evidence:
 - [ ] Execute named export with existing wrapper-aware DB mode enforcement (`query` RO, `mutation` RW).
 - [ ] Preserve runtime safety controls (timeout/cancel/heap/SQL guardrails) on routed calls.
 - [ ] Provide clear error classing with path context in messages/metrics.
+
+Progress notes:
+- [x] `stopgap.call_fn` now prefers exact `fn_version.function_path` route resolution and invokes stored `live_fn_name`; legacy rows without `function_path` still fall back to terminal export-segment routing.
 
 Minimum implementation evidence:
 - [ ] DB-backed runtime tests for path execution, wrapper mode enforcement, and guardrail behavior

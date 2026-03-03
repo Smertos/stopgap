@@ -158,16 +158,22 @@ mod unit_tests {
         let active = vec![
             crate::FnVersionRow {
                 fn_name: "alpha".to_string(),
+                live_fn_name: "alpha".to_string(),
+                function_path: None,
                 live_fn_schema: "live_deployment".to_string(),
                 artifact_hash: "sha256:1".to_string(),
             },
             crate::FnVersionRow {
                 fn_name: "beta".to_string(),
+                live_fn_name: "beta".to_string(),
+                function_path: None,
                 live_fn_schema: "live_deployment".to_string(),
                 artifact_hash: "sha256:2".to_string(),
             },
             crate::FnVersionRow {
                 fn_name: "delta".to_string(),
+                live_fn_name: "delta".to_string(),
+                function_path: None,
                 live_fn_schema: "live_deployment".to_string(),
                 artifact_hash: "sha256:4".to_string(),
             },

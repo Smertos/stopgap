@@ -46,14 +46,29 @@ pub(crate) fn run_deploy_flow(
         run_sql_with_args(
             "
                 INSERT INTO stopgap.fn_version
-                    (deployment_id, fn_name, fn_schema, live_fn_schema, kind, artifact_hash)
-                VALUES ($1, $2, $3, $4, 'mutation', $5)
+                    (
+                        deployment_id,
+                        fn_name,
+                        fn_schema,
+                        live_fn_schema,
+                        live_fn_name,
+                        function_path,
+                        module_path,
+                        export_name,
+                        kind,
+                        artifact_hash
+                    )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'mutation', $9)
                 ",
             &[
                 deployment_id.into(),
                 item.fn_name.as_str().into(),
                 from_schema.into(),
                 live_schema.into(),
+                item.fn_name.as_str().into(),
+                format!("api.legacy.{}", item.fn_name).into(),
+                "legacy".into(),
+                item.fn_name.as_str().into(),
                 artifact_hash.as_str().into(),
             ],
             "failed to insert stopgap.fn_version",

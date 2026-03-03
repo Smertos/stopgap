@@ -4,6 +4,9 @@ use serde_json::json;
 #[derive(Debug)]
 pub(crate) struct FnVersionRow {
     pub(crate) fn_name: String,
+    pub(crate) live_fn_name: String,
+    #[allow(dead_code)]
+    pub(crate) function_path: Option<String>,
     pub(crate) live_fn_schema: String,
     pub(crate) artifact_hash: String,
 }

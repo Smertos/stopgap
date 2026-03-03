@@ -11,6 +11,82 @@ use crate::{
     run_sql_with_args, transition_deployment_status, transition_if_active, update_failed_manifest,
 };
 
+fn validate_call_path(path: &str) {
+    if !path.starts_with("api.")
+        || path.split('.').any(str::is_empty)
+        || path.matches('.').count() < 2
+    {
+        error!(
+            "stopgap.call_fn invalid path '{}'; expected format api.<module_path>.<export_name>",
+            path
+        );
+    }
+}
+
+fn resolve_route(
+    deployment_id: i64,
+    path: &str,
+    export_name: &str,
+) -> Result<Option<(String, String)>, String> {
+    Spi::connect(|client| {
+        let mut exact_rows = client
+            .select(
+                "
+                SELECT live_fn_schema::text AS live_fn_schema,
+                       live_fn_name::text AS live_fn_name
+                FROM stopgap.fn_version
+                WHERE deployment_id = $1
+                  AND function_path = $2
+                LIMIT 1
+                ",
+                None,
+                &[deployment_id.into(), path.into()],
+            )?
+            .into_iter();
+
+        if let Some(row) = exact_rows.next() {
+            let live_schema = row
+                .get_by_name::<String, _>("live_fn_schema")?
+                .expect("live_fn_schema must not be null");
+            let live_fn_name = row
+                .get_by_name::<String, _>("live_fn_name")?
+                .expect("live_fn_name must not be null");
+            return Ok(Some((live_schema, live_fn_name)));
+        }
+
+        let mut legacy_rows = client
+            .select(
+                "
+                SELECT live_fn_schema::text AS live_fn_schema,
+                       COALESCE(live_fn_name::text, fn_name::text) AS live_fn_name
+                FROM stopgap.fn_version
+                WHERE deployment_id = $1
+                  AND function_path IS NULL
+                  AND fn_name = $2
+                LIMIT 1
+                ",
+                None,
+                &[deployment_id.into(), export_name.into()],
+            )?
+            .into_iter();
+
+        let resolved = legacy_rows.next().map(|row| {
+            let live_schema = row
+                .get_by_name::<String, _>("live_fn_schema")?
+                .expect("live_fn_schema must not be null");
+            let live_fn_name = row
+                .get_by_name::<String, _>("live_fn_name")?
+                .expect("live_fn_name must not be null");
+            Ok::<(String, String), pgrx::spi::Error>((live_schema, live_fn_name))
+        });
+
+        resolved.transpose()
+    })
+    .map_err(|e| {
+        format!("failed to resolve route for deployment {} path '{}': {e}", deployment_id, path)
+    })
+}
+
 #[pg_extern]
 fn hello_stopgap() -> &'static str {
     "Hello, stopgap"
@@ -145,15 +221,7 @@ mod stopgap {
 
     #[pg_extern]
     fn call_fn(path: &str, args: JsonB) -> Option<JsonB> {
-        if !path.starts_with("api.")
-            || path.split('.').any(str::is_empty)
-            || path.matches('.').count() < 2
-        {
-            error!(
-                "stopgap.call_fn invalid path '{}'; expected format api.<module_path>.<export_name>",
-                path
-            );
-        }
+        validate_call_path(path);
 
         let export_name = path.rsplit('.').next().expect("validated non-empty path");
         let env = resolve_default_env();
@@ -198,36 +266,22 @@ mod stopgap {
             )
         });
 
-        let route_exists = Spi::get_one_with_args::<bool>(
-            "
-            SELECT EXISTS (
-                SELECT 1
-                FROM stopgap.fn_version fv
-                WHERE fv.deployment_id = $1
-                  AND fv.fn_name = $2
-            )
-            ",
-            &[deployment_id.into(), export_name.into()],
-        )
-        .unwrap_or_else(|e| {
-            error!(
-                "stopgap.call_fn failed to resolve path '{}' in deployment {}: {e}",
-                path, deployment_id
-            )
-        })
-        .unwrap_or(false);
+        let (resolved_live_schema, live_fn_name) = resolve_route(deployment_id, path, export_name)
+            .unwrap_or_else(|e| error!("stopgap.call_fn {e}"))
+            .unwrap_or_else(|| {
+                error!(
+                    "stopgap.call_fn unknown path '{}' for env '{}' deployment {}",
+                    path, env, deployment_id
+                )
+            });
 
-        if !route_exists {
-            error!(
-                "stopgap.call_fn unknown path '{}' for env '{}' deployment {}",
-                path, env, deployment_id
-            );
-        }
+        let target_live_schema =
+            if resolved_live_schema.is_empty() { live_schema } else { resolved_live_schema };
 
         let invoke_sql = format!(
             "SELECT {}.{}($1::jsonb)",
-            crate::quote_ident(&live_schema),
-            crate::quote_ident(export_name)
+            crate::quote_ident(&target_live_schema),
+            crate::quote_ident(&live_fn_name)
         );
 
         Spi::get_one_with_args::<JsonB>(invoke_sql.as_str(), &[args.into()])
