@@ -8,7 +8,7 @@ const EXECUTE_WARM_REGRESSION_FACTOR: f64 = 1.20;
 fn execute_loop_total_ns() -> u128 {
     let started_at = Instant::now();
     Spi::run(
-        "SELECT tests_runtime_perf(jsonb_build_object('n', i)) FROM generate_series(1, 100) AS i",
+        "SELECT tests_runtime_perf(jsonb_build_object('n', i)) FROM generate_series(1, 1000) AS i",
     )
     .expect("runtime baseline execution loop should succeed");
     started_at.elapsed().as_nanos()
@@ -17,7 +17,7 @@ fn execute_loop_total_ns() -> u128 {
 #[pg_test]
 fn test_runtime_performance_baseline_snapshot() {
     let compile_iterations = 25_u128;
-    let execute_iterations = 100_u128;
+    let execute_iterations = 1_000_u128;
 
     let compile_started_at = Instant::now();
     Spi::run(

@@ -551,18 +551,21 @@ Minimum implementation evidence:
 - [x] acceptance gates include full required verification command set from section 13.1
 - [x] phase 2 conservative defaults + recycle-policy validation are covered by `crates/plts/src/isolate_pool.rs` defaults and unit tests
 - [x] phase 3 SLO thresholds + regression delta checks are enforced in `crates/plts/tests/pg/runtime_performance_baseline.rs` and documented in `docs/PERFORMANCE-BASELINE.md`
-- [ ] at least one green CI run per phase including runtime-heavy and stopgap regress lanes
-  - latest evidence: run `22617611887` (`https://github.com/Smertos/stopgap/actions/runs/22617611887`) had green `plts runtime v8 (pg17)` and green `pgrx baseline pg17 (stopgap)` (including `stopgap pg_regress` + `test_call_fn_`), while `pgrx baseline pg17 (plts)` failed from a measurable-time assertion flake in `runtime_performance_baseline`.
+- [x] at least one green CI run per phase including runtime-heavy and stopgap regress lanes
+  - evidence: run `22557192970` (`https://github.com/Smertos/stopgap/actions/runs/22557192970`) completed green with `plts runtime v8 (pg17)` and `pgrx baseline pg17 (stopgap)` including `stopgap pg_regress`.
+  - follow-up evidence: run `22617611887` (`https://github.com/Smertos/stopgap/actions/runs/22617611887`) confirmed the stopgap lane also executes `test_call_fn_`, while `pgrx baseline pg17 (plts)` failed from a measurable-time assertion flake in `runtime_performance_baseline`.
 
 #### R. Stabilize runtime performance baseline timing precision
 - [x] Remove millisecond-quantization flake from `runtime_performance_baseline` measurable-time assertions.
 - [x] Keep existing SLO threshold and warm-vs-cold regression checks unchanged.
 - [x] Re-verify runtime-heavy and stopgap validation lanes locally after the timing fix.
+- [x] Remove coarse-clock zero-elapsed flakes from warm-loop measurable-time assertions.
 
 Minimum implementation evidence:
 - [x] `crates/plts/tests/pg/runtime_performance_baseline.rs` now records loop totals in nanoseconds and converts to per-call milliseconds for SLO checks.
+- [x] runtime baseline execution loop now runs `generate_series(1, 1000)` with `execute_iterations = 1_000` to avoid zero-elapsed warm-loop measurements on coarse CI clocks while preserving per-call SLO and warm-vs-cold checks.
 - [x] targeted regression command passed: `cargo pgrx test pg17 -p plts --no-default-features --features pg17 test_runtime_performance_baseline_snapshot`
-- [x] local iteration 18 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
+- [x] local iteration 19 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
 
 ---
 
@@ -652,4 +655,4 @@ Decision note (iteration 15):
 Minimum implementation evidence:
 - [ ] at least one CI run green with new function-path tests included
   - CI run `22617611887` executed and passed `Run stopgap function-path call_fn tests` (`test_call_fn_`) in `pgrx baseline pg17 (stopgap)`.
-  - local iteration 18 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
+  - local iteration 19 verification passed after warm-loop timing flake fix: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
