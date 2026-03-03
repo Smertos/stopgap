@@ -143,3 +143,120 @@ fn test_deploy_uses_cli_export_metadata_for_pointer() {
         serde_json::from_str(pointer.as_str()).expect("live pointer should be valid json");
     assert_eq!(pointer_json.get("export").and_then(|value| value.as_str()), Some("hello"));
 }
+
+#[pg_test]
+fn test_deploy_rejects_missing_export_metadata_coverage() {
+    ensure_mock_plts_runtime();
+
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS sg_meta_drift_src CASCADE;
+        DROP SCHEMA IF EXISTS sg_meta_drift_live CASCADE;
+        CREATE SCHEMA sg_meta_drift_src;
+        SELECT set_config('stopgap.live_schema', 'sg_meta_drift_live', true);
+        SELECT set_config(
+            'stopgap.deploy_exports',
+            '[
+                {
+                    "module_path": "users",
+                    "export_name": "alpha",
+                    "function_path": "api.users.alpha",
+                    "kind": "query"
+                }
+            ]',
+            true
+        );
+        "#,
+    )
+    .expect("drift test setup should succeed");
+
+    create_deployable_function(
+        "sg_meta_drift_src",
+        "alpha",
+        "BEGIN RETURN jsonb_build_object('ok', true); END",
+    );
+    create_deployable_function(
+        "sg_meta_drift_src",
+        "beta",
+        "BEGIN RETURN jsonb_build_object('ok', true); END",
+    );
+
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM stopgap.deploy('it_env_meta_drift', 'sg_meta_drift_src', 'meta-drift');
+            RAISE EXCEPTION 'expected deploy export metadata drift failure';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('export metadata drift' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+                IF POSITION('missing deploy_exports entries for [beta]' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END
+        $$;
+        "#,
+    )
+    .expect("deploy should reject missing metadata coverage");
+}
+
+#[pg_test]
+fn test_deploy_rejects_unknown_export_metadata_entries() {
+    ensure_mock_plts_runtime();
+
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS sg_meta_unknown_src CASCADE;
+        DROP SCHEMA IF EXISTS sg_meta_unknown_live CASCADE;
+        CREATE SCHEMA sg_meta_unknown_src;
+        SELECT set_config('stopgap.live_schema', 'sg_meta_unknown_live', true);
+        SELECT set_config(
+            'stopgap.deploy_exports',
+            '[
+                {
+                    "module_path": "users",
+                    "export_name": "alpha",
+                    "function_path": "api.users.alpha",
+                    "kind": "query"
+                },
+                {
+                    "module_path": "users",
+                    "export_name": "ghost",
+                    "function_path": "api.users.ghost",
+                    "kind": "mutation"
+                }
+            ]',
+            true
+        );
+        "#,
+    )
+    .expect("unknown-entry test setup should succeed");
+
+    create_deployable_function(
+        "sg_meta_unknown_src",
+        "alpha",
+        "BEGIN RETURN jsonb_build_object('ok', true); END",
+    );
+
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM stopgap.deploy('it_env_meta_unknown', 'sg_meta_unknown_src', 'meta-unknown');
+            RAISE EXCEPTION 'expected deploy export metadata drift failure';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('export metadata drift' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+                IF POSITION('unknown deploy_exports entries [ghost]' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END
+        $$;
+        "#,
+    )
+    .expect("deploy should reject unknown metadata entries");
+}

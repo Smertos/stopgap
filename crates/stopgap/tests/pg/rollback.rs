@@ -85,3 +85,104 @@ fn test_rollback_reactivates_prior_deploy() {
 
     assert!(deploy_one < deploy_two && deploy_two < deploy_three);
 }
+
+#[pg_test]
+fn test_rollback_rematerializes_multiple_exports_from_same_module() {
+    ensure_mock_plts_runtime();
+
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS sg_it_rb_multi_src CASCADE;
+        DROP SCHEMA IF EXISTS sg_it_rb_multi_live CASCADE;
+        CREATE SCHEMA sg_it_rb_multi_src;
+        SELECT set_config('stopgap.live_schema', 'sg_it_rb_multi_live', true);
+        SELECT set_config(
+            'stopgap.deploy_exports',
+            '[
+                {
+                    "module_path": "admin/users",
+                    "export_name": "hello",
+                    "function_path": "api.admin.users.hello",
+                    "kind": "query"
+                },
+                {
+                    "module_path": "admin/users",
+                    "export_name": "update",
+                    "function_path": "api.admin.users.update",
+                    "kind": "mutation"
+                }
+            ]',
+            true
+        );
+        "#,
+    )
+    .expect("multi-export rollback setup should succeed");
+
+    create_deployable_function(
+        "sg_it_rb_multi_src",
+        "hello",
+        "BEGIN RETURN jsonb_build_object('version', 'v1', 'fn', 'hello'); END",
+    );
+    create_deployable_function(
+        "sg_it_rb_multi_src",
+        "update",
+        "BEGIN RETURN jsonb_build_object('version', 'v1', 'fn', 'update'); END",
+    );
+
+    let deploy_one = Spi::get_one::<i64>(
+        "SELECT stopgap.deploy('it_env_rb_multi', 'sg_it_rb_multi_src', 'multi-v1')",
+    )
+    .expect("multi-export deploy one should succeed")
+    .expect("multi-export deploy one should return id");
+
+    create_deployable_function(
+        "sg_it_rb_multi_src",
+        "hello",
+        "BEGIN RETURN jsonb_build_object('version', 'v2', 'fn', 'hello'); END",
+    );
+    create_deployable_function(
+        "sg_it_rb_multi_src",
+        "update",
+        "BEGIN RETURN jsonb_build_object('version', 'v2', 'fn', 'update'); END",
+    );
+
+    let deploy_two = Spi::get_one::<i64>(
+        "SELECT stopgap.deploy('it_env_rb_multi', 'sg_it_rb_multi_src', 'multi-v2')",
+    )
+    .expect("multi-export deploy two should succeed")
+    .expect("multi-export deploy two should return id");
+
+    let rolled_back_to = Spi::get_one::<i64>("SELECT stopgap.rollback('it_env_rb_multi', 1, NULL)")
+        .expect("multi-export rollback should succeed")
+        .expect("multi-export rollback should return target deployment id");
+    assert_eq!(rolled_back_to, deploy_one, "rollback should target first deployment");
+
+    let hello_live_pointer_hash = pointer_artifact_hash("sg_it_rb_multi_live", "hello");
+    let hello_v1_hash = fn_version_artifact_hash(deploy_one, "hello");
+    assert_eq!(
+        hello_live_pointer_hash, hello_v1_hash,
+        "rollback should rematerialize hello pointer to first deployment artifact"
+    );
+
+    let update_live_pointer_hash = pointer_artifact_hash("sg_it_rb_multi_live", "update");
+    let update_v1_hash = fn_version_artifact_hash(deploy_one, "update");
+    assert_eq!(
+        update_live_pointer_hash, update_v1_hash,
+        "rollback should rematerialize update pointer to first deployment artifact"
+    );
+
+    let exported_paths = Spi::get_one_with_args::<i64>(
+        "
+        SELECT COUNT(*)::bigint
+        FROM stopgap.fn_version
+        WHERE deployment_id = $1
+          AND function_path IN ('api.admin.users.hello', 'api.admin.users.update')
+        ",
+        &[deploy_one.into()],
+    )
+    .expect("function-path metadata lookup should succeed")
+    .expect("function-path metadata count should return a row");
+    assert_eq!(exported_paths, 2, "deployment should retain both module export paths");
+
+    assert!(deploy_one < deploy_two, "second deploy id should be newer");
+}

@@ -2,7 +2,7 @@ use pgrx::JsonB;
 use pgrx::prelude::*;
 use serde_json::Value;
 use serde_json::json;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
     CandidateFn, DeploymentStatus, PruneReport, compute_diff_rows, deployment_import_map,
@@ -31,10 +31,9 @@ struct DeployedFunction {
     kind: String,
 }
 
-fn deploy_export_overrides()
--> Result<std::collections::BTreeMap<String, DeployExportOverride>, String> {
+fn deploy_export_overrides() -> Result<BTreeMap<String, DeployExportOverride>, String> {
     let Some(raw) = crate::resolve_deploy_exports_json() else {
-        return Ok(std::collections::BTreeMap::new());
+        return Ok(BTreeMap::new());
     };
 
     let parsed = serde_json::from_str::<serde_json::Value>(&raw)
@@ -43,7 +42,7 @@ fn deploy_export_overrides()
         "stopgap.deploy expected stopgap.deploy_exports to be a JSON array of exports".to_string()
     })?;
 
-    let mut overrides = std::collections::BTreeMap::new();
+    let mut overrides = BTreeMap::new();
     for entry in entries {
         let export_name = entry
             .get("export_name")
@@ -75,6 +74,13 @@ fn deploy_export_overrides()
             .to_string();
         let kind = entry.get("kind").and_then(Value::as_str).unwrap_or("mutation").to_string();
 
+        if overrides.contains_key(&export_name) {
+            return Err(format!(
+                "stopgap.deploy duplicate export_name '{}' in stopgap.deploy_exports",
+                export_name
+            ));
+        }
+
         overrides.insert(
             export_name.clone(),
             DeployExportOverride { function_path, module_path, export_name, kind },
@@ -82,6 +88,42 @@ fn deploy_export_overrides()
     }
 
     Ok(overrides)
+}
+
+fn validate_deploy_export_coverage(
+    deployable_functions: &[crate::deployment_utils::DeployableFn],
+    export_overrides: &BTreeMap<String, DeployExportOverride>,
+) -> Result<(), String> {
+    if export_overrides.is_empty() {
+        return Ok(());
+    }
+
+    let deployable_names =
+        deployable_functions.iter().map(|item| item.fn_name.as_str()).collect::<BTreeSet<_>>();
+    let override_names = export_overrides.keys().map(String::as_str).collect::<BTreeSet<_>>();
+
+    let missing = deployable_names
+        .difference(&override_names)
+        .copied()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let unknown = override_names
+        .difference(&deployable_names)
+        .copied()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+
+    if missing.is_empty() && unknown.is_empty() {
+        return Ok(());
+    }
+
+    let missing_msg = if missing.is_empty() { "none".to_string() } else { missing.join(", ") };
+    let unknown_msg = if unknown.is_empty() { "none".to_string() } else { unknown.join(", ") };
+
+    Err(format!(
+        "stopgap.deploy export metadata drift: missing deploy_exports entries for [{}]; unknown deploy_exports entries [{}]",
+        missing_msg, unknown_msg
+    ))
 }
 
 pub(crate) fn run_deploy_flow(
@@ -92,6 +134,7 @@ pub(crate) fn run_deploy_flow(
 ) -> Result<(), String> {
     let fns = fetch_deployable_functions(from_schema)?;
     let export_overrides = deploy_export_overrides()?;
+    validate_deploy_export_coverage(&fns, &export_overrides)?;
     let prune_enabled = resolve_prune_enabled();
     run_sql(
         &format!("CREATE SCHEMA IF NOT EXISTS {}", quote_ident(live_schema)),

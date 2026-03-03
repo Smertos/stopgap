@@ -588,13 +588,14 @@ Minimum implementation evidence:
 - [x] Require exported functions to be wrapped by `query(...)` or `mutation(...)`.
 - [ ] Persist deployment manifest keyed by function path (not SQL function name scan from user schemas).
 - [ ] Keep versioned rollback semantics with function-path addressability.
-- [ ] Validate CLI export metadata coverage against compiled deployable functions (fail when wrapper exports and deployable SQL identities drift).
+- [x] Validate CLI export metadata coverage against compiled deployable functions (fail when wrapper exports and deployable SQL identities drift).
 
 Minimum implementation evidence:
 - [x] deploy metadata/catalog schema supports `function_path` entries
 - [x] CLI preflight export scan rejects non-wrapper named exports and emits deterministic function paths (`crates/stopgap-cli/src/lib.rs`, `crates/stopgap-cli/tests/command_integration.rs`)
 - [x] CLI deploy now forwards discovered export metadata to DB deploy via transaction-local `stopgap.deploy_exports`, and stopgap deploy records path/module/export/kind metadata plus pointer `export` selection in `fn_version` + deployment manifest (`crates/stopgap-cli/src/lib.rs`, `crates/stopgap/src/api_ops.rs`, `crates/stopgap/tests/pg/deploy_pointer.rs`)
-- [ ] deploy/rollback tests covering multiple exports from one module
+- [x] stopgap deploy now rejects `stopgap.deploy_exports` drift (missing/unknown/duplicate export metadata entries) before compile/materialization (`crates/stopgap/src/api_ops.rs`, `crates/stopgap/tests/pg/deploy_pointer.rs`)
+- [x] deploy/rollback tests covering multiple exports from one module (`crates/stopgap/tests/pg/rollback.rs`)
 
 ### 14.4 Runtime execution routing
 
