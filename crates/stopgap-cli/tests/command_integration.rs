@@ -1,6 +1,15 @@
+use std::{
+    fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
-use stopgap_cli::{AppError, Command, EXIT_DB_QUERY, OutputMode, StopgapApi, execute_command};
+use stopgap_cli::{
+    AppError, Command, EXIT_DB_QUERY, EXIT_PROJECT_LAYOUT, OutputMode, StopgapApi,
+    discover_stopgap_modules, execute_command_with_project_root,
+};
 
 struct MockApi {
     deploy_result: Result<i64>,
@@ -62,7 +71,10 @@ fn parse_json_output(buffer: Vec<u8>) -> Value {
 fn deploy_json_output_schema_is_stable() {
     let mut api = MockApi { deploy_result: Ok(42), ..Default::default() };
     let mut out = Vec::new();
-    execute_command(
+    let project = create_project_root("deploy_json_output_schema_is_stable");
+    write_file(project.join("stopgap/coolApi.ts"), "export const x = 1;");
+    write_file(project.join("stopgap/admin/users.ts"), "export const y = 2;");
+    execute_command_with_project_root(
         Command::Deploy {
             env: "prod".to_string(),
             from_schema: "app".to_string(),
@@ -72,6 +84,7 @@ fn deploy_json_output_schema_is_stable() {
         OutputMode::Json,
         &mut api,
         &mut out,
+        &project,
     )
     .expect("deploy succeeds");
 
@@ -79,6 +92,10 @@ fn deploy_json_output_schema_is_stable() {
     assert_eq!(payload["command"], "deploy");
     assert_eq!(payload["env"], "prod");
     assert_eq!(payload["from_schema"], "app");
+    assert_eq!(payload["source_root"], "stopgap");
+    assert_eq!(payload["module_count"], 2);
+    assert_eq!(payload["module_paths"][0], "api.admin.users");
+    assert_eq!(payload["module_paths"][1], "api.coolApi");
     assert_eq!(payload["deployment_id"], 42);
     assert_eq!(payload["prune"], true);
 }
@@ -87,11 +104,12 @@ fn deploy_json_output_schema_is_stable() {
 fn rollback_json_output_schema_is_stable() {
     let mut api = MockApi { rollback_result: Ok(40), ..Default::default() };
     let mut out = Vec::new();
-    execute_command(
+    execute_command_with_project_root(
         Command::Rollback { env: "prod".to_string(), steps: 2, to_id: Some(40) },
         OutputMode::Json,
         &mut api,
         &mut out,
+        &project_root_for_non_deploy_tests(),
     )
     .expect("rollback succeeds");
 
@@ -110,11 +128,12 @@ fn status_json_output_schema_is_stable() {
         ..Default::default()
     };
     let mut out = Vec::new();
-    execute_command(
+    execute_command_with_project_root(
         Command::Status { env: "prod".to_string() },
         OutputMode::Json,
         &mut api,
         &mut out,
+        &project_root_for_non_deploy_tests(),
     )
     .expect("status succeeds");
 
@@ -134,11 +153,12 @@ fn deployments_json_output_schema_is_stable() {
         ..Default::default()
     };
     let mut out = Vec::new();
-    execute_command(
+    execute_command_with_project_root(
         Command::Deployments { env: "prod".to_string() },
         OutputMode::Json,
         &mut api,
         &mut out,
+        &project_root_for_non_deploy_tests(),
     )
     .expect("deployments succeeds");
 
@@ -156,11 +176,12 @@ fn diff_json_output_schema_is_stable() {
         ..Default::default()
     };
     let mut out = Vec::new();
-    execute_command(
+    execute_command_with_project_root(
         Command::Diff { env: "prod".to_string(), from_schema: "app".to_string() },
         OutputMode::Json,
         &mut api,
         &mut out,
+        &project_root_for_non_deploy_tests(),
     )
     .expect("diff succeeds");
 
@@ -176,14 +197,77 @@ fn db_query_failures_use_non_zero_query_exit_code() {
     let mut api = MockApi { status_result: Err(anyhow!("query failed")), ..Default::default() };
     let mut out = Vec::new();
 
-    let error = execute_command(
+    let error = execute_command_with_project_root(
         Command::Status { env: "prod".to_string() },
         OutputMode::Json,
         &mut api,
         &mut out,
+        &project_root_for_non_deploy_tests(),
     )
     .expect_err("status should fail");
 
     assert!(matches!(error, AppError::DbQuery(_)));
     assert_eq!(error.code(), EXIT_DB_QUERY);
+}
+
+#[test]
+fn deploy_fails_fast_when_stopgap_source_root_missing() {
+    let mut api = MockApi { deploy_result: Ok(42), ..Default::default() };
+    let mut out = Vec::new();
+    let project = create_project_root("deploy_fails_fast_when_stopgap_source_root_missing");
+
+    let error = execute_command_with_project_root(
+        Command::Deploy {
+            env: "prod".to_string(),
+            from_schema: "app".to_string(),
+            label: None,
+            prune: false,
+        },
+        OutputMode::Json,
+        &mut api,
+        &mut out,
+        &project,
+    )
+    .expect_err("deploy should fail if stopgap/ is missing");
+
+    assert!(matches!(error, AppError::ProjectLayout(_)));
+    assert_eq!(error.code(), EXIT_PROJECT_LAYOUT);
+    assert!(
+        error.to_string().contains("project not initialized: expected `stopgap/` directory"),
+        "error message should include init guidance"
+    );
+}
+
+#[test]
+fn discover_stopgap_modules_normalizes_paths_deterministically() {
+    let project =
+        create_project_root("discover_stopgap_modules_normalizes_paths_deterministically");
+    write_file(project.join("stopgap/coolApi.ts"), "export const cool = 1;");
+    write_file(project.join("stopgap/admin/users.ts"), "export const list = 1;");
+    write_file(project.join("stopgap/admin/types.d.ts"), "export type T = string;");
+    write_file(project.join("stopgap/README.md"), "not a module");
+
+    let modules = discover_stopgap_modules(&project).expect("module discovery should succeed");
+    assert_eq!(modules, vec!["api.admin.users", "api.coolApi"]);
+}
+
+fn project_root_for_non_deploy_tests() -> PathBuf {
+    PathBuf::from(".")
+}
+
+fn create_project_root(test_name: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock should be monotonic enough for test tempdirs")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!("stopgap-cli-{test_name}-{nanos}"));
+    fs::create_dir_all(&root).expect("temp project dir should be created");
+    root
+}
+
+fn write_file(path: PathBuf, content: &str) {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("parent dir should exist");
+    }
+    fs::write(path, content).expect("file should be written");
 }

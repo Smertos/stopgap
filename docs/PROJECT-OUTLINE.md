@@ -517,6 +517,8 @@ Current implementation status:
 - `crates/stopgap-cli` now implements deploy/rollback/status/deployments and diff commands against the SQL API.
 - CLI supports `--output human|json` for operator and automation workflows.
 - CLI uses explicit non-zero exit codes for connection/query/decode/output failures for CI/CD diagnostics.
+- CLI deploy command now preflights project layout by requiring `./stopgap`, failing fast with a clear not-initialized error when missing.
+- CLI deploy preflight now enumerates deployable `stopgap/**/*.ts` modules and normalizes deterministic module namespaces (`api.<module_path_without_ext>`) before issuing SQL deploy calls.
 - CLI now has integration-style command coverage via an injectable API boundary (`crates/stopgap-cli/tests/command_integration.rs`) validating deploy/status/rollback/deployments/diff JSON payload shapes and query-failure non-zero exit code mapping.
 - CI baseline now runs `packages/runtime` typecheck + Vitest (`npm run check` and `npm run test`) alongside Rust checks/tests; pgrx/runtime lanes build the embedded runtime artifact before Rust execution.
 

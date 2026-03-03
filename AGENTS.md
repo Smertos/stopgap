@@ -38,6 +38,7 @@ This file captures how to work effectively in this repository.
 - Primary stopgap app authoring model is TS-first from project-local `stopgap/**/*.ts` modules.
 - Stopgap app function identity is path-based: `api.<module_path_without_ext>.<named_export>`.
 - Stopgap public invocation surface is `stopgap.call_fn(path text, args jsonb)`.
+- CLI deploy preflight must fail fast when `./stopgap` is missing and normalize discovered module paths to deterministic `api.<module_path_without_ext>` namespaces.
 - Current migration bridge: `stopgap.call_fn` routes through active deployment metadata and currently resolves the terminal export segment while full `function_path`-keyed catalogs are still being implemented.
 - Stopgap-managed overloading is forbidden.
 - Regular `plts` calling convention should expose both positional and named/object argument forms.

@@ -1,4 +1,4 @@
-use std::{fmt, io::Write};
+use std::{fmt, fs, io::Write, path::Path};
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
@@ -9,6 +9,7 @@ pub const EXIT_DB_CONNECT: u8 = 10;
 pub const EXIT_DB_QUERY: u8 = 11;
 pub const EXIT_RESPONSE_DECODE: u8 = 12;
 pub const EXIT_OUTPUT_FORMAT: u8 = 13;
+pub const EXIT_PROJECT_LAYOUT: u8 = 14;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum OutputMode {
@@ -80,6 +81,7 @@ pub enum AppError {
     DbQuery(anyhow::Error),
     Decode(anyhow::Error),
     Print(anyhow::Error),
+    ProjectLayout(anyhow::Error),
 }
 
 impl AppError {
@@ -89,6 +91,7 @@ impl AppError {
             Self::DbQuery(_) => EXIT_DB_QUERY,
             Self::Decode(_) => EXIT_RESPONSE_DECODE,
             Self::Print(_) => EXIT_OUTPUT_FORMAT,
+            Self::ProjectLayout(_) => EXIT_PROJECT_LAYOUT,
         }
     }
 }
@@ -100,6 +103,7 @@ impl fmt::Display for AppError {
             Self::DbQuery(err) => write!(f, "database command failed: {err:#}"),
             Self::Decode(err) => write!(f, "invalid database response: {err:#}"),
             Self::Print(err) => write!(f, "failed to print output: {err:#}"),
+            Self::ProjectLayout(err) => write!(f, "project layout check failed: {err:#}"),
         }
     }
 }
@@ -189,8 +193,22 @@ pub fn execute_command(
     api: &mut dyn StopgapApi,
     writer: &mut dyn Write,
 ) -> std::result::Result<(), AppError> {
+    let project_root =
+        std::env::current_dir().map_err(|err| AppError::ProjectLayout(err.into()))?;
+    execute_command_with_project_root(command, output, api, writer, &project_root)
+}
+
+pub fn execute_command_with_project_root(
+    command: Command,
+    output: OutputMode,
+    api: &mut dyn StopgapApi,
+    writer: &mut dyn Write,
+    project_root: &Path,
+) -> std::result::Result<(), AppError> {
     match command {
         Command::Deploy { env, from_schema, label, prune } => {
+            let module_paths =
+                discover_stopgap_modules(project_root).map_err(AppError::ProjectLayout)?;
             let deployment_id = api
                 .deploy(&env, &from_schema, label.as_deref(), prune)
                 .map_err(AppError::DbQuery)?;
@@ -198,13 +216,20 @@ pub fn execute_command(
                 "command": "deploy",
                 "env": env,
                 "from_schema": from_schema,
+                "source_root": "stopgap",
+                "module_count": module_paths.len(),
+                "module_paths": module_paths,
                 "deployment_id": deployment_id,
                 "prune": prune,
             });
             print_payload(output, payload, writer, || {
                 format!(
-                    "deployed env={} from_schema={} deployment_id={} prune={}",
-                    env, from_schema, deployment_id, prune
+                    "deployed env={} from_schema={} deployment_id={} prune={} module_count={}",
+                    env,
+                    from_schema,
+                    deployment_id,
+                    prune,
+                    module_paths.len()
                 )
             })
         }
@@ -269,6 +294,85 @@ pub fn execute_command(
     }
 }
 
+pub fn discover_stopgap_modules(project_root: &Path) -> Result<Vec<String>> {
+    let source_root = project_root.join("stopgap");
+    if !source_root.is_dir() {
+        anyhow::bail!(
+            "project not initialized: expected `stopgap/` directory at {}",
+            source_root.display()
+        );
+    }
+
+    let mut modules = Vec::new();
+    collect_stopgap_modules(&source_root, &source_root, &mut modules)?;
+    modules.sort();
+    modules.dedup();
+    Ok(modules)
+}
+
+fn collect_stopgap_modules(root: &Path, cursor: &Path, modules: &mut Vec<String>) -> Result<()> {
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(cursor)
+        .with_context(|| format!("failed to read stopgap source directory {}", cursor.display()))?
+    {
+        entries.push(entry?.path());
+    }
+    entries.sort();
+
+    for path in entries {
+        if path.is_dir() {
+            collect_stopgap_modules(root, &path, modules)?;
+            continue;
+        }
+
+        if !is_deployable_ts_module(&path) {
+            continue;
+        }
+
+        let module_path = normalize_module_path(root, &path)?;
+        modules.push(module_path);
+    }
+
+    Ok(())
+}
+
+fn is_deployable_ts_module(path: &Path) -> bool {
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+
+    file_name.ends_with(".ts") && !file_name.ends_with(".d.ts")
+}
+
+fn normalize_module_path(source_root: &Path, module_path: &Path) -> Result<String> {
+    let relative = module_path.strip_prefix(source_root).with_context(|| {
+        format!("module path {} is not under stopgap root", module_path.display())
+    })?;
+
+    let mut segments = Vec::new();
+    for component in relative.components() {
+        let raw = component.as_os_str().to_str().with_context(|| {
+            format!("module path contains non-utf8 component: {}", module_path.display())
+        })?;
+
+        if raw.is_empty() {
+            continue;
+        }
+
+        if raw.ends_with(".ts") {
+            segments.push(raw.trim_end_matches(".ts").to_string());
+        } else {
+            segments.push(raw.to_string());
+        }
+    }
+
+    if segments.is_empty() {
+        anyhow::bail!("module path {} does not resolve to api namespace", module_path.display());
+    }
+
+    Ok(format!("api.{}", segments.join(".")))
+}
+
 fn print_payload<F>(
     output: OutputMode,
     payload: Value,
@@ -324,5 +428,6 @@ mod tests {
         assert_eq!(EXIT_DB_QUERY, 11);
         assert_eq!(EXIT_RESPONSE_DECODE, 12);
         assert_eq!(EXIT_OUTPUT_FORMAT, 13);
+        assert_eq!(EXIT_PROJECT_LAYOUT, 14);
     }
 }

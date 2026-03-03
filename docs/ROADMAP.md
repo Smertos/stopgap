@@ -571,14 +571,14 @@ Minimum implementation evidence:
 
 ### 14.2 CLI project model (`stopgap/` directory)
 
-- [ ] Add CLI project-root detection for `./stopgap` directory.
-- [ ] If `./stopgap` is missing, fail fast with clear "not initialized" guidance.
-- [ ] Enumerate `stopgap/**/*.ts` as deployable module set.
-- [ ] Add deterministic module path normalization from filesystem path to `api.*` namespace.
+- [x] Add CLI project-root detection for `./stopgap` directory.
+- [x] If `./stopgap` is missing, fail fast with clear "not initialized" guidance.
+- [x] Enumerate `stopgap/**/*.ts` as deployable module set.
+- [x] Add deterministic module path normalization from filesystem path to `api.*` namespace.
 
 Minimum implementation evidence:
-- [ ] CLI integration tests for missing-dir and path normalization behavior
-- [ ] docs/quickstart examples use `stopgap/` source tree layout
+- [x] CLI integration tests for missing-dir and path normalization behavior (`crates/stopgap-cli/tests/command_integration.rs`)
+- [x] docs/quickstart examples use `stopgap/` source tree layout (`docs/DEVELOPER-QUICKSTART.md`)
 
 ### 14.3 Multi-export module deployment model
 
