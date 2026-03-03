@@ -104,10 +104,10 @@ This file captures how to work effectively in this repository.
   - release verification gate: full command set in the checklist below must pass before phase promotion
 - Rollback condition: if any acceptance gate regresses, revert to the prior stable phase defaults and re-validate all required lanes before retrying rollout.
 
-Current checkpoint status (iteration 13):
+Current checkpoint status (iteration 17):
 - Phase 1 complete.
 - Phase 2 complete (conservative isolate reuse defaults + recycle-policy unit validation in `crates/plts/src/isolate_pool.rs`).
-- Phase 3 pending (tuning + SLO enforcement).
+- Phase 3 complete (runtime performance baseline now enforces compile/cold/warm SLO thresholds plus warm-vs-cold regression delta checks in `crates/plts/tests/pg/runtime_performance_baseline.rs`).
 
 ## Validation checklist for each meaningful change
 

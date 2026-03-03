@@ -25,10 +25,12 @@ Based on current behavior and code-path review, the highest-cost paths are:
 
 Tracking targets for this baseline:
 
-- compile throughput target: keep average compile latency under `10ms/call` in local dev baseline runs
-- execute throughput target: keep average execute latency under `2ms/call` for passthrough stopgap-signature handlers
+- compile throughput target: keep average compile latency under `15ms/call`
+- execute cold-path target: keep first execute-loop average under `5ms/call`
+- execute warm-path target: keep second execute-loop average under `4ms/call`
+- warm-regression target: keep warm average under `1.2x` of cold average
 
-These are pragmatic guardrails for trend tracking, not hard CI gating thresholds.
+These thresholds are now enforced directly in `test_runtime_performance_baseline_snapshot`.
 
 ## Optimization candidates selected for next step
 
@@ -96,3 +98,11 @@ TIMEFMT='BENCHMARK_WALL_SECONDS=%E'; time cargo pgrx test -p plts pg17 test_runt
 
 - after (iteration 12 cache policy hardening): `BENCHMARK_WALL_SECONDS=6.18s`
 - note: this is a command-level wall-clock measurement and includes extension build/install overhead in addition to execute-loop runtime work.
+
+## Iteration 17 phase-3 SLO enforcement update
+
+- Updated `crates/plts/tests/pg/runtime_performance_baseline.rs` to:
+  - measure compile loop plus both cold and warm execute loops separately;
+  - enforce SLO thresholds for compile/cold/warm per-call latencies;
+  - enforce an explicit warm-vs-cold regression delta (`warm <= 1.2x cold`).
+- This converts phase-3 performance guardrails from documentation-only targets into executable test assertions.

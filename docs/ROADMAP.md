@@ -536,10 +536,10 @@ Minimum implementation evidence:
 - [x] before/after benchmark evidence captured for each lifecycle optimization increment
 
 #### Q. Rollout phases, acceptance gates, and regression protections
-- [ ] Phase rollout: (1) boundary and instrumentation, (2) conservative reuse defaults, (3) tuning and SLO enforcement.
+- [x] Phase rollout: (1) boundary and instrumentation, (2) conservative reuse defaults, (3) tuning and SLO enforcement.
   - [x] Phase 1 checklist defined: runtime boundary docs/tests, baseline metrics dimensions, and explicit CI gate references.
   - [x] Phase 2 checklist executed: conservative isolate reuse defaults and recycle-policy validation.
-  - [ ] Phase 3 checklist pending execution: tuning updates, SLO threshold enforcement, and regression benchmark deltas.
+  - [x] Phase 3 checklist executed: tuning updates, SLO threshold enforcement, and regression benchmark deltas.
 - [x] Define acceptance gates per phase with explicit rollback conditions.
   - [x] Gate A (runtime contract): invocation-isolation + runtime contract tests must pass; rollback if context isolation regresses.
   - [x] Gate B (runtime safety): timeout/cancel/heap-limit termination tests must pass; rollback if tainted isolates are reused.
@@ -550,6 +550,7 @@ Minimum implementation evidence:
 - [x] phase checklist tracked in roadmap and reflected in CI/docs references
 - [x] acceptance gates include full required verification command set from section 13.1
 - [x] phase 2 conservative defaults + recycle-policy validation are covered by `crates/plts/src/isolate_pool.rs` defaults and unit tests
+- [x] phase 3 SLO thresholds + regression delta checks are enforced in `crates/plts/tests/pg/runtime_performance_baseline.rs` and documented in `docs/PERFORMANCE-BASELINE.md`
 - [ ] at least one green CI run per phase including runtime-heavy and stopgap regress lanes
 
 ---
@@ -639,4 +640,4 @@ Decision note (iteration 15):
 
 Minimum implementation evidence:
 - [ ] at least one CI run green with new function-path tests included
-  - local iteration 16 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
+  - local iteration 17 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`

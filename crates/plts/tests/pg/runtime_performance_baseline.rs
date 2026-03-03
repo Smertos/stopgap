@@ -1,5 +1,19 @@
 use std::time::Instant;
 
+const COMPILE_SLO_MS_PER_CALL: f64 = 15.0;
+const EXECUTE_COLD_SLO_MS_PER_CALL: f64 = 5.0;
+const EXECUTE_WARM_SLO_MS_PER_CALL: f64 = 4.0;
+const EXECUTE_WARM_REGRESSION_FACTOR: f64 = 1.20;
+
+fn execute_loop_total_ms() -> u128 {
+    let started_at = Instant::now();
+    Spi::run(
+        "SELECT tests_runtime_perf(jsonb_build_object('n', i)) FROM generate_series(1, 100) AS i",
+    )
+    .expect("runtime baseline execution loop should succeed");
+    started_at.elapsed().as_millis()
+}
+
 #[pg_test]
 fn test_runtime_performance_baseline_snapshot() {
     let compile_iterations = 25_u128;
@@ -26,21 +40,50 @@ fn test_runtime_performance_baseline_snapshot() {
     )
     .expect("runtime baseline function creation should succeed");
 
-    let execute_started_at = Instant::now();
-    Spi::run(
-        "SELECT tests_runtime_perf(jsonb_build_object('n', i)) FROM generate_series(1, 100) AS i",
-    )
-    .expect("runtime baseline execution loop should succeed");
-    let execute_total_ms = execute_started_at.elapsed().as_millis();
+    let execute_cold_total_ms = execute_loop_total_ms();
+    let execute_warm_total_ms = execute_loop_total_ms();
 
     let compile_per_call_ms = compile_total_ms as f64 / compile_iterations as f64;
-    let execute_per_call_ms = execute_total_ms as f64 / execute_iterations as f64;
+    let execute_cold_per_call_ms = execute_cold_total_ms as f64 / execute_iterations as f64;
+    let execute_warm_per_call_ms = execute_warm_total_ms as f64 / execute_iterations as f64;
 
     eprintln!(
-        "PERF_BASELINE compile_total_ms={} compile_per_call_ms={:.2} execute_total_ms={} execute_per_call_ms={:.2}",
-        compile_total_ms, compile_per_call_ms, execute_total_ms, execute_per_call_ms
+        "PERF_BASELINE compile_total_ms={} compile_per_call_ms={:.2} execute_cold_total_ms={} execute_cold_per_call_ms={:.2} execute_warm_total_ms={} execute_warm_per_call_ms={:.2}",
+        compile_total_ms,
+        compile_per_call_ms,
+        execute_cold_total_ms,
+        execute_cold_per_call_ms,
+        execute_warm_total_ms,
+        execute_warm_per_call_ms
     );
 
     assert!(compile_total_ms > 0, "compile loop should take measurable time");
-    assert!(execute_total_ms > 0, "execute loop should take measurable time");
+    assert!(execute_cold_total_ms > 0, "cold execute loop should take measurable time");
+    assert!(execute_warm_total_ms > 0, "warm execute loop should take measurable time");
+
+    assert!(
+        compile_per_call_ms <= COMPILE_SLO_MS_PER_CALL,
+        "compile latency SLO exceeded: {:.2}ms > {:.2}ms",
+        compile_per_call_ms,
+        COMPILE_SLO_MS_PER_CALL
+    );
+    assert!(
+        execute_cold_per_call_ms <= EXECUTE_COLD_SLO_MS_PER_CALL,
+        "cold execute latency SLO exceeded: {:.2}ms > {:.2}ms",
+        execute_cold_per_call_ms,
+        EXECUTE_COLD_SLO_MS_PER_CALL
+    );
+    assert!(
+        execute_warm_per_call_ms <= EXECUTE_WARM_SLO_MS_PER_CALL,
+        "warm execute latency SLO exceeded: {:.2}ms > {:.2}ms",
+        execute_warm_per_call_ms,
+        EXECUTE_WARM_SLO_MS_PER_CALL
+    );
+    assert!(
+        execute_warm_per_call_ms <= execute_cold_per_call_ms * EXECUTE_WARM_REGRESSION_FACTOR,
+        "warm execute regression exceeded allowed factor: warm {:.2}ms, cold {:.2}ms, factor {:.2}",
+        execute_warm_per_call_ms,
+        execute_cold_per_call_ms,
+        EXECUTE_WARM_REGRESSION_FACTOR
+    );
 }
