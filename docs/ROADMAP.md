@@ -653,7 +653,8 @@ Decision note (iteration 15):
 - [x] Add CI checks specific to new CLI project model and function-path invocation tests.
 
 Minimum implementation evidence:
-- [ ] at least one CI run green with new function-path tests included
-  - CI run `22617611887` executed and passed `Run stopgap function-path call_fn tests` (`test_call_fn_`) in `pgrx baseline pg17 (stopgap)`.
+- [x] at least one CI run green with new function-path tests included
+  - evidence: CI run `22557192970` (`https://github.com/Smertos/stopgap/actions/runs/22557192970`) completed green end-to-end, including `pgrx baseline pg17 (stopgap)` where the full stopgap pg_test suite (including `crates/stopgap/tests/pg/call_fn.rs`) executed.
+  - supporting evidence: CI run `22617611887` executed and passed the focused `Run stopgap function-path call_fn tests` (`test_call_fn_`) step in `pgrx baseline pg17 (stopgap)`.
   - local iteration 19 verification passed after warm-loop timing flake fix: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
   - [x] unexpected blocker addressed: `pgrx baseline pg17 (plts)` measurable-time flake (`warm execute loop should take measurable time`) hardened with bounded nanosecond measurement retries in `crates/plts/tests/pg/runtime_performance_baseline.rs`; local verification rerun passed with the full section 13.1 command set.
