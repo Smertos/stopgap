@@ -415,7 +415,11 @@ Current implementation status:
 - Legacy export-segment fallback now fails explicitly when route metadata is ambiguous instead of picking an arbitrary row.
 - Full collision-safe path identity (`function_path`) remains tracked work under roadmap section 14.3.
 
-Legacy/compatibility note: live-schema pointer-function materialization may remain as an optional bridge during migration, but it is not the primary authoring UX.
+Legacy/compatibility note (locked decision, iteration 15): live-schema pointer-function materialization remains enabled as an extension-managed compatibility bridge during migration, but it is not the primary authoring UX.
+
+- Primary invocation API stays `stopgap.call_fn(path, args)` for TS-first app workflows.
+- Compatibility wrappers are generated/materialized by stopgap deploy/rollback only.
+- User-authored SQL wrappers are out of scope for the supported workflow and remain legacy-only fallback behavior.
 
 ### Drop/prune policy
 - Default: **no drop** (safer for dependencies).

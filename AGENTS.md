@@ -38,6 +38,7 @@ This file captures how to work effectively in this repository.
 - Primary stopgap app authoring model is TS-first from project-local `stopgap/**/*.ts` modules.
 - Stopgap app function identity is path-based: `api.<module_path_without_ext>.<named_export>`.
 - Stopgap public invocation surface is `stopgap.call_fn(path text, args jsonb)`.
+- `stopgap.call_fn(path, args)` is the primary invocation surface for TS-first apps; live-schema wrappers remain extension-generated compatibility bridges (not user-authored workflow).
 - `stopgap.call_fn` should emit path-aware errors for invalid args and wrapper-mode violations (`wrong wrapper mode`) while preserving runtime detail text.
 - Stopgap observability includes `stopgap.metrics().call_fn` counters with path-route source splits (`exact`/`legacy`) and call-fn error classes.
 - CLI deploy preflight must fail fast when `./stopgap` is missing, discover named `query(...)`/`mutation(...)` exports from `stopgap/**/*.ts`, reject non-wrapper named exports, and normalize function identity to deterministic `api.<module_path_without_ext>.<export_name>` paths.

@@ -30,7 +30,7 @@ The sections below remain useful implementation history; active net-new product 
 - [x] Stopgap-managed overloading: forbidden
 - [x] Regular `plts` args target: expose both positional and named/object forms
 - [x] Entrypoint convention (runtime substrate): default export
-- [ ] Entrypoint convention (stopgap app workflow): named exports mapped to `api.<module>.<export>` function paths
+- [x] Entrypoint convention (stopgap app workflow): named exports mapped to `api.<module>.<export>` function paths
 - [x] P0 DB API enforcement mode: RW-only (defer read-only gates)
 
 ---
@@ -558,7 +558,7 @@ Minimum implementation evidence:
 
 ### 14.1 Product and contract shifts
 
-- [ ] Promote TS module workflow as primary user path and explicitly mark SQL-authored stopgap function flow as legacy/compatibility mode.
+- [x] Promote TS module workflow as primary user path and explicitly mark SQL-authored stopgap function flow as legacy/compatibility mode.
 - [x] Define canonical function path contract: `api.<module_path_without_ext>.<named_export>`.
 - [x] Add `stopgap.call_fn(path text, args jsonb)` as the public invocation surface for deployed functions.
 - [x] Define error semantics for unknown path, invalid args, missing deployment, and wrong wrapper mode.
@@ -618,12 +618,17 @@ Minimum implementation evidence:
 
 ### 14.5 Auto-generated DB bindings (optional compatibility surface)
 
-- [ ] Decide whether live-schema SQL wrappers are still materialized for compatibility or fully replaced by `stopgap.call_fn`.
-- [ ] If retained, ensure wrappers are extension-generated only (never user-authored SQL).
-- [ ] If removed, provide migration guidance and compatibility timeline.
+- [x] Decide whether live-schema SQL wrappers are still materialized for compatibility or fully replaced by `stopgap.call_fn`.
+- [x] If retained, ensure wrappers are extension-generated only (never user-authored SQL).
+- [x] If removed, provide migration guidance and compatibility timeline (not applicable for current retained-wrapper decision).
 
 Minimum implementation evidence:
-- [ ] explicit decision recorded in docs + migration notes
+- [x] explicit decision recorded in docs + migration notes
+
+Decision note (iteration 15):
+- Compatibility live-schema wrappers are retained as an extension-managed bridge during migration.
+- `stopgap.call_fn(path, args)` remains the primary public invocation API for TS-first apps.
+- User-authored SQL wrappers are not part of the supported workflow; any compatibility wrappers remain generated/materialized by stopgap deploy/rollback only.
 
 ### 14.6 Verification and release gates for pivot work
 
