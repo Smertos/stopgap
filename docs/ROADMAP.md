@@ -6,6 +6,19 @@ Legend:
 - `[x]` done
 - `[ ]` planned / in progress
 
+## Direction Update (Mar 2026)
+
+The existing roadmap items below capture substantial completed foundation work (runtime, deployment catalogs, rollback, security, CI, and tooling).  
+Primary product direction is now being course-corrected to a Convex-style TypeScript-first workflow:
+
+- users author only `stopgap/**/*.ts` function modules in their project
+- modules can export multiple named `query(...)` / `mutation(...)` handlers
+- deployed function identity is path-based (`api.<module_path>.<export_name>`)
+- DB invocation entrypoint is `stopgap.call_fn(path, args)`
+- `stopgap-cli deploy` deploys TS modules directly (no user-authored SQL wrappers)
+
+The sections below remain useful implementation history; active net-new product work is tracked in section 14.
+
 ---
 
 ## 0) Locked Decisions
@@ -13,10 +26,11 @@ Legend:
 - [x] Engine target: **V8 via `deno_core`**
 - [x] Return null semantics target: JS `undefined` and `null` normalize to SQL `NULL`
 - [x] Stopgap deploy compilation path target: DB-side (`plts.compile_ts` / `plts.compile_and_store`)
-- [x] Stopgap deployable signature: `(args jsonb) returns jsonb language plts`
+- [x] Legacy stopgap deployable SQL signature foundation: `(args jsonb) returns jsonb language plts`
 - [x] Stopgap-managed overloading: forbidden
 - [x] Regular `plts` args target: expose both positional and named/object forms
-- [x] Entrypoint convention: default export
+- [x] Entrypoint convention (runtime substrate): default export
+- [ ] Entrypoint convention (stopgap app workflow): named exports mapped to `api.<module>.<export>` function paths
 - [x] P0 DB API enforcement mode: RW-only (defer read-only gates)
 
 ---
@@ -288,6 +302,8 @@ Legend:
 
 ## 11) Current Snapshot
 
+This snapshot is baseline implementation status for the pre-pivot architecture. It does not imply completion of the Convex-style TS-first product direction tracked in section 14.
+
 - **P0 status:** Complete.
 - **P1 status:** Complete.
 - **What works now:** workspace + extension scaffolds, shared `crates/common` helpers used by both extensions (currently SQL quoting + boolean setting parsing), artifact catalog/APIs, minimal deploy flow, rollback/status/deployments/diff APIs, activation/environment introspection views, live pointer materialization, overload rejection, dependency-aware live prune mode (`stopgap.prune`), baseline tests, DB-backed `plts` integration tests for compile/store and regular arg conversion, feature-gated runtime integration tests for null normalization + artifact pointer execution, stopgap deploy/rollback integration tests (active pointer + pointer payload + fn_version integrity + overload rejection), behavior-focused pgrx integration test files under `crates/*/tests/pg/`, focused `pg_regress` scenario files for deploy/rollback/prune/diff/security, and feature-gated sync + async default-export JS execution in `plts`, including module imports via `data:` URLs and bare `@stopgap/runtime` resolution with wrapper-aware DB mode (`query` => read-only, `mutation`/regular => read-write) plus JSON-Schema-based wrapper arg validation. Runtime DB APIs now support SQL string + params, `{ sql, params }` inputs, and Drizzle-style `toSQL()` objects while preserving SPI SQL + bound params execution. Runtime global lockdown now strips `Deno`/`fetch` and related web globals from user modules so filesystem/network APIs are not exposed, and runtime interrupts now terminate V8 execution using the stricter of `statement_timeout` and optional `plts.max_runtime_ms` plus pending Postgres cancel/die signals. Ongoing module splitting now includes `crates/plts/src/compiler.rs` for compile/fingerprint/source-map logic, `crates/plts/src/runtime_spi.rs` for SPI/query binding and read-only SQL helpers, `crates/plts/src/function_program.rs` for function source resolution/artifact-pointer cache loading, `crates/stopgap/src/deployment_utils.rs` for deploy scan/materialization helpers, `crates/stopgap/src/security.rs` for role/permission checks, and `crates/stopgap/src/runtime_config.rs` + `crates/stopgap/src/domain.rs`.
@@ -528,3 +544,69 @@ Minimum implementation evidence:
 - [ ] phase checklist tracked in roadmap and reflected in CI/docs references
 - [ ] acceptance gates include full required verification command set from section 13.1
 - [ ] at least one green CI run per phase including runtime-heavy and stopgap regress lanes
+
+---
+
+## 14) Convex-style UX Pivot (active)
+
+### 14.1 Product and contract shifts
+
+- [ ] Promote TS module workflow as primary user path and explicitly mark SQL-authored stopgap function flow as legacy/compatibility mode.
+- [ ] Define canonical function path contract: `api.<module_path_without_ext>.<named_export>`.
+- [ ] Add `stopgap.call_fn(path text, args jsonb)` as the public invocation surface for deployed functions.
+- [ ] Define error semantics for unknown path, invalid args, missing deployment, and wrong wrapper mode.
+
+Minimum implementation evidence:
+- [ ] `docs/PROJECT-OUTLINE.md` + `docs/RUNTIME-CONTRACT.md` updated for path-based invocation contract
+- [ ] DB-backed tests for `stopgap.call_fn` happy + failure paths
+
+### 14.2 CLI project model (`stopgap/` directory)
+
+- [ ] Add CLI project-root detection for `./stopgap` directory.
+- [ ] If `./stopgap` is missing, fail fast with clear "not initialized" guidance.
+- [ ] Enumerate `stopgap/**/*.ts` as deployable module set.
+- [ ] Add deterministic module path normalization from filesystem path to `api.*` namespace.
+
+Minimum implementation evidence:
+- [ ] CLI integration tests for missing-dir and path normalization behavior
+- [ ] docs/quickstart examples use `stopgap/` source tree layout
+
+### 14.3 Multi-export module deployment model
+
+- [ ] Discover multiple named exports per module during deploy.
+- [ ] Require exported functions to be wrapped by `query(...)` or `mutation(...)`.
+- [ ] Persist deployment manifest keyed by function path (not SQL function name scan from user schemas).
+- [ ] Keep versioned rollback semantics with function-path addressability.
+
+Minimum implementation evidence:
+- [ ] deploy metadata/catalog schema supports `function_path` entries
+- [ ] deploy/rollback tests covering multiple exports from one module
+
+### 14.4 Runtime execution routing
+
+- [ ] Resolve `stopgap.call_fn(path, args)` -> active deployment -> artifact/module -> named export.
+- [ ] Execute named export with existing wrapper-aware DB mode enforcement (`query` RO, `mutation` RW).
+- [ ] Preserve runtime safety controls (timeout/cancel/heap/SQL guardrails) on routed calls.
+- [ ] Provide clear error classing with path context in messages/metrics.
+
+Minimum implementation evidence:
+- [ ] DB-backed runtime tests for path execution, wrapper mode enforcement, and guardrail behavior
+- [ ] metrics include path-routed call counts and error classes
+
+### 14.5 Auto-generated DB bindings (optional compatibility surface)
+
+- [ ] Decide whether live-schema SQL wrappers are still materialized for compatibility or fully replaced by `stopgap.call_fn`.
+- [ ] If retained, ensure wrappers are extension-generated only (never user-authored SQL).
+- [ ] If removed, provide migration guidance and compatibility timeline.
+
+Minimum implementation evidence:
+- [ ] explicit decision recorded in docs + migration notes
+
+### 14.6 Verification and release gates for pivot work
+
+- [ ] Keep required verification command set from section 13.1 green for each pivot increment.
+- [ ] Keep runtime-heavy V8 lane and stopgap regress lanes release-blocking during migration.
+- [ ] Add CI checks specific to new CLI project model and function-path invocation tests.
+
+Minimum implementation evidence:
+- [ ] at least one CI run green with new function-path tests included

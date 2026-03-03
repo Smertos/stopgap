@@ -2,6 +2,8 @@
 
 This document captures the `plts` runtime call contract and result semantics.
 
+Status note (Mar 2026): primary product UX is now Convex-style and TypeScript-first. Stopgap-managed app functions are addressed by logical path (`api.<module>.<export>`) and invoked through `stopgap.call_fn(path, args)`.
+
 ## Entrypoint shape
 
 `LANGUAGE plts` handlers execute a module default export:
@@ -36,9 +38,27 @@ type SqlObjectLike =
 ## Argument model
 
 - Regular `plts` functions expose both positional and named/object argument forms.
-- Stopgap-managed deployables are `(args jsonb) returns jsonb`; wrappers validate args via `v` schemas from `@stopgap/runtime`.
+- Stopgap-managed app functions are exported named handlers from `stopgap/**/*.ts` modules.
+- Canonical function path format is `api.<module_path_without_ext>.<named_export>`.
+- Runtime invocation surface is `stopgap.call_fn(path text, args jsonb)`.
+- Wrapper validation is driven by `@stopgap/runtime` (`query`/`mutation`) and `v` schemas.
 - Legacy JSON Schema-subset wrapper inputs remain supported as a compatibility path.
 - Runtime wrapper validation now uses direct `zod/mini` `safeParse` issue surfacing for schema-like inputs while preserving clear path/issue context in thrown errors.
+
+### Function path examples
+
+- `stopgap/coolApi.ts` exporting `myFn` => `api.coolApi.myFn`
+- `stopgap/admin/users.ts` exporting `list` => `api.admin.users.list`
+
+### `stopgap.call_fn` contract (target)
+
+```sql
+SELECT stopgap.call_fn('api.coolApi.myFn', '{"id":1}'::jsonb);
+```
+
+- `path` resolves against the active deployment for the selected environment.
+- `args` is delivered as runtime `ctx.args` and validated by wrapper schema.
+- Unknown path, missing deployment, and validation failures must return stable, explicit errors with path context.
 
 ## DB API mode behavior
 
@@ -92,3 +112,4 @@ The runtime supports backend-local isolate reuse through an isolate pool with ex
 - DB-backed contract tests live in `crates/plts/tests/pg/runtime_contract.rs`.
 - Existing behavior suites in `crates/plts/tests/pg/runtime_nulls.rs`, `crates/plts/tests/pg/runtime_db_input_forms.rs`, and `crates/plts/tests/pg/runtime_stopgap_wrappers.rs` also guard this document's guarantees.
 - Static/dynamic boundary unit checks live in `crates/plts/src/runtime.rs`, and invocation-isolation coverage is in `crates/plts/tests/pg/runtime_contract.rs`.
+- Pivot-specific path-routing coverage should be tracked as dedicated tests for `stopgap.call_fn` during the Convex-style migration.

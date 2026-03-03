@@ -1,6 +1,25 @@
 ## Stopgap + PLTS (split extensions) — thorough project outline
 
-Status note (Feb 2026): this document is the target architecture, and some sections include decisions that are now locked for current implementation.
+Status note (Mar 2026): this document is the target architecture. The previously implemented SQL-authored workflow remains useful foundation work, but primary product UX is now being course-corrected to a Convex-style TypeScript-first model.
+
+## Course correction (Convex-style primary UX)
+
+This section supersedes the prior SQL-authored authoring model as the primary user workflow.
+
+Primary expectations:
+
+- Stopgap app source lives in a project-local `stopgap/` directory.
+- Each `stopgap/**/*.ts` file is a function module.
+- A module may export multiple named handlers, for example:
+  - `export const myFn = query(argsSchema, handler)`
+  - `export const updateThing = mutation(argsSchema, handler)`
+- Deployed function identity is path-based and deterministic:
+  - file `stopgap/coolApi.ts` + export `myFn` => `api.coolApi.myFn`
+  - nested file `stopgap/admin/users.ts` + export `list` => `api.admin.users.list`
+- PostgreSQL invocation must not require user-authored `CREATE FUNCTION` wrappers:
+  - `SELECT stopgap.call_fn('api.coolApi.myFn', '{"id":1}'::jsonb);`
+- `stopgap-cli deploy` reads function modules from `stopgap/`, compiles/packages them, and installs a new deployment version in DB.
+- Stopgap users should write only TypeScript application functions; SQL wrapper creation/materialization is owned by stopgap extension + CLI automation.
 
 You’ll have **two Postgres extensions** plus **shared TS/JS runtime conventions**:
 
@@ -11,26 +30,34 @@ Both extensions share the same **function execution model**, and `stopgap` store
 
 ---
 
-# 1) Core principles (your adjusted constraints)
+# 1) Core principles (updated)
 
-1) **`LANGUAGE plts` is the only PL**.  
+1) **TypeScript-first app workflow is primary**.  
+   - Users author `stopgap/**/*.ts` modules, not SQL `CREATE FUNCTION` source bodies.
+   - Stopgap CLI + extension own compilation, registration, and runtime binding.
+
+2) **`LANGUAGE plts` remains the runtime substrate**.  
    - Defined by the `plts` extension.
-   - Used by “regular” functions and `stopgap`-managed deployed functions.
+   - Used internally by stopgap-managed deployed artifacts and generated bindings.
 
-2) **Regular `plts` functions**
+3) **Regular `plts` functions**
    - SQL args are **normal typed args** (Datum conversion happens).
    - Return is always **nullable `jsonb`**.
 
-3) **Stopgap “deployment functions”**
-   - SQL signature is **`(args jsonb) returns jsonb`** (single jsonb input).
-   - Type safety is done via **schema declared in TS** (runtime validation).
-   - Return is always **nullable `jsonb`**.
+4) **Stopgap deployment unit is exported TS function, not SQL function**
+   - Unit identity: `api.<module_path>.<export_name>`.
+   - Invocation payload remains `jsonb` args with runtime validation from TS schemas.
+   - Return remains nullable `jsonb`.
 
-4) **Stopgap adds JS/TS helper wrappers**
+5) **Stopgap adds JS/TS helper wrappers**
    - `query(argsSchema, handler)`
    - `mutation(argsSchema, handler)`
-   - These produce the exported callable that `plts` executes.
+   - These produce exported callables discovered from module exports during deploy.
    - Distinction is enforced via the DB API surface (read-only vs read-write), not by parsing SQL.
+
+6) **Stopgap extension provides dynamic call entrypoint**
+   - `stopgap.call_fn(path text, args jsonb)` resolves the active deployment and executes the addressed exported function.
+   - Path examples: `api.coolApi.myFn`, `api.admin.users.list`.
 
 ---
 
@@ -301,14 +328,15 @@ Operational requirement: regressions must be diagnosable from metrics/logs witho
 
 ---
 
-# 4) Stopgap extension (deployments + environments + live schema)
+# 4) Stopgap extension (deployments + environments + function-path routing)
 
 ## 4.1 Responsibilities
 - Maintain **deployments**: immutable snapshots mapping “function identity” → `plts.artifact_hash`.
 - Provide **active deployment pointer** per environment.
-- Materialize “live deployment” schema by creating/replacing functions that are **`LANGUAGE plts` pointer stubs**.
+- Provide path-based runtime dispatch for exported functions via `stopgap.call_fn(path, args)`.
+- Optionally materialize compatibility SQL wrappers only when explicitly needed; users should never hand-author them.
 - Provide a SQL API for the CLI: deploy, activate, rollback, status, list deployments.
-- Enforce that humans cannot modify live schema (via roles/privileges + SECURITY DEFINER deploy ops).
+- Keep deploy/rollback operations controlled by roles/privileges + SECURITY DEFINER ops.
 
 ## 4.2 Stopgap catalogs
 Create schema `stopgap`:
@@ -325,20 +353,20 @@ Create schema `stopgap`:
 - `label text null` (git sha / date tag)
 - `created_at timestamptz not null default now()`
 - `created_by name not null default current_user`
-- `source_schema name not null` (workspace schema used)
+- `source_root text not null` (CLI project source root, default `stopgap/`)
 - `status text not null` (`open`, `sealed`, `active`, `rolled_back`, `failed`)
 - `manifest jsonb not null` (functions + metadata + artifact hashes)
 
 ### `stopgap.fn_version`
-Key point: only includes **stopgap-deployable functions** (the `(args jsonb) returns jsonb` ones).
+Key point: includes path-addressable exported stopgap functions discovered from `stopgap/**/*.ts` module exports.
 
 - `deployment_id bigint not null references stopgap.deployment(id)`
-- `fn_name name not null` (function name)
-- `fn_schema name not null` (workspace schema name)
-- `live_fn_schema name not null` (usually live schema)
+- `function_path text not null` (for example `api.coolApi.myFn`)
+- `module_path text not null` (for example `coolApi.ts`, `admin/users.ts`)
+- `export_name text not null` (for example `myFn`)
 - `kind text not null` (`query`|`mutation`) (optional but useful)
 - `artifact_hash text not null` references `plts.artifact(artifact_hash)`
-- primary key `(deployment_id, fn_schema, fn_name)`
+- primary key `(deployment_id, function_path)`
 
 ### `stopgap.activation_log` (recommended)
 - `id bigserial primary key`
@@ -359,34 +387,22 @@ GUCs:
 Operational metrics/log surface:
 - `stopgap.metrics() -> jsonb` (backend-process counters for deploy/rollback/diff calls + errors, latency aggregates, and error-class buckets)
 
-## 4.4 “Live schema” materialization (how deploy works)
-### Deployable function signature (strict)
-Stopgap-managed functions in workspace must be:
+## 4.4 Deploy source and runtime routing model
+
+Primary deploy source is the filesystem module graph rooted at `./stopgap`:
+
+- scan `stopgap/**/*.ts`
+- discover named wrapper exports (`query` / `mutation`)
+- register canonical `function_path` values (`api.<module_path_without_ext>.<export_name>`)
+- compile/store artifacts and bind path -> artifact/export routing metadata
+
+Primary invocation API is:
 
 ```sql
-(args jsonb) returns jsonb language plts
+SELECT stopgap.call_fn('api.coolApi.myFn', '{"id":1}'::jsonb);
 ```
 
-Stopgap deploy scans the workspace schema for:
-- `prolang = plts`
-- `prorettype = jsonb`
-- one arg of type `jsonb`
-
-Everything else is ignored (still valid “regular plts”, just not deployed).
-
-### Live function body is a pointer stub
-Stopgap creates/replaces in `live_schema`:
-
-```sql
-create or replace function live_deployment.some_fn(args jsonb)
-returns jsonb
-language plts
-as $$
-{ "plts": 1, "kind": "artifact_ptr", "artifact_hash": "...", "export": "default", "import_map": {"@stopgap/app/other_fn":"plts+artifact:sha256:..."} }
-$$;
-```
-
-No TS in live schema, ever.
+Legacy/compatibility note: live-schema pointer-function materialization may remain as an optional bridge during migration, but it is not the primary authoring UX.
 
 ### Drop/prune policy
 - Default: **no drop** (safer for dependencies).
@@ -401,13 +417,13 @@ No TS in live schema, ever.
 You want stopgap authors to write TS like:
 
 ```ts
-export default stopgap.query(argsSchema, async (args, ctx) => {
+export const getUser = stopgap.query(argsSchema, async (args, ctx) => {
   const rows = await ctx.db.query("select ... where id = $1", [args.id]);
   return rows[0] ?? null;
 });
 ```
 
-and similarly for mutations.
+and similarly for additional named query/mutation exports in the same module.
 
 ## 5.1 Where the wrappers live
 Ship an NPM package `@stopgap/runtime` containing:
@@ -457,7 +473,7 @@ Runtime package coverage now runs through Vitest tests for wrapper metadata, val
 - Normalizes return to nullable jsonb
 
 Optional: wrappers attach metadata for stopgap deploy to read (if you choose to evaluate during deploy):
-- `export.default.__stopgap_kind = "query"`
+- `exportedFn.__stopgap_kind = "query"`
 
 But you don’t *need* this if you just treat kind as “convention” and enforce by which wrapper is used at runtime.
 
@@ -486,11 +502,11 @@ Follow-up work can expand package/bundling coverage for richer in-DB Drizzle com
 Even if DB-side deploy exists, the CLI is the real product surface.
 
 ## 6.1 Commands
-- `stopgap deploy --db <dsn> --env prod --from-schema <schema> --label <sha> [--prune]`
+- `stopgap deploy --db <dsn> --env prod --label <sha> [--prune]`
 - `stopgap rollback --db <dsn> --env prod [--steps 1 | --to <id>]`
 - `stopgap deployments --db <dsn> --env prod`
 - `stopgap status --db <dsn> --env prod`
-- (optional) `stopgap diff --db ...` compare workspace vs active
+- (optional) `stopgap diff --db ...` compare local `stopgap/**/*.ts` vs active deployment manifest
 
 Current implementation status:
 - `crates/stopgap-cli` now implements deploy/rollback/status/deployments and diff commands against the SQL API.
@@ -499,43 +515,47 @@ Current implementation status:
 - CLI now has integration-style command coverage via an injectable API boundary (`crates/stopgap-cli/tests/command_integration.rs`) validating deploy/status/rollback/deployments/diff JSON payload shapes and query-failure non-zero exit code mapping.
 - CI baseline now runs `packages/runtime` typecheck + Vitest (`npm run check` and `npm run test`) alongside Rust checks/tests; pgrx/runtime lanes build the embedded runtime artifact before Rust execution.
 
+Pivot note: current CLI semantics still include pre-pivot SQL-schema-oriented behavior in places; path-based `stopgap/` module deployment behavior is the target direction.
+
 ## 6.2 Deploy algorithm (single transaction, atomic)
 1) `pg_advisory_xact_lock(...)` per env
 2) Insert `stopgap.deployment(status='open')`
-3) Scan workspace schema for deployable functions
-4) For each:
-   - read `prosrc` (TS)
+3) Validate CLI project root contains `./stopgap`; fail with clear not-initialized message if missing
+4) Scan `stopgap/**/*.ts` for deployable named exports
+5) For each:
+   - read module TS source
+   - resolve canonical `function_path` (`api.<module>.<export>`)
    - compile TS→JS using `plts.compile_ts(...)` (DB-side) or CLI-side compiler
    - `plts.compile_and_store(...) -> artifact_hash`
-   - insert `stopgap.fn_version` row
-5) Seal deployment
-6) Materialize live schema functions as plts pointer stubs
+   - insert `stopgap.fn_version` row keyed by `function_path`
+6) Seal deployment
 7) Update `environment.active_deployment_id`
 8) Insert activation log
 9) Commit
 
-Rollback is the same “materialize live schema from older deployment id”.
+Rollback restores prior function-path manifest and active deployment pointer.
 
 ---
 
 # 7) Security / permissions model
 
 ## 7.1 Roles
-- `stopgap_owner` (NOLOGIN): owns `stopgap` schema + live schema + SECURITY DEFINER functions
+- `stopgap_owner` (NOLOGIN): owns `stopgap` schema + SECURITY DEFINER functions (+ optional compatibility schemas)
 - `stopgap_deployer` (role): allowed to run deploy/rollback
-- `app_user`: allowed to execute live functions
+- `app_user`: allowed to execute routed application functions (`stopgap.call_fn`) and optional generated compatibility wrappers
 
-## 7.2 Live schema write protection
-- `REVOKE CREATE ON SCHEMA live_deployment FROM PUBLIC;`
-- `ALTER SCHEMA live_deployment OWNER TO stopgap_owner;`
-- All functions created in live schema are owned by `stopgap_owner`.
+## 7.2 Deployment write protection
 - Stopgap deploy SQL functions run as `SECURITY DEFINER` and check caller role membership.
+- Only deployer roles may publish/update active deployment manifests.
+- If compatibility live schemas are enabled, keep create/alter rights restricted to `stopgap_owner`.
 
-This gives you “deny updates to live schema” without fancy event triggers.
+This gives you controlled deployment updates without requiring app developers to hand-author SQL wrappers.
 
 ---
 
 # 8) Implementation milestones (sequenced)
+
+Status note: milestone details below include substantial completed baseline work from the pre-pivot SQL-first flow. Active product-direction deltas for the Convex-style TS-first model are tracked in `docs/ROADMAP.md` section 14.
 
 ## P0 (your stated P0: transpile + store + execute)
 **In `plts`:**
@@ -561,7 +581,7 @@ Current progress snapshot:
 - stopgap deploy records function-level manifest metadata including artifact hashes and live pointer payloads
 - stopgap deploy now checks caller privileges for source/live schema access and compile API execution
 - stopgap deploy/status/deployments SQL paths now bind runtime values with argumentized SPI calls
-- stopgap now exposes `stopgap.status(env)`, `stopgap.deployments(env)`, `stopgap.diff(env, from_schema)`, and `stopgap.rollback(env, steps, to_id)` APIs
+- stopgap now exposes `stopgap.status(env)`, `stopgap.deployments(env)`, `stopgap.diff(...)`, and `stopgap.rollback(env, steps, to_id)` APIs; `stopgap.call_fn(path, args)` is the pivot target public invocation surface
 - stopgap now exposes `stopgap.activation_audit` and `stopgap.environment_overview` introspection views
 - stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`, dropping stale live pointer functions that have no dependents
 - stopgap security model now provisions/enforces baseline roles (`stopgap_owner`, `stopgap_deployer`, `app_user`), runs deploy/rollback/diff as SECURITY DEFINER, and hardens live-schema/live-function ownership + execute grants
@@ -592,7 +612,7 @@ Current progress snapshot:
 ## P1.5 (structure + interop)
 - introduce and expand `crates/common` for shared helper logic across extensions (workspace + initial helper migration in place)
 - split large single-file crate implementations into cohesive modules
-- status: `plts` compiler/transpile helpers plus runtime SPI/query-binding helpers and stopgap deploy/materialization, deploy/status/diff orchestration, and role/permission helpers are now extracted into dedicated modules; broader `lib.rs` thinning is still pending
+- status: `plts` compiler/transpile helpers plus runtime SPI/query-binding helpers and stopgap deploy/materialization, deploy/status/diff orchestration, and role/permission helpers are now extracted into dedicated modules; extension entrypoint `lib.rs` files are now thin.
 - move PG integration tests out of extension source and keep suites granular
   - status: pg_test suites now live under `crates/*/tests/pg/`, are split into behavior-focused files, and `pg_regress` coverage now includes focused deploy/rollback/prune/diff/security scenario files
 - add Drizzle-style SQL object / `toSQL()` interop while keeping SPI SQL+params execution model
@@ -637,7 +657,9 @@ Acceptance criteria:
 4) **Deploy compilation location**: **DB compile path** (`plts.compile_ts` / `plts.compile_and_store`).
 5) **Function identity**: **forbid overloading** for stopgap-managed functions.
 6) **Regular `plts` args view**: expose **both positional and named/object forms**.
-7) **Entrypoint convention**: **default export**.
+7) **Entrypoint convention**:
+   - regular `plts` function modules: `default export`
+   - stopgap app modules: named exports discovered as `api.<module>.<export>` function paths
 8) **P0 DB API mode**: **RW-only**, defer RO enforcement to P1.
 9) **Drizzle interop v1**: normalize query-builder output to **SQL text + params** for SPI execution.
 10) **Shared code strategy**: use a **`crates/common`** helper crate while preserving split-extension semantic boundaries.

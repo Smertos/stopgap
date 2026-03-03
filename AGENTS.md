@@ -35,10 +35,12 @@ This file captures how to work effectively in this repository.
 - Engine target for P0+: **V8 via `deno_core`**.
 - JS `null` and `undefined` should normalize to SQL `NULL` (long-term behavior target).
 - Stopgap deploy compile path is DB-side (`plts.compile_ts` / `plts.compile_and_store`).
-- Stopgap-managed deployables are `(args jsonb) returns jsonb language plts`.
+- Primary stopgap app authoring model is TS-first from project-local `stopgap/**/*.ts` modules.
+- Stopgap app function identity is path-based: `api.<module_path_without_ext>.<named_export>`.
+- Stopgap public invocation surface is `stopgap.call_fn(path text, args jsonb)`.
 - Stopgap-managed overloading is forbidden.
 - Regular `plts` calling convention should expose both positional and named/object argument forms.
-- Default export is the entrypoint convention.
+- Entrypoint conventions: regular `plts` modules use default export; stopgap app modules use named exports discovered at deploy time.
 - P0 baseline DB API mode is RW; P1 adds wrapper-aware read-only gating for `stopgap.query` handlers.
 
 ## Implementation guardrails

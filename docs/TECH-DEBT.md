@@ -2,6 +2,9 @@
 
 Current technical debt and follow-up notes for near-term work.
 
+- Product UX pivot in progress: primary model is now Convex-style (`./stopgap` TS modules + path-based invocation via `stopgap.call_fn`), while current deployed SQL-scan/live-schema flow remains implemented foundation and must be migrated/reshaped.
+- Missing pivot primitives (tracked in roadmap section 14): CLI `./stopgap` initialization checks, multi-export module discovery, canonical `api.<module>.<export>` registration, and DB path router.
+
 - `plts` runtime handler executes sync + async default-export JS when built with `v8_runtime`, now via ES module loading (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, bare `@stopgap/runtime`, and additional bare specifiers mapped through inline `plts-import-map` source comments); runtime errors surface stage/message/stack with SQL function identity context.
 - Stopgap deploy now emits live-pointer `import_map` metadata for each deployment (default `@stopgap/<source_schema>/<fn_name>` bare specifiers mapped to `plts+artifact:<hash>`), and rollback rematerialization rebuilds those maps from `fn_version` rows.
 - `plts` runtime `ctx.db.query/exec` now accepts SQL string + params, `{ sql, params }` objects, and Drizzle-style `toSQL(): { sql, params }` inputs while keeping execution on SPI SQL text + bound params.
@@ -23,7 +26,7 @@ Current technical debt and follow-up notes for near-term work.
 - DB-backed `plts` integration tests cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization, artifact-pointer execution, and async default-export execution under `v8_runtime`.
 - Stopgap deploy still records function kind as a default convention (`mutation`), while runtime enforcement relies on wrapper metadata.
 - Stopgap deploy now enforces deployment status transitions, writes richer manifest metadata, checks deploy caller privileges, and ships rollback/status/deployments/diff APIs plus activation/environment introspection views.
-- Stopgap deploy privilege checks now explicitly validate source schema existence/USAGE, `plts.compile_and_store(text, jsonb)` EXECUTE access, and that pre-existing live schemas are managed by `stopgap_owner`; pg_regress security coverage includes both allow and deny paths.
+- Existing deploy privilege checks are still oriented around source/live-schema SQL materialization and need reconciliation with the path-based `stopgap.call_fn` model.
 - DB-backed `stopgap` integration tests now cover deploy pointer updates, live pointer payload correctness, `fn_version` integrity, overloaded-function rejection, and rollback status/pointer rematerialization.
 - stopgap `pg_regress` rollback scenario now covers a real cross-extension path (`deploy -> live execute -> rollback`) and asserts both live execution continuity and pointer rematerialization after rollback.
 - Stopgap deploy now supports optional dependency-aware prune via `stopgap.prune=true`; ownership/role hardening baseline is now in place (`stopgap_owner`, `stopgap_deployer`, `app_user`, SECURITY DEFINER deploy/rollback/diff, and live-schema execute grants).

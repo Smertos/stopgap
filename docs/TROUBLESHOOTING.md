@@ -42,6 +42,9 @@ cargo check
 ## CLI failures
 
 - Ensure `--db` or `STOPGAP_DB` is provided.
+- Ensure project-local `./stopgap` directory exists when running `stopgap deploy` from an app repo.
+- If deploy reports "Stopgap not initialized" or "stopgap dir not found", create `./stopgap` and add `*.ts` modules.
+- If `stopgap.call_fn(path, args)` fails with unknown function path, verify path format `api.<module_path>.<export_name>` and confirm the target export exists in deployed `stopgap/**/*.ts`.
 - Use `--output json` in CI to capture structured failure context.
 - Exit codes:
   - `10`: database connection error
