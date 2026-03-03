@@ -558,7 +558,7 @@ Minimum implementation evidence:
 ### 14.1 Product and contract shifts
 
 - [ ] Promote TS module workflow as primary user path and explicitly mark SQL-authored stopgap function flow as legacy/compatibility mode.
-- [ ] Define canonical function path contract: `api.<module_path_without_ext>.<named_export>`.
+- [x] Define canonical function path contract: `api.<module_path_without_ext>.<named_export>`.
 - [x] Add `stopgap.call_fn(path text, args jsonb)` as the public invocation surface for deployed functions.
 - [ ] Define error semantics for unknown path, invalid args, missing deployment, and wrong wrapper mode.
   - [x] Unknown path and missing deployment errors include `stopgap.call_fn` path/env context.
@@ -568,6 +568,7 @@ Minimum implementation evidence:
 Minimum implementation evidence:
 - [x] `docs/PROJECT-OUTLINE.md` + `docs/RUNTIME-CONTRACT.md` updated for path-based invocation contract
 - [x] DB-backed tests for `stopgap.call_fn` happy + failure paths
+- [x] `stopgap.call_fn` now enforces canonical path segments (`api` prefix + non-empty `[A-Za-z0-9_]+` segments) and rejects ambiguous legacy fallback matches with explicit route-metadata errors
 
 ### 14.2 CLI project model (`stopgap/` directory)
 

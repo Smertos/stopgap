@@ -303,3 +303,122 @@ fn test_call_fn_routes_by_full_function_path() {
         "call_fn should pass args to path-routed live function"
     );
 }
+
+#[pg_test]
+fn test_call_fn_rejects_path_with_invalid_segment_chars() {
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM stopgap.call_fn('api.users.hello-world', '{}'::jsonb);
+            RAISE EXCEPTION 'expected call_fn invalid-path failure for invalid chars';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('invalid path' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END
+        $$;
+        "#,
+    )
+    .expect("invalid path segments should fail with clear error");
+}
+
+#[pg_test]
+fn test_call_fn_reports_ambiguous_legacy_route() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS call_fn_legacy_live CASCADE;
+        CREATE SCHEMA call_fn_legacy_live;
+
+        CREATE OR REPLACE FUNCTION call_fn_legacy_live.first_impl(args jsonb)
+        RETURNS jsonb
+        LANGUAGE sql
+        AS $$
+            SELECT jsonb_build_object('impl', 'first', 'args', args)
+        $$;
+
+        CREATE OR REPLACE FUNCTION call_fn_legacy_live.second_impl(args jsonb)
+        RETURNS jsonb
+        LANGUAGE sql
+        AS $$
+            SELECT jsonb_build_object('impl', 'second', 'args', args)
+        $$;
+
+        INSERT INTO stopgap.environment (env, live_schema, active_deployment_id)
+        VALUES ('legacy_ambiguous_env', 'call_fn_legacy_live', NULL)
+        ON CONFLICT (env) DO UPDATE
+        SET live_schema = EXCLUDED.live_schema,
+            active_deployment_id = NULL,
+            updated_at = now();
+
+        INSERT INTO stopgap.deployment (id, env, label, source_schema, status, manifest)
+        VALUES (91004, 'legacy_ambiguous_env', 'call-fn-legacy', 'call_fn_src', 'active', '{"functions":[]}'::jsonb)
+        ON CONFLICT (id) DO NOTHING;
+
+        UPDATE stopgap.environment
+        SET active_deployment_id = 91004,
+            updated_at = now()
+        WHERE env = 'legacy_ambiguous_env';
+
+        INSERT INTO stopgap.fn_version (
+            deployment_id,
+            fn_name,
+            fn_schema,
+            live_fn_schema,
+            live_fn_name,
+            function_path,
+            module_path,
+            export_name,
+            kind,
+            artifact_hash
+        )
+        VALUES
+        (
+            91004,
+            'legacy_target',
+            'legacy_src_a',
+            'call_fn_legacy_live',
+            'first_impl',
+            NULL,
+            NULL,
+            NULL,
+            'mutation',
+            'sha256:legacy-a'
+        ),
+        (
+            91004,
+            'legacy_target',
+            'legacy_src_b',
+            'call_fn_legacy_live',
+            'second_impl',
+            NULL,
+            NULL,
+            NULL,
+            'mutation',
+            'sha256:legacy-b'
+        )
+        ON CONFLICT (deployment_id, fn_schema, fn_name) DO NOTHING;
+
+        SELECT set_config('stopgap.default_env', 'legacy_ambiguous_env', true);
+        "#,
+    )
+    .expect("test should prepare ambiguous legacy routing fixtures");
+
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM stopgap.call_fn('api.legacy.legacy_target', '{}'::jsonb);
+            RAISE EXCEPTION 'expected call_fn ambiguous-route failure';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('ambiguous legacy route metadata' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END
+        $$;
+        "#,
+    )
+    .expect("ambiguous legacy routes should fail with clear error");
+}

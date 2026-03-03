@@ -12,10 +12,15 @@ use crate::{
 };
 
 fn validate_call_path(path: &str) {
-    if !path.starts_with("api.")
-        || path.split('.').any(str::is_empty)
-        || path.matches('.').count() < 2
-    {
+    let mut segments = path.split('.');
+    let valid_prefix = matches!(segments.next(), Some("api"));
+    let rest = segments.collect::<Vec<_>>();
+    let has_min_segments = rest.len() >= 2;
+    let has_valid_chars = rest.iter().all(|segment| {
+        !segment.is_empty() && segment.chars().all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+    });
+
+    if !valid_prefix || !has_min_segments || !has_valid_chars {
         error!(
             "stopgap.call_fn invalid path '{}'; expected format api.<module_path>.<export_name>",
             path
@@ -28,8 +33,8 @@ fn resolve_route(
     path: &str,
     export_name: &str,
 ) -> Result<Option<(String, String)>, String> {
-    Spi::connect(|client| {
-        let mut exact_rows = client
+    Spi::connect(|client| -> Result<Result<Option<(String, String)>, String>, pgrx::spi::Error> {
+        let exact_rows = client
             .select(
                 "
                 SELECT live_fn_schema::text AS live_fn_schema,
@@ -37,24 +42,32 @@ fn resolve_route(
                 FROM stopgap.fn_version
                 WHERE deployment_id = $1
                   AND function_path = $2
-                LIMIT 1
+                LIMIT 2
                 ",
                 None,
                 &[deployment_id.into(), path.into()],
             )?
-            .into_iter();
+            .into_iter()
+            .collect::<Vec<_>>();
 
-        if let Some(row) = exact_rows.next() {
+        if exact_rows.len() > 1 {
+            return Ok(Err(format!(
+                "ambiguous route metadata for deployment {} path '{}'",
+                deployment_id, path
+            )));
+        }
+
+        if let Some(row) = exact_rows.into_iter().next() {
             let live_schema = row
                 .get_by_name::<String, _>("live_fn_schema")?
                 .expect("live_fn_schema must not be null");
             let live_fn_name = row
                 .get_by_name::<String, _>("live_fn_name")?
                 .expect("live_fn_name must not be null");
-            return Ok(Some((live_schema, live_fn_name)));
+            return Ok(Ok(Some((live_schema, live_fn_name))));
         }
 
-        let mut legacy_rows = client
+        let legacy_rows = client
             .select(
                 "
                 SELECT live_fn_schema::text AS live_fn_schema,
@@ -63,14 +76,22 @@ fn resolve_route(
                 WHERE deployment_id = $1
                   AND function_path IS NULL
                   AND fn_name = $2
-                LIMIT 1
+                LIMIT 2
                 ",
                 None,
                 &[deployment_id.into(), export_name.into()],
             )?
-            .into_iter();
+            .into_iter()
+            .collect::<Vec<_>>();
 
-        let resolved = legacy_rows.next().map(|row| {
+        if legacy_rows.len() > 1 {
+            return Ok(Err(format!(
+                "ambiguous legacy route metadata for deployment {} export '{}'",
+                deployment_id, export_name
+            )));
+        }
+
+        let resolved = legacy_rows.into_iter().next().map(|row| {
             let live_schema = row
                 .get_by_name::<String, _>("live_fn_schema")?
                 .expect("live_fn_schema must not be null");
@@ -80,11 +101,16 @@ fn resolve_route(
             Ok::<(String, String), pgrx::spi::Error>((live_schema, live_fn_name))
         });
 
-        resolved.transpose()
+        Ok(resolved.transpose().map_err(|e| {
+            format!(
+                "failed to decode route metadata for deployment {} path '{}': {e}",
+                deployment_id, path
+            )
+        }))
     })
     .map_err(|e| {
         format!("failed to resolve route for deployment {} path '{}': {e}", deployment_id, path)
-    })
+    })?
 }
 
 #[pg_extern]

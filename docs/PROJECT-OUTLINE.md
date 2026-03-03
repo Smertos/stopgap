@@ -406,6 +406,8 @@ SELECT stopgap.call_fn('api.coolApi.myFn', '{"id":1}'::jsonb);
 Current implementation status:
 - `stopgap.call_fn(path, args)` is now implemented in the `stopgap` extension and routes against the active deployment in `stopgap.default_env` (fallback `prod`).
 - Current routing bridge first resolves exact `stopgap.fn_version.function_path` matches and invokes the stored `live_fn_name`; legacy rows without `function_path` still fall back to terminal export-segment lookup while SQL-scan catalogs remain in place.
+- `stopgap.call_fn` path validation now enforces canonical segment format (`api` prefix and non-empty alphanumeric/underscore segments) and rejects malformed paths up front.
+- Legacy export-segment fallback now fails explicitly when route metadata is ambiguous instead of picking an arbitrary row.
 - Full collision-safe path identity (`function_path`) remains tracked work under roadmap section 14.3.
 
 Legacy/compatibility note: live-schema pointer-function materialization may remain as an optional bridge during migration, but it is not the primary authoring UX.
