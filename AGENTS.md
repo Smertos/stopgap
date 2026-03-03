@@ -108,7 +108,7 @@ Current checkpoint status (iteration 19):
 - Phase 1 complete.
 - Phase 2 complete (conservative isolate reuse defaults + recycle-policy unit validation in `crates/plts/src/isolate_pool.rs`).
 - Phase 3 complete (runtime performance baseline now enforces compile/cold/warm SLO thresholds plus warm-vs-cold regression delta checks in `crates/plts/tests/pg/runtime_performance_baseline.rs`).
-- Runtime performance baseline timing uses nanosecond totals (converted to per-call milliseconds) plus a 1,000-call execute loop to avoid millisecond-quantization flakes and coarse-clock zero-elapsed warm-loop assertions in CI.
+- Runtime performance baseline timing uses nanosecond totals (converted to per-call milliseconds), a 1,000-call execute loop, and bounded measurement retries to avoid millisecond-quantization flakes and coarse-clock zero-elapsed assertions in CI.
 
 ## Validation checklist for each meaningful change
 

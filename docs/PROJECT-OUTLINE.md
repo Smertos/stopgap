@@ -674,7 +674,7 @@ Current checkpoint status (iteration 19):
 - Phase 1 complete.
 - Phase 2 complete (isolate pool now defaults to conservative reuse limits with unit coverage for recycle behavior).
 - Phase 3 complete (runtime performance baseline now enforces compile/cold/warm SLO thresholds plus warm-vs-cold regression delta checks in DB-backed tests).
-- Runtime performance baseline timing now uses nanosecond totals (converted to per-call milliseconds) and a 1,000-call execute loop to avoid false CI failures from millisecond quantization and coarse-clock zero-elapsed warm-loop measurements while preserving SLO assertions.
+- Runtime performance baseline timing now uses nanosecond totals (converted to per-call milliseconds), a 1,000-call execute loop, and bounded measurement retries to avoid false CI failures from millisecond quantization and coarse-clock zero-elapsed measurements while preserving SLO assertions.
 
 Acceptance/rollback gate policy:
 - Runtime contract gate: invocation-isolation and runtime contract suites must pass; rollback phase changes if context isolation behavior regresses.
