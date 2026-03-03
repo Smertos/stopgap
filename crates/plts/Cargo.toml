@@ -2,6 +2,8 @@
 name = "plts"
 version = "0.1.0"
 edition = "2024"
+authors = ["Mikhail Vedernikov"]
+repository = "https://github.com/Smertos/stopgap"
 
 [lib]
 crate-type = ["cdylib", "lib"]
