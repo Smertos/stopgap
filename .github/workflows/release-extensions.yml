@@ -53,7 +53,7 @@ jobs:
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor | sudo tee /etc/apt/keyrings/postgresql.gpg > /dev/null
           echo "deb [signed-by=/etc/apt/keyrings/postgresql.gpg] http://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
-          sudo apt-get install -y ${{ matrix.pg_package }} ${{ matrix.pg_package }}-server-dev-17
+          sudo apt-get install -y ${{ matrix.pg_package }} postgresql-server-dev-${{ matrix.pg_version }}
 
       - name: Allow extension install writes
         run: |
