@@ -590,3 +590,87 @@ fn test_call_fn_surfaces_wrong_wrapper_mode_semantics() {
     )
     .expect("wrapper-mode failures should surface explicit call_fn semantics");
 }
+
+#[pg_test]
+fn test_call_fn_preserves_routed_guardrail_failure_detail() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS call_fn_guardrail_live CASCADE;
+        CREATE SCHEMA call_fn_guardrail_live;
+
+        CREATE OR REPLACE FUNCTION call_fn_guardrail_live.guardrail_impl(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            RAISE EXCEPTION 'plts.max_sql_bytes exceeded: SQL input 8192 bytes > 4096 bytes';
+        END;
+        $$;
+
+        INSERT INTO stopgap.environment (env, live_schema, active_deployment_id)
+        VALUES ('call_fn_guardrail_env', 'call_fn_guardrail_live', NULL)
+        ON CONFLICT (env) DO UPDATE
+        SET live_schema = EXCLUDED.live_schema,
+            active_deployment_id = NULL,
+            updated_at = now();
+
+        INSERT INTO stopgap.deployment (id, env, label, source_schema, status, manifest)
+        VALUES (91007, 'call_fn_guardrail_env', 'call-fn-guardrail', 'call_fn_src', 'active', '{"functions":[]}'::jsonb)
+        ON CONFLICT (id) DO NOTHING;
+
+        UPDATE stopgap.environment
+        SET active_deployment_id = 91007,
+            updated_at = now()
+        WHERE env = 'call_fn_guardrail_env';
+
+        INSERT INTO stopgap.fn_version (
+            deployment_id,
+            fn_name,
+            fn_schema,
+            live_fn_schema,
+            live_fn_name,
+            function_path,
+            module_path,
+            export_name,
+            kind,
+            artifact_hash
+        )
+        VALUES (
+            91007,
+            'guardrail_impl',
+            'call_fn_src',
+            'call_fn_guardrail_live',
+            'guardrail_impl',
+            'api.users.guardrail',
+            'users',
+            'guardrail',
+            'query',
+            'sha256:guardrail'
+        )
+        ON CONFLICT (deployment_id, fn_schema, fn_name) DO NOTHING;
+
+        SELECT set_config('stopgap.default_env', 'call_fn_guardrail_env', true);
+        "#,
+    )
+    .expect("test should prepare routed guardrail fixtures");
+
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM stopgap.call_fn('api.users.guardrail', '{}'::jsonb);
+            RAISE EXCEPTION 'expected call_fn routed guardrail failure';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('execution failed for ''api.users.guardrail''' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+                IF POSITION('plts.max_sql_bytes exceeded' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END
+        $$;
+        "#,
+    )
+    .expect("guardrail failures should preserve path-aware call_fn error context and detail");
+}

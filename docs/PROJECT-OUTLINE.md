@@ -413,7 +413,8 @@ Current implementation status:
 - `stopgap.call_fn` path validation now enforces canonical segment format (`api` prefix and non-empty alphanumeric/underscore segments) and rejects malformed paths up front.
 - Routed execution failures now surface explicit path-aware semantics for invalid wrapper args (`invalid args`) and query/mutation mode violations (`wrong wrapper mode`) while preserving underlying runtime detail text.
 - Legacy export-segment fallback now fails explicitly when route metadata is ambiguous instead of picking an arbitrary row.
-- Full collision-safe path identity (`function_path`) remains tracked work under roadmap section 14.3.
+- DB-backed stopgap tests now assert routed guardrail-failure detail propagation for path-aware `stopgap.call_fn` error reporting.
+- Collision-safe path identity is now driven by `function_path` metadata (`api.<module_path_without_ext>.<named_export>`) across deployment manifests, routing, and rollback rematerialization.
 
 Legacy/compatibility note (locked decision, iteration 15): live-schema pointer-function materialization remains enabled as an extension-managed compatibility bridge during migration, but it is not the primary authoring UX.
 

@@ -587,8 +587,8 @@ Minimum implementation evidence:
 
 - [x] Discover multiple named exports per module during deploy.
 - [x] Require exported functions to be wrapped by `query(...)` or `mutation(...)`.
-- [ ] Persist deployment manifest keyed by function path (not SQL function name scan from user schemas).
-- [ ] Keep versioned rollback semantics with function-path addressability.
+- [x] Persist deployment manifest keyed by function path (not SQL function name scan from user schemas).
+- [x] Keep versioned rollback semantics with function-path addressability.
 - [x] Validate CLI export metadata coverage against compiled deployable functions (fail when wrapper exports and deployable SQL identities drift).
 
 Minimum implementation evidence:
@@ -602,9 +602,9 @@ Minimum implementation evidence:
 
 ### 14.4 Runtime execution routing
 
-- [ ] Resolve `stopgap.call_fn(path, args)` -> active deployment -> artifact/module -> named export.
-- [ ] Execute named export with existing wrapper-aware DB mode enforcement (`query` RO, `mutation` RW).
-- [ ] Preserve runtime safety controls (timeout/cancel/heap/SQL guardrails) on routed calls.
+- [x] Resolve `stopgap.call_fn(path, args)` -> active deployment -> artifact/module -> named export.
+- [x] Execute named export with existing wrapper-aware DB mode enforcement (`query` RO, `mutation` RW).
+- [x] Preserve runtime safety controls (timeout/cancel/heap/SQL guardrails) on routed calls.
 - [x] Provide clear error classing with path context in messages/metrics.
 
 Progress notes:
@@ -612,7 +612,8 @@ Progress notes:
 - [x] `plts` artifact pointers now honor pointer metadata `export` for entrypoint resolution (not only `default`), guarded by DB-backed runtime coverage in `crates/plts/tests/pg/runtime_artifact_pointer.rs`.
 
 Minimum implementation evidence:
-- [ ] DB-backed runtime tests for path execution, wrapper mode enforcement, and guardrail behavior
+- [x] DB-backed runtime tests for path execution, wrapper mode enforcement, and guardrail behavior
+  - evidence: `crates/stopgap/tests/pg/call_fn.rs` now covers routed path execution + wrapper-mode failures and validates routed guardrail-detail propagation
 - [x] metrics include path-routed call counts and error classes
   - evidence: `stopgap.metrics()` now includes `call_fn` call/error counters, route-source counts (`exact`/`legacy`), and call-fn-specific error classes (`validation`/`state`/`route`/`runtime`) with DB-backed assertions in `crates/stopgap/tests/pg/metrics.rs`
 
@@ -632,9 +633,10 @@ Decision note (iteration 15):
 
 ### 14.6 Verification and release gates for pivot work
 
-- [ ] Keep required verification command set from section 13.1 green for each pivot increment.
+- [x] Keep required verification command set from section 13.1 green for each pivot increment.
 - [x] Keep runtime-heavy V8 lane and stopgap regress lanes release-blocking during migration.
 - [x] Add CI checks specific to new CLI project model and function-path invocation tests.
 
 Minimum implementation evidence:
 - [ ] at least one CI run green with new function-path tests included
+  - local iteration 16 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
