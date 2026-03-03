@@ -585,12 +585,13 @@ Minimum implementation evidence:
 ### 14.3 Multi-export module deployment model
 
 - [ ] Discover multiple named exports per module during deploy.
-- [ ] Require exported functions to be wrapped by `query(...)` or `mutation(...)`.
+- [x] Require exported functions to be wrapped by `query(...)` or `mutation(...)`.
 - [ ] Persist deployment manifest keyed by function path (not SQL function name scan from user schemas).
 - [ ] Keep versioned rollback semantics with function-path addressability.
 
 Minimum implementation evidence:
 - [x] deploy metadata/catalog schema supports `function_path` entries
+- [x] CLI preflight export scan rejects non-wrapper named exports and emits deterministic function paths (`crates/stopgap-cli/src/lib.rs`, `crates/stopgap-cli/tests/command_integration.rs`)
 - [ ] deploy/rollback tests covering multiple exports from one module
 
 ### 14.4 Runtime execution routing

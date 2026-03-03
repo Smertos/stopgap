@@ -2572,6 +2572,7 @@ dependencies = [
  "anyhow",
  "clap",
  "postgres",
+ "regex",
  "serde",
  "serde_json",
 ]

@@ -3,6 +3,7 @@ use std::{fmt, fs, io::Write, path::Path};
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use postgres::{Client, NoTls, Row};
+use regex::Regex;
 use serde_json::{Value, json};
 
 pub const EXIT_DB_CONNECT: u8 = 10;
@@ -10,6 +11,14 @@ pub const EXIT_DB_QUERY: u8 = 11;
 pub const EXIT_RESPONSE_DECODE: u8 = 12;
 pub const EXIT_OUTPUT_FORMAT: u8 = 13;
 pub const EXIT_PROJECT_LAYOUT: u8 = 14;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StopgapExport {
+    pub module_path: String,
+    pub export_name: String,
+    pub function_path: String,
+    pub kind: String,
+}
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum OutputMode {
@@ -207,8 +216,14 @@ pub fn execute_command_with_project_root(
 ) -> std::result::Result<(), AppError> {
     match command {
         Command::Deploy { env, from_schema, label, prune } => {
-            let module_paths =
-                discover_stopgap_modules(project_root).map_err(AppError::ProjectLayout)?;
+            let exports =
+                discover_stopgap_exports(project_root).map_err(AppError::ProjectLayout)?;
+            let mut module_paths =
+                exports.iter().map(|item| item.module_path.clone()).collect::<Vec<_>>();
+            module_paths.sort();
+            module_paths.dedup();
+            let function_paths =
+                exports.iter().map(|item| item.function_path.clone()).collect::<Vec<_>>();
             let deployment_id = api
                 .deploy(&env, &from_schema, label.as_deref(), prune)
                 .map_err(AppError::DbQuery)?;
@@ -219,17 +234,20 @@ pub fn execute_command_with_project_root(
                 "source_root": "stopgap",
                 "module_count": module_paths.len(),
                 "module_paths": module_paths,
+                "function_count": exports.len(),
+                "function_paths": function_paths,
                 "deployment_id": deployment_id,
                 "prune": prune,
             });
             print_payload(output, payload, writer, || {
                 format!(
-                    "deployed env={} from_schema={} deployment_id={} prune={} module_count={}",
+                    "deployed env={} from_schema={} deployment_id={} prune={} module_count={} function_count={}",
                     env,
                     from_schema,
                     deployment_id,
                     prune,
-                    module_paths.len()
+                    module_paths.len(),
+                    exports.len()
                 )
             })
         }
@@ -295,6 +313,14 @@ pub fn execute_command_with_project_root(
 }
 
 pub fn discover_stopgap_modules(project_root: &Path) -> Result<Vec<String>> {
+    let exports = discover_stopgap_exports(project_root)?;
+    let mut modules = exports.into_iter().map(|item| item.module_path).collect::<Vec<_>>();
+    modules.sort();
+    modules.dedup();
+    Ok(modules)
+}
+
+pub fn discover_stopgap_exports(project_root: &Path) -> Result<Vec<StopgapExport>> {
     let source_root = project_root.join("stopgap");
     if !source_root.is_dir() {
         anyhow::bail!(
@@ -303,14 +329,24 @@ pub fn discover_stopgap_modules(project_root: &Path) -> Result<Vec<String>> {
         );
     }
 
-    let mut modules = Vec::new();
-    collect_stopgap_modules(&source_root, &source_root, &mut modules)?;
-    modules.sort();
-    modules.dedup();
-    Ok(modules)
+    let mut exports = Vec::new();
+    collect_stopgap_exports(&source_root, &source_root, &mut exports)?;
+    if exports.is_empty() {
+        anyhow::bail!(
+            "no deployable stopgap exports found under {}; expected `export const <name> = query(...)` or `mutation(...)`",
+            source_root.display()
+        );
+    }
+    exports.sort_by(|left, right| left.function_path.cmp(&right.function_path));
+    exports.dedup_by(|left, right| left.function_path == right.function_path);
+    Ok(exports)
 }
 
-fn collect_stopgap_modules(root: &Path, cursor: &Path, modules: &mut Vec<String>) -> Result<()> {
+fn collect_stopgap_exports(
+    root: &Path,
+    cursor: &Path,
+    exports: &mut Vec<StopgapExport>,
+) -> Result<()> {
     let mut entries = Vec::new();
     for entry in fs::read_dir(cursor)
         .with_context(|| format!("failed to read stopgap source directory {}", cursor.display()))?
@@ -321,7 +357,7 @@ fn collect_stopgap_modules(root: &Path, cursor: &Path, modules: &mut Vec<String>
 
     for path in entries {
         if path.is_dir() {
-            collect_stopgap_modules(root, &path, modules)?;
+            collect_stopgap_exports(root, &path, exports)?;
             continue;
         }
 
@@ -330,10 +366,64 @@ fn collect_stopgap_modules(root: &Path, cursor: &Path, modules: &mut Vec<String>
         }
 
         let module_path = normalize_module_path(root, &path)?;
-        modules.push(module_path);
+        let source = fs::read_to_string(&path)
+            .with_context(|| format!("failed to read stopgap module {}", path.display()))?;
+        let module_exports = parse_wrapped_exports(&source, &module_path, &path)?;
+        exports.extend(module_exports);
     }
 
     Ok(())
+}
+
+fn parse_wrapped_exports(
+    source: &str,
+    module_path: &str,
+    file_path: &Path,
+) -> Result<Vec<StopgapExport>> {
+    let wrapped_export_re = Regex::new(
+        r"(?m)^\s*export\s+const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:[A-Za-z_][A-Za-z0-9_]*\s*\.\s*)?(query|mutation)\s*(?:<[^\n>]*>)?\s*\(",
+    )
+    .expect("wrapped export regex should be valid");
+    let named_const_export_re =
+        Regex::new(r"(?m)^\s*export\s+const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=")
+            .expect("named export regex should be valid");
+
+    let mut wrapped_names = std::collections::BTreeSet::new();
+    let mut exports = Vec::new();
+    for capture in wrapped_export_re.captures_iter(source) {
+        let export_name = capture
+            .get(1)
+            .map(|value| value.as_str().to_string())
+            .expect("wrapped export regex always captures export name");
+        let kind = capture
+            .get(2)
+            .map(|value| value.as_str().to_string())
+            .expect("wrapped export regex always captures wrapper kind");
+        let function_path = format!("{module_path}.{export_name}");
+        wrapped_names.insert(export_name.clone());
+        exports.push(StopgapExport {
+            module_path: module_path.to_string(),
+            export_name,
+            function_path,
+            kind,
+        });
+    }
+
+    let non_wrapped_exports = named_const_export_re
+        .captures_iter(source)
+        .filter_map(|capture| capture.get(1).map(|value| value.as_str().to_string()))
+        .filter(|name| !wrapped_names.contains(name))
+        .collect::<Vec<_>>();
+
+    if !non_wrapped_exports.is_empty() {
+        anyhow::bail!(
+            "module {} exports non-wrapper symbols ({}) ; wrap exported handlers with query(...) or mutation(...)",
+            file_path.display(),
+            non_wrapped_exports.join(", ")
+        );
+    }
+
+    Ok(exports)
 }
 
 fn is_deployable_ts_module(path: &Path) -> bool {
@@ -429,5 +519,34 @@ mod tests {
         assert_eq!(EXIT_RESPONSE_DECODE, 12);
         assert_eq!(EXIT_OUTPUT_FORMAT, 13);
         assert_eq!(EXIT_PROJECT_LAYOUT, 14);
+    }
+
+    #[test]
+    fn parse_wrapped_exports_finds_query_and_mutation_handlers() {
+        let source = r#"
+            export const listUsers = query(v.object({}), async () => []);
+            export const createUser = mutation(v.object({}), async () => ({ ok: true }));
+        "#;
+
+        let exports = parse_wrapped_exports(source, "api.users", Path::new("stopgap/users.ts"))
+            .expect("wrapper exports should parse");
+        assert_eq!(exports.len(), 2);
+        assert_eq!(exports[0].function_path, "api.users.listUsers");
+        assert_eq!(exports[0].kind, "query");
+        assert_eq!(exports[1].function_path, "api.users.createUser");
+        assert_eq!(exports[1].kind, "mutation");
+    }
+
+    #[test]
+    fn parse_wrapped_exports_rejects_non_wrapper_named_exports() {
+        let source = r#"
+            export const helper = 1;
+            export const listUsers = query(v.object({}), async () => []);
+        "#;
+
+        let error = parse_wrapped_exports(source, "api.users", Path::new("stopgap/users.ts"))
+            .expect_err("non-wrapper named exports should fail preflight");
+        assert!(error.to_string().contains("exports non-wrapper symbols"));
+        assert!(error.to_string().contains("helper"));
     }
 }

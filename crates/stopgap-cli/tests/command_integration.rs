@@ -8,7 +8,7 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use stopgap_cli::{
     AppError, Command, EXIT_DB_QUERY, EXIT_PROJECT_LAYOUT, OutputMode, StopgapApi,
-    discover_stopgap_modules, execute_command_with_project_root,
+    discover_stopgap_exports, discover_stopgap_modules, execute_command_with_project_root,
 };
 
 struct MockApi {
@@ -72,8 +72,14 @@ fn deploy_json_output_schema_is_stable() {
     let mut api = MockApi { deploy_result: Ok(42), ..Default::default() };
     let mut out = Vec::new();
     let project = create_project_root("deploy_json_output_schema_is_stable");
-    write_file(project.join("stopgap/coolApi.ts"), "export const x = 1;");
-    write_file(project.join("stopgap/admin/users.ts"), "export const y = 2;");
+    write_file(
+        project.join("stopgap/coolApi.ts"),
+        "export const list = query(v.object({}), async () => []);",
+    );
+    write_file(
+        project.join("stopgap/admin/users.ts"),
+        "export const get = query(v.object({}), async () => []);\nexport const set = mutation(v.object({}), async () => ({}));",
+    );
     execute_command_with_project_root(
         Command::Deploy {
             env: "prod".to_string(),
@@ -96,6 +102,10 @@ fn deploy_json_output_schema_is_stable() {
     assert_eq!(payload["module_count"], 2);
     assert_eq!(payload["module_paths"][0], "api.admin.users");
     assert_eq!(payload["module_paths"][1], "api.coolApi");
+    assert_eq!(payload["function_count"], 3);
+    assert_eq!(payload["function_paths"][0], "api.admin.users.get");
+    assert_eq!(payload["function_paths"][1], "api.admin.users.set");
+    assert_eq!(payload["function_paths"][2], "api.coolApi.list");
     assert_eq!(payload["deployment_id"], 42);
     assert_eq!(payload["prune"], true);
 }
@@ -242,13 +252,45 @@ fn deploy_fails_fast_when_stopgap_source_root_missing() {
 fn discover_stopgap_modules_normalizes_paths_deterministically() {
     let project =
         create_project_root("discover_stopgap_modules_normalizes_paths_deterministically");
-    write_file(project.join("stopgap/coolApi.ts"), "export const cool = 1;");
-    write_file(project.join("stopgap/admin/users.ts"), "export const list = 1;");
+    write_file(
+        project.join("stopgap/coolApi.ts"),
+        "export const cool = query(v.object({}), async () => []);",
+    );
+    write_file(
+        project.join("stopgap/admin/users.ts"),
+        "export const list = mutation(v.object({}), async () => ({}));",
+    );
     write_file(project.join("stopgap/admin/types.d.ts"), "export type T = string;");
     write_file(project.join("stopgap/README.md"), "not a module");
 
     let modules = discover_stopgap_modules(&project).expect("module discovery should succeed");
     assert_eq!(modules, vec!["api.admin.users", "api.coolApi"]);
+}
+
+#[test]
+fn discover_stopgap_exports_finds_multi_export_handlers() {
+    let project = create_project_root("discover_stopgap_exports_finds_multi_export_handlers");
+    write_file(
+        project.join("stopgap/admin/users.ts"),
+        "export const list = query(v.object({}), async () => []);\nexport const create = mutation(v.object({}), async () => ({}));",
+    );
+
+    let exports = discover_stopgap_exports(&project).expect("export discovery should succeed");
+    let paths = exports.into_iter().map(|item| item.function_path).collect::<Vec<_>>();
+    assert_eq!(paths, vec!["api.admin.users.create", "api.admin.users.list"]);
+}
+
+#[test]
+fn discover_stopgap_exports_rejects_non_wrapper_named_exports() {
+    let project = create_project_root("discover_stopgap_exports_rejects_non_wrapper_named_exports");
+    write_file(
+        project.join("stopgap/users.ts"),
+        "export const helper = 1;\nexport const list = query(v.object({}), async () => []);",
+    );
+
+    let error = discover_stopgap_exports(&project).expect_err("non-wrapper exports should fail");
+    assert!(error.to_string().contains("exports non-wrapper symbols"));
+    assert!(error.to_string().contains("helper"));
 }
 
 fn project_root_for_non_deploy_tests() -> PathBuf {
