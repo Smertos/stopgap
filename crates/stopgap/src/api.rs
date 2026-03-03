@@ -1,4 +1,5 @@
 use pgrx::JsonB;
+use pgrx::pg_sys::panic::CaughtError;
 use pgrx::prelude::*;
 use serde_json::json;
 
@@ -133,6 +134,19 @@ fn resolve_route(
     .map_err(|e| {
         format!("failed to resolve route for deployment {} path '{}': {e}", deployment_id, path)
     })?
+}
+
+fn classify_routed_execution_error(path: &str, detail: &str) -> String {
+    let lowered = detail.to_ascii_lowercase();
+    if lowered.contains("stopgap args validation failed") {
+        format!("stopgap.call_fn invalid args for '{}': {detail}", path)
+    } else if lowered.contains("db.exec is disabled for stopgap.query handlers")
+        || lowered.contains("db.query is read-only for stopgap.query handlers")
+    {
+        format!("stopgap.call_fn wrong wrapper mode for '{}': {detail}", path)
+    } else {
+        format!("stopgap.call_fn execution failed for '{}': {detail}", path)
+    }
 }
 
 #[pg_extern]
@@ -349,10 +363,20 @@ mod stopgap {
             crate::quote_ident(route.live_fn_name.as_str())
         );
 
-        let result = Spi::get_one_with_args::<JsonB>(invoke_sql.as_str(), &[args.into()])
-            .unwrap_or_else(|e| {
-                fail(format!("stopgap.call_fn execution failed for '{}': {e}", path))
-            });
+        let result = PgTryBuilder::new(|| {
+            Spi::get_one_with_args::<JsonB>(invoke_sql.as_str(), &[args.into()])
+                .unwrap_or_else(|e| fail(classify_routed_execution_error(path, &e.to_string())))
+        })
+        .catch_others(|caught| {
+            let detail = match caught {
+                CaughtError::PostgresError(report) | CaughtError::ErrorReport(report) => {
+                    report.message().to_string()
+                }
+                CaughtError::RustPanic { ereport, .. } => ereport.message().to_string(),
+            };
+            fail(classify_routed_execution_error(path, detail.as_str()))
+        })
+        .execute();
         observability::record_call_fn_success(started_at);
         result
     }

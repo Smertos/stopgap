@@ -422,3 +422,171 @@ fn test_call_fn_reports_ambiguous_legacy_route() {
     )
     .expect("ambiguous legacy routes should fail with clear error");
 }
+
+#[pg_test]
+fn test_call_fn_surfaces_invalid_args_semantics() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS call_fn_invalid_args_live CASCADE;
+        CREATE SCHEMA call_fn_invalid_args_live;
+
+        CREATE OR REPLACE FUNCTION call_fn_invalid_args_live.validate_impl(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            RAISE EXCEPTION 'stopgap args validation failed at $.id: missing required property';
+        END;
+        $$;
+
+        INSERT INTO stopgap.environment (env, live_schema, active_deployment_id)
+        VALUES ('call_fn_invalid_args_env', 'call_fn_invalid_args_live', NULL)
+        ON CONFLICT (env) DO UPDATE
+        SET live_schema = EXCLUDED.live_schema,
+            active_deployment_id = NULL,
+            updated_at = now();
+
+        INSERT INTO stopgap.deployment (id, env, label, source_schema, status, manifest)
+        VALUES (91005, 'call_fn_invalid_args_env', 'call-fn-invalid-args', 'call_fn_src', 'active', '{"functions":[]}'::jsonb)
+        ON CONFLICT (id) DO NOTHING;
+
+        UPDATE stopgap.environment
+        SET active_deployment_id = 91005,
+            updated_at = now()
+        WHERE env = 'call_fn_invalid_args_env';
+
+        INSERT INTO stopgap.fn_version (
+            deployment_id,
+            fn_name,
+            fn_schema,
+            live_fn_schema,
+            live_fn_name,
+            function_path,
+            module_path,
+            export_name,
+            kind,
+            artifact_hash
+        )
+        VALUES (
+            91005,
+            'validate_impl',
+            'call_fn_src',
+            'call_fn_invalid_args_live',
+            'validate_impl',
+            'api.users.validate',
+            'users',
+            'validate',
+            'query',
+            'sha256:invalid-args'
+        )
+        ON CONFLICT (deployment_id, fn_schema, fn_name) DO NOTHING;
+
+        SELECT set_config('stopgap.default_env', 'call_fn_invalid_args_env', true);
+        "#,
+    )
+    .expect("test should prepare invalid-args route fixtures");
+
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM stopgap.call_fn('api.users.validate', '{}'::jsonb);
+            RAISE EXCEPTION 'expected call_fn invalid-args failure';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('invalid args for ''api.users.validate''' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+                IF POSITION('args validation failed at $.id' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END
+        $$;
+        "#,
+    )
+    .expect("invalid args failures should surface path-aware call_fn semantics");
+}
+
+#[pg_test]
+fn test_call_fn_surfaces_wrong_wrapper_mode_semantics() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS call_fn_wrapper_mode_live CASCADE;
+        CREATE SCHEMA call_fn_wrapper_mode_live;
+
+        CREATE OR REPLACE FUNCTION call_fn_wrapper_mode_live.readonly_impl(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            RAISE EXCEPTION 'db.exec is disabled for stopgap.query handlers';
+        END;
+        $$;
+
+        INSERT INTO stopgap.environment (env, live_schema, active_deployment_id)
+        VALUES ('call_fn_wrapper_mode_env', 'call_fn_wrapper_mode_live', NULL)
+        ON CONFLICT (env) DO UPDATE
+        SET live_schema = EXCLUDED.live_schema,
+            active_deployment_id = NULL,
+            updated_at = now();
+
+        INSERT INTO stopgap.deployment (id, env, label, source_schema, status, manifest)
+        VALUES (91006, 'call_fn_wrapper_mode_env', 'call-fn-wrapper-mode', 'call_fn_src', 'active', '{"functions":[]}'::jsonb)
+        ON CONFLICT (id) DO NOTHING;
+
+        UPDATE stopgap.environment
+        SET active_deployment_id = 91006,
+            updated_at = now()
+        WHERE env = 'call_fn_wrapper_mode_env';
+
+        INSERT INTO stopgap.fn_version (
+            deployment_id,
+            fn_name,
+            fn_schema,
+            live_fn_schema,
+            live_fn_name,
+            function_path,
+            module_path,
+            export_name,
+            kind,
+            artifact_hash
+        )
+        VALUES (
+            91006,
+            'readonly_impl',
+            'call_fn_src',
+            'call_fn_wrapper_mode_live',
+            'readonly_impl',
+            'api.users.readonly',
+            'users',
+            'readonly',
+            'query',
+            'sha256:wrapper-mode'
+        )
+        ON CONFLICT (deployment_id, fn_schema, fn_name) DO NOTHING;
+
+        SELECT set_config('stopgap.default_env', 'call_fn_wrapper_mode_env', true);
+        "#,
+    )
+    .expect("test should prepare wrapper-mode route fixtures");
+
+    Spi::run(
+        r#"
+        DO $$
+        BEGIN
+            PERFORM stopgap.call_fn('api.users.readonly', '{}'::jsonb);
+            RAISE EXCEPTION 'expected call_fn wrapper-mode failure';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('wrong wrapper mode for ''api.users.readonly''' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+                IF POSITION('db.exec is disabled for stopgap.query handlers' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END
+        $$;
+        "#,
+    )
+    .expect("wrapper-mode failures should surface explicit call_fn semantics");
+}

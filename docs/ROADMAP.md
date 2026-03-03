@@ -560,15 +560,16 @@ Minimum implementation evidence:
 - [ ] Promote TS module workflow as primary user path and explicitly mark SQL-authored stopgap function flow as legacy/compatibility mode.
 - [x] Define canonical function path contract: `api.<module_path_without_ext>.<named_export>`.
 - [x] Add `stopgap.call_fn(path text, args jsonb)` as the public invocation surface for deployed functions.
-- [ ] Define error semantics for unknown path, invalid args, missing deployment, and wrong wrapper mode.
+- [x] Define error semantics for unknown path, invalid args, missing deployment, and wrong wrapper mode.
   - [x] Unknown path and missing deployment errors include `stopgap.call_fn` path/env context.
   - [x] Invalid path format is rejected with explicit `api.<module_path>.<export_name>` guidance.
-  - [ ] Invalid args + wrong wrapper-mode error semantics for path-routed named exports remain to be finalized with full module/export routing.
+  - [x] Invalid args + wrong wrapper-mode call failures now surface explicit path-aware `stopgap.call_fn` errors (`invalid args` / `wrong wrapper mode`) while preserving underlying runtime details.
 
 Minimum implementation evidence:
 - [x] `docs/PROJECT-OUTLINE.md` + `docs/RUNTIME-CONTRACT.md` updated for path-based invocation contract
 - [x] DB-backed tests for `stopgap.call_fn` happy + failure paths
 - [x] `stopgap.call_fn` now enforces canonical path segments (`api` prefix + non-empty `[A-Za-z0-9_]+` segments) and rejects ambiguous legacy fallback matches with explicit route-metadata errors
+- [x] DB-backed call-fn semantics tests now assert path-aware invalid-args and wrong-wrapper-mode failures (`crates/stopgap/tests/pg/call_fn.rs`)
 
 ### 14.2 CLI project model (`stopgap/` directory)
 

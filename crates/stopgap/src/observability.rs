@@ -211,7 +211,10 @@ pub(crate) fn record_call_fn_route_legacy() {
 
 pub(crate) fn classify_call_fn_error(message: &str) -> &'static str {
     let lowered = message.to_ascii_lowercase();
-    if lowered.contains("invalid path") || lowered.contains("invalid args") {
+    if lowered.contains("invalid path")
+        || lowered.contains("invalid args")
+        || lowered.contains("wrong wrapper mode")
+    {
         "validation"
     } else if lowered.contains("no active deployment")
         || lowered.contains("missing deployment environment")
@@ -446,6 +449,12 @@ mod tests {
         assert_eq!(
             super::classify_call_fn_error("stopgap.call_fn execution failed for 'api.users.hello'"),
             "runtime"
+        );
+        assert_eq!(
+            super::classify_call_fn_error(
+                "stopgap.call_fn wrong wrapper mode for 'api.users.list'"
+            ),
+            "validation"
         );
     }
 
