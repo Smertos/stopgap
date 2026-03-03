@@ -301,7 +301,20 @@ mod tests {
 
 #[cfg(test)]
 pub mod pg_test {
-    pub fn setup(_options: Vec<&str>) {}
+    use std::sync::Once;
+    use tracing_subscriber::EnvFilter;
+
+    static TRACING_INIT: Once = Once::new();
+
+    pub fn setup(_options: Vec<&str>) {
+        TRACING_INIT.call_once(|| {
+            let _ = tracing_log::LogTracer::init();
+            let filter =
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+            let _ = tracing_subscriber::fmt().with_env_filter(filter).with_test_writer().try_init();
+            tracing::info!("initialized tracing subscriber for plts pg tests");
+        });
+    }
 
     #[must_use]
     pub fn postgresql_conf_options() -> Vec<&'static str> {

@@ -34,3 +34,6 @@ base64 = "0.22"
 
 [dev-dependencies]
 pgrx-tests = "=0.17.0"
+tracing = { workspace = true }
+tracing-log = { workspace = true }
+tracing-subscriber = { workspace = true }
