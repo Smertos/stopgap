@@ -670,10 +670,11 @@ Phased rollout checkpoints:
 - Phase 2 (conservative reuse defaults): backend-local isolate reuse defaults and recycle-policy safety checks validated before widening reuse.
 - Phase 3 (tuning + SLO enforcement): benchmark-backed tuning plus threshold checks for cold/warm and tail-latency objectives.
 
-Current checkpoint status (iteration 17):
+Current checkpoint status (iteration 18):
 - Phase 1 complete.
 - Phase 2 complete (isolate pool now defaults to conservative reuse limits with unit coverage for recycle behavior).
 - Phase 3 complete (runtime performance baseline now enforces compile/cold/warm SLO thresholds plus warm-vs-cold regression delta checks in DB-backed tests).
+- Runtime performance baseline timing now uses nanosecond totals (converted to per-call milliseconds) to avoid false CI failures from millisecond quantization while preserving SLO assertions.
 
 Acceptance/rollback gate policy:
 - Runtime contract gate: invocation-isolation and runtime contract suites must pass; rollback phase changes if context isolation behavior regresses.
