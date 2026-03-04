@@ -520,7 +520,7 @@ checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
 name = "common"
-version = "0.1.0"
+version = "0.1.3"
 
 [[package]]
 name = "compact_str"
@@ -1925,7 +1925,7 @@ checksum = "3b3cff922bd51709b605d9ead9aa71031d81447142d828eb4a6eba76fe619f9b"
 
 [[package]]
 name = "plts"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "base64",
  "common",
@@ -2554,7 +2554,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "stopgap"
-version = "0.1.0"
+version = "0.1.3"
 dependencies = [
  "common",
  "pgrx",
@@ -2567,7 +2567,7 @@ dependencies = [
 
 [[package]]
 name = "stopgap-cli"
-version = "0.1.0"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "clap",
