@@ -1,48 +1,29 @@
-# Stage 1: Build the extensions
-FROM rust:1.91.1 AS builder
-
-# Install build dependencies
-RUN apt-get update && \
-    apt-get install -y \
-    wget ca-certificates gnupg \
-    nodejs npm \
-    libpq-dev \
-    postgresql-server-dev-all \
-    pkg-config \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN npm install -g pnpm
-
-# Get pgrx
-RUN cargo install --locked cargo-pgrx
-RUN cargo pgrx init --pg17 /usr/bin/pg_config
-
-# Build the extensions
-WORKDIR /build
-
-COPY Cargo.toml clippy.toml rust-toolchain.toml rustfmt.toml  ./
-COPY crates crates
-COPY packages packages
-
-RUN pnpm --dir ./packages/runtime install
-
-# Build & install the extensions
-# RUN cargo build --release -p plts -p stopgap
-RUN cargo pgrx install --release -p plts \
-    && cargo pgrx install --release -p stopgap
-
-# Stage 2: Create the final image
+# syntax=docker/dockerfile:1.22
 FROM postgres:17
 
-# Copy compiled extension binaries from builder
-COPY --from=builder /build/target/release/plts--*.so /usr/lib/postgresql/17/lib/
-COPY --from=builder /build/target/release/stopgap--*.so /usr/lib/postgresql/17/lib/
+ARG STOPGAP_EXT_URL="https://github.com/Smertos/stopgap/releases/download/ext-v0.1.4/stopgap-extensions-pg17.zip"
 
-# Copy extension control files
-COPY --from=builder /build/target/release/plts.control /usr/share/postgresql/17/extension/
-COPY --from=builder /build/target/release/stopgap.control /usr/share/postgresql/17/extension/
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends curl unzip ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tmp/stopgap-ext
+
+RUN --mount=type=cache,target=/root/.cache,sharing=locked \
+    curl -fsSL "$STOPGAP_EXT_URL" -o stopgap-extensions-pg17.zip && \
+    unzip -q stopgap-extensions-pg17.zip && \
+    cp plts.so /usr/lib/postgresql/17/lib/ && \
+    cp stopgap.so /usr/lib/postgresql/17/lib/ && \
+    cp plts.control /usr/share/postgresql/17/extension/ && \
+    cp stopgap.control /usr/share/postgresql/17/extension/ && \
+    cp plts*.sql /usr/share/postgresql/17/extension/ && \
+    cp stopgap*.sql /usr/share/postgresql/17/extension/ && \
+    rm -rf /tmp/stopgap-ext
 
 # Initialize with extensions
+RUN printf '%s\n' "CREATE EXTENSION IF NOT EXISTS plts;" > /docker-entrypoint-initdb.d/01-plts.sql && \
+    printf '%s\n' "CREATE EXTENSION IF NOT EXISTS stopgap;" > /docker-entrypoint-initdb.d/02-stopgap.sql
+
 USER postgres
-RUN echo "CREATE EXTENSION IF NOT EXISTS plts;" >> /docker-entrypoint-initdb.d/01-plts.sql
-RUN echo "CREATE EXTENSION IF NOT EXISTS stopgap;" >> /docker-entrypoint-initdb.d/02-stopgap.sql
