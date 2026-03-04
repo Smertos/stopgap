@@ -65,20 +65,17 @@ jobs:
       - name: Initialize cargo-pgrx
         run: cargo pgrx init --pg${{ matrix.pg_version }} /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      - name: Build and install plts extension
-        run: cargo pgrx install -p plts --pg-config /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --no-default-features --features pg${{ matrix.pg_version }}
-
       - name: Build and install plts with V8 runtime
-        run: cargo pgrx install -p plts --pg-config /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --no-default-features --features "pg${{ matrix.pg_version }},v8_runtime"
+        run: cargo pgrx install -p plts --release --pg-config /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --no-default-features --features "pg${{ matrix.pg_version }},v8_runtime"
 
       - name: Build and install stopgap extension
-        run: cargo pgrx install -p stopgap --pg-config /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --no-default-features --features pg${{ matrix.pg_version }}
+        run: cargo pgrx install -p stopgap --release --pg-config /usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --no-default-features --features pg${{ matrix.pg_version }}
 
       - name: Package extensions
         run: |
           mkdir -p release-pg${{ matrix.pg_version }}
           
-          # Package plts (base)
+          # Package plts (V8 runtime)
           cp /usr/lib/postgresql/${{ matrix.pg_version }}/lib/plts.so release-pg${{ matrix.pg_version }}/
           cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/plts*.sql release-pg${{ matrix.pg_version }}/ 2>/dev/null || true
           cp /usr/share/postgresql/${{ matrix.pg_version }}/extension/plts.control release-pg${{ matrix.pg_version }}/ 2>/dev/null || true

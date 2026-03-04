@@ -25,3 +25,9 @@ panic = "unwind"
 opt-level = 3
 lto = "fat"
 codegen-units = 1
+
+[profile.release.package.plts]
+strip = "symbols"
+
+[profile.release.package.stopgap]
+strip = "symbols"
