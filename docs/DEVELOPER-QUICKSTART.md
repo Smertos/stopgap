@@ -7,7 +7,8 @@ Status note (Mar 2026): user-facing product workflow is being course-corrected t
 ## Prerequisites
 
 - Rust toolchain from `rust-toolchain.toml`
-- Node.js 22+ with npm
+- Node.js 22+
+- pnpm 10+
 - PostgreSQL dev headers and a local server compatible with `cargo pgrx`
 - `cargo-pgrx` installed (`cargo install cargo-pgrx`)
 
@@ -22,7 +23,7 @@ cargo pgrx init
 2. Build workspace dependencies:
 
 ```bash
-npm install --prefix packages/runtime --no-package-lock
+pnpm --dir packages/runtime install --frozen-lockfile
 cargo check
 ```
 

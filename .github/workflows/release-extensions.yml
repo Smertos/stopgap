@@ -34,16 +34,23 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: packages/runtime/pnpm-lock.yaml
 
       - name: Install runtime package dependencies
-        run: npm install --prefix packages/runtime --no-package-lock
+        run: pnpm --dir packages/runtime install --frozen-lockfile
 
       - name: Build embedded runtime artifact
-        run: npm run build --prefix packages/runtime
+        run: pnpm --dir packages/runtime run build
 
       - name: Install PostgreSQL ${{ matrix.pg_version }} development packages
         run: |

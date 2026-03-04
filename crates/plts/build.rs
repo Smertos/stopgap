@@ -11,15 +11,15 @@ fn main() {
         println!("cargo:rerun-if-changed={}", runtime_dir.join(relative).display());
     }
 
-    let status = Command::new("npm")
+    let status = Command::new("pnpm")
+        .arg("--dir")
+        .arg(&runtime_dir)
         .arg("run")
         .arg("build")
-        .arg("--prefix")
-        .arg(&runtime_dir)
         .status()
         .unwrap_or_else(|err| {
             panic!(
-                "failed to invoke `npm run build --prefix {}` from plts build script: {err}",
+                "failed to invoke `pnpm --dir {} run build` from plts build script: {err}",
                 runtime_dir.display()
             )
         });

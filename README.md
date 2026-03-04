@@ -15,6 +15,17 @@ Use this project if you want to:
 - Keep deployment history and rollback controls in the database.
 - Author only TypeScript modules/functions in your app repo, without hand-writing SQL function wrappers.
 
+## Local development setup
+
+Use pnpm for runtime package dependencies before running Cargo commands:
+
+```bash
+pnpm --dir packages/runtime install --frozen-lockfile
+cargo check
+```
+
+For full local prerequisites and command references, see `docs/DEVELOPER-QUICKSTART.md`.
+
 ## Install in your database
 
 ### Option 1: Build extensions from source (multi-stage Dockerfile)

@@ -9,7 +9,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && npm run build:embedded",
+    "build": "tsc -p tsconfig.json && pnpm run build:embedded",
     "build:embedded": "esbuild src/embedded.ts --bundle --format=esm --platform=neutral --target=es2022 --outfile=dist/embedded_runtime.js",
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
