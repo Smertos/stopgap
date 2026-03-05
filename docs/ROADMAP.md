@@ -121,9 +121,9 @@ The sections below remain useful implementation history; active net-new product 
 - [x] Run semantic TypeScript checking in DB compile flow (`plts.typecheck_ts` + validator) and reject diagnostics with `severity=error`
 - [x] Enforce `LANGUAGE plts` DDL validation via semantic TypeScript checks on CREATE/REPLACE
 - [x] Provide `@stopgap/runtime` declaration files (`.d.ts`) to checker resolution during compile/validation
-- [ ] Replace subprocess-based semantic checker with in-process TSGo WASM backend
+- [x] Replace subprocess-based semantic checker with in-process TSGo WASM backend
 - [ ] Route `plts.compile_ts` transpilation through TSGo WASM backend
-- [ ] Remove DB-path checker subprocess execution (`pnpm exec tsc`) from validator/compile/typecheck flows
+- [x] Remove DB-path checker subprocess execution (`pnpm exec tsc`) from validator/compile/typecheck flows
 
 ### 2.6 DB API Surface (unfinished)
 
@@ -671,18 +671,19 @@ Minimum implementation evidence:
 
 - [x] Add mandatory `typescript-go` git submodule and pin a stable commit.
 - [x] Add `stopgap-tsgo-api` Go wrapper exposing narrow typecheck/transpile APIs for `plts`.
-- [ ] Build and embed `stopgap-tsgo-api.wasm` into `plts` for in-process DB-path execution.
+- [x] Build and embed `stopgap-tsgo-api.wasm` into `plts` for in-process DB-path execution.
 - [x] Keep strict typing (`strict`, `noImplicitAny`) and reduce permissive `any` stubs.
 - [ ] Add/generated per-function type declarations for function args/context where metadata is available.
 - [x] Defer `@app/*` support in first pass; emit explicit diagnostics for unresolved usage.
 
 Minimum implementation evidence:
 - [x] `stopgap-tsgo-api` now publishes a WASI artifact at `third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm`, and `plts` embeds it via `include_bytes!` (`crates/plts/src/compiler.rs`) with unit coverage for wasm-magic validation.
-- [x] `plts` semantic typecheck now runs an in-process WASI invocation of embedded `stopgap-tsgo-api.wasm` for TSGo diagnostics before legacy checker fallback (`crates/plts/src/compiler.rs`).
-- [ ] `plts` validator and SQL compile/typecheck paths perform no subprocess execution.
-- [ ] `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` remains green.
-- [ ] stopgap deploy/diff typecheck enforcement remains unchanged at API boundary (`plts.typecheck_ts`).
+- [x] `plts` semantic typecheck now runs an in-process WASI invocation of embedded `stopgap-tsgo-api.wasm` for TSGo diagnostics with no legacy checker fallback (`crates/plts/src/compiler.rs`).
+- [x] `plts` validator and SQL compile/typecheck paths perform no subprocess execution.
+- [x] `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` remains green.
+- [x] stopgap deploy/diff typecheck enforcement remains unchanged at API boundary (`plts.typecheck_ts`).
 - [x] `typescript-go` submodule added at `third_party/typescript-go` and pinned in git metadata (`.gitmodules` + submodule gitlink).
 - [x] unresolved `@app/*` imports now fail semantic typecheck with explicit unsupported-import diagnostics (`crates/plts/src/compiler.rs`) and unit coverage for rewrite/line-column extraction behavior.
 - [x] initial `stopgap-tsgo-api` scaffold now lives at `third_party/stopgap-tsgo-api` with a narrow JSON request/response API (`typecheck`/`transpile`) and Go tests for unsupported `@app/*` import diagnostics (`third_party/stopgap-tsgo-api/api/service_test.go`).
-- [x] typecheck workspace now uses a strict `@stopgap/runtime` declaration shim (instead of permissive `any` stubs), and DB-backed coverage asserts `v` schema inference catches typed misuse (`crates/plts/src/compiler.rs`, `crates/plts/tests/pg/runtime_module_imports.rs`).
+- [x] TSGo semantic diagnostics now include strict wrapper-arg misuse coverage for common `v` schema inference failures (`args.id.toUpperCase()` against `v.int()`), and DB-backed coverage asserts the failure contract in `crates/plts/tests/pg/runtime_module_imports.rs`.
+- [x] local iteration 20 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`

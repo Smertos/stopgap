@@ -6,7 +6,6 @@ use crate::observability::{
     classify_compile_error, log_info, log_warn, metrics_json, record_compile_error,
     record_compile_start, record_compile_success,
 };
-use crate::runtime::bootstrap_v8_isolate;
 use common::sql::quote_literal;
 use pgrx::JsonB;
 use pgrx::iter::TableIterator;
@@ -38,14 +37,12 @@ mod plts {
             name!(compiler_fingerprint, String),
         ),
     > {
-        bootstrap_v8_isolate();
         let (compiled_js, diagnostics) = transpile_typescript(source_ts, &compiler_opts.0);
         TableIterator::once((compiled_js, JsonB(diagnostics), compiler_fingerprint().to_string()))
     }
 
     #[pg_extern]
     fn typecheck_ts(source_ts: &str) -> JsonB {
-        bootstrap_v8_isolate();
         JsonB(semantic_typecheck_typescript(source_ts))
     }
 

@@ -36,6 +36,29 @@ func TestTypecheckIgnoresNonImportAppTokens(t *testing.T) {
 	}
 }
 
+func TestTypecheckReportsWrapperArgMethodMismatch(t *testing.T) {
+	source := "import { query, v } from '@stopgap/runtime';\n" +
+		"export default query(v.object({ id: v.int() }), async (args, _ctx) => {\n" +
+		"  return { bad: args.id.toUpperCase() };\n" +
+		"});\n"
+	result := Typecheck(TypecheckRequest{SourceTS: source})
+
+	if len(result.Diagnostics) != 1 {
+		t.Fatalf("expected 1 diagnostic, got %d", len(result.Diagnostics))
+	}
+
+	diagnostic := result.Diagnostics[0]
+	if diagnostic.Severity != "error" {
+		t.Fatalf("unexpected severity: %s", diagnostic.Severity)
+	}
+	if diagnostic.Phase != "semantic" {
+		t.Fatalf("unexpected phase: %s", diagnostic.Phase)
+	}
+	if diagnostic.Message != "Property 'toUpperCase' does not exist on type 'number'" {
+		t.Fatalf("unexpected message: %s", diagnostic.Message)
+	}
+}
+
 func TestTranspileReturnsScaffoldDiagnostic(t *testing.T) {
 	result := Transpile(TranspileRequest{SourceTS: "export const value: number = 1;"})
 	if result.Backend != "tsgo-api-scaffold" {

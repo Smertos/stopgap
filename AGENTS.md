@@ -51,7 +51,7 @@ This file captures how to work effectively in this repository.
 - Current migration bridge: `stopgap.call_fn` routes through active deployment metadata, prefers exact `function_path` matches in `stopgap.fn_version`, and falls back to terminal export-segment resolution only for legacy rows; malformed paths and ambiguous fallback matches must fail with explicit route errors.
 - Runtime pointer metadata supports explicit entrypoint selection (`{"export":"<named_export>"}`) with `default` fallback, so stopgap path routing can target named exports once deployment metadata emits non-default export pointers.
 - TSGo migration first pass currently defers `@app/*` semantic-typecheck support; unresolved `@app/*` imports should emit explicit unsupported-import diagnostics.
-- TSGo migration checkpoint: semantic typecheck now invokes embedded `stopgap-tsgo-api.wasm` in-process for TSGo diagnostics before legacy `tsc` fallback; full subprocess removal is still pending.
+- TSGo migration checkpoint: semantic typecheck now invokes embedded `stopgap-tsgo-api.wasm` in-process for TSGo diagnostics with no legacy `tsc` fallback in DB validator/compile/typecheck paths.
 - Semantic typecheck workspace stubs for `@stopgap/runtime` should remain strict and typed (avoid permissive `any` fallbacks so `strict`/`noImplicitAny` catches wrapper-arg misuse).
 - Stopgap-managed overloading is forbidden.
 - Regular `plts` calling convention should expose both positional and named/object argument forms.

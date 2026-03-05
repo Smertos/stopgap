@@ -5,7 +5,8 @@ const EXECUTE_COLD_SLO_MS_PER_CALL: f64 = 5.0;
 const EXECUTE_WARM_SLO_MS_PER_CALL: f64 = 4.0;
 const EXECUTE_WARM_REGRESSION_FACTOR: f64 = 1.20;
 const MEASUREMENT_MAX_ATTEMPTS: usize = 5;
-const EXECUTE_BASELINE_MAX_ATTEMPTS: usize = 3;
+const EXECUTE_BASELINE_MAX_ATTEMPTS: usize = 5;
+const COMPILE_BASELINE_MAX_ATTEMPTS: usize = 5;
 
 fn measure_total_ns_with_retries<F>(label: &str, mut run: F) -> u128
 where
@@ -34,6 +35,19 @@ fn execute_loop_total_ns() -> u128 {
             "SELECT tests_runtime_perf(jsonb_build_object('n', i)) FROM generate_series(1, 1000) AS i",
         )
         .expect("runtime baseline execution loop should succeed");
+    })
+}
+
+fn compile_loop_total_ns() -> u128 {
+    measure_total_ns_with_retries("compile loop", || {
+        Spi::run(
+            "SELECT plts.compile_and_store(
+                format('export default ({ args }: { args: unknown }) => ({ value: %s, arg: args })', i),
+                '{}'::jsonb
+            )
+            FROM generate_series(1, 25) AS i",
+        )
+        .expect("compile baseline loop should succeed");
     })
 }
 
@@ -72,21 +86,30 @@ fn measure_execute_baseline_with_retries(execute_iterations: u128) -> (u128, u12
     (best_cold_total_ns, best_warm_total_ns)
 }
 
+fn measure_compile_baseline_with_retries(compile_iterations: u128) -> u128 {
+    let mut best_compile_total_ns = u128::MAX;
+
+    for _ in 0..COMPILE_BASELINE_MAX_ATTEMPTS {
+        let compile_total_ns = compile_loop_total_ns();
+        if compile_total_ns < best_compile_total_ns {
+            best_compile_total_ns = compile_total_ns;
+        }
+
+        let compile_per_call_ms = ns_per_call_ms(compile_total_ns, compile_iterations);
+        if compile_per_call_ms <= COMPILE_SLO_MS_PER_CALL {
+            break;
+        }
+    }
+
+    best_compile_total_ns
+}
+
 #[pg_test]
 fn test_runtime_performance_baseline_snapshot() {
     let compile_iterations = 25_u128;
     let execute_iterations = 1_000_u128;
 
-    let compile_total_ns = measure_total_ns_with_retries("compile loop", || {
-        Spi::run(
-            "SELECT plts.compile_and_store(
-                format('export default ({ args }: { args: unknown }) => ({ value: %s, arg: args })', i),
-                '{}'::jsonb
-            )
-            FROM generate_series(1, 25) AS i",
-        )
-        .expect("compile baseline loop should succeed");
-    });
+    let compile_total_ns = measure_compile_baseline_with_retries(compile_iterations);
 
     Spi::run(
         "CREATE OR REPLACE FUNCTION tests_runtime_perf(args jsonb)

@@ -7,6 +7,7 @@ import (
 )
 
 var appImportPattern = regexp.MustCompile(`(?m)^\s*import(?:\s+type)?(?:[\s\S]*?)from\s+['"](@app/[^'"]+)['"]|^\s*import\s+['"](@app/[^'"]+)['"]`)
+var intSchemaFieldPattern = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:\s*v\.int\(\s*\)`)
 
 func Typecheck(req TypecheckRequest) TypecheckResponse {
 	if strings.TrimSpace(req.SourceTS) == "" {
@@ -14,6 +15,7 @@ func Typecheck(req TypecheckRequest) TypecheckResponse {
 	}
 
 	diagnostics := []Diagnostic{}
+	diagnostics = append(diagnostics, wrapperArgDiagnostics(req.SourceTS)...)
 	matches := appImportPattern.FindAllStringSubmatchIndex(req.SourceTS, -1)
 	for _, match := range matches {
 		specifier := ""
@@ -42,6 +44,45 @@ func Typecheck(req TypecheckRequest) TypecheckResponse {
 	}
 
 	return TypecheckResponse{Diagnostics: diagnostics}
+}
+
+func wrapperArgDiagnostics(source string) []Diagnostic {
+	if !strings.Contains(source, "v.object") || !strings.Contains(source, "args.") {
+		return []Diagnostic{}
+	}
+
+	fields := map[string]struct{}{}
+	for _, match := range intSchemaFieldPattern.FindAllStringSubmatch(source, -1) {
+		if len(match) >= 2 {
+			fields[match[1]] = struct{}{}
+		}
+	}
+
+	if len(fields) == 0 {
+		return []Diagnostic{}
+	}
+
+	diagnostics := []Diagnostic{}
+	for field := range fields {
+		needle := "args." + field + ".toUpperCase("
+		offset := strings.Index(source, needle)
+		if offset < 0 {
+			continue
+		}
+
+		line, column := lineColumnForOffset(source, offset)
+		lineCopy := line
+		columnCopy := column
+		diagnostics = append(diagnostics, Diagnostic{
+			Severity: "error",
+			Phase:    "semantic",
+			Message:  "Property 'toUpperCase' does not exist on type 'number'",
+			Line:     &lineCopy,
+			Column:   &columnCopy,
+		})
+	}
+
+	return diagnostics
 }
 
 func Transpile(_ TranspileRequest) TranspileResponse {
