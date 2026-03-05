@@ -672,7 +672,7 @@ Minimum implementation evidence:
 - [x] Add mandatory `typescript-go` git submodule and pin a stable commit.
 - [x] Add `stopgap-tsgo-api` Go wrapper exposing narrow typecheck/transpile APIs for `plts`.
 - [ ] Build and embed `stopgap-tsgo-api.wasm` into `plts` for in-process DB-path execution.
-- [ ] Keep strict typing (`strict`, `noImplicitAny`) and reduce permissive `any` stubs.
+- [x] Keep strict typing (`strict`, `noImplicitAny`) and reduce permissive `any` stubs.
 - [ ] Add/generated per-function type declarations for function args/context where metadata is available.
 - [x] Defer `@app/*` support in first pass; emit explicit diagnostics for unresolved usage.
 
@@ -683,3 +683,4 @@ Minimum implementation evidence:
 - [x] `typescript-go` submodule added at `third_party/typescript-go` and pinned in git metadata (`.gitmodules` + submodule gitlink).
 - [x] unresolved `@app/*` imports now fail semantic typecheck with explicit unsupported-import diagnostics (`crates/plts/src/compiler.rs`) and unit coverage for rewrite/line-column extraction behavior.
 - [x] initial `stopgap-tsgo-api` scaffold now lives at `third_party/stopgap-tsgo-api` with a narrow JSON request/response API (`typecheck`/`transpile`) and Go tests for unsupported `@app/*` import diagnostics (`third_party/stopgap-tsgo-api/api/service_test.go`).
+- [x] typecheck workspace now uses a strict `@stopgap/runtime` declaration shim (instead of permissive `any` stubs), and DB-backed coverage asserts `v` schema inference catches typed misuse (`crates/plts/src/compiler.rs`, `crates/plts/tests/pg/runtime_module_imports.rs`).

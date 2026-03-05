@@ -17,33 +17,135 @@ use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CARGO_LOCK_CONTENT: &str = include_str!("../../../Cargo.lock");
-const RUNTIME_TYPES_D_TS: &str = include_str!("../../../packages/runtime/dist/index.d.ts");
-const RUNTIME_EMBEDDED_D_TS: &str = include_str!("../../../packages/runtime/dist/embedded.d.ts");
 const RUNTIME_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/runtime");
-const ZOD_MINI_D_TS_STUB: &str =
-    "declare module \"zod/mini\" {\n  const zodMini: any;\n  export = zodMini;\n}\n";
+const RUNTIME_TYPECHECK_D_TS: &str = r#"export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [k: string]: JsonValue };
+
+export type JsonSchema = {
+  type?: "object" | "array" | "string" | "number" | "integer" | "boolean" | "null";
+  properties?: Record<string, JsonSchema>;
+  required?: readonly string[];
+  additionalProperties?: boolean;
+  items?: JsonSchema;
+  enum?: readonly JsonValue[];
+  anyOf?: readonly JsonSchema[];
+};
+
+export type SchemaIssue = { message?: string };
+export type SchemaSafeParseResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: { issues?: SchemaIssue[] } };
+
+export type SchemaLike<T = unknown> = {
+  safeParse?: (value: unknown) => SchemaSafeParseResult<T>;
+  parse?: (value: unknown) => T;
+};
+
+type InferSchemaValue<S> = S extends SchemaLike<infer T> ? T : JsonValue;
+
+export type InferArgsSchema<S> = S extends SchemaLike<infer T>
+  ? T
+  : S extends JsonSchema
+    ? JsonValue
+    : JsonValue;
+
+type StopgapSchema = JsonSchema | SchemaLike<unknown>;
+type StopgapWrapped = ((ctx: unknown) => Promise<unknown>) & {
+  __stopgap_kind: "query" | "mutation";
+  __stopgap_args_schema: unknown;
+};
+
+export type DbMode = "ro" | "rw";
+export type DbApi = {
+  mode: DbMode;
+  query: (sql: string, params?: JsonValue[]) => Promise<JsonValue[]>;
+  exec: (sql: string, params?: JsonValue[]) => Promise<{ ok: true }>;
+};
+
+export type StopgapContext<TArgs> = {
+  args: TArgs;
+  db: DbApi;
+  fn: {
+    oid: number;
+    schema: string;
+    name: string;
+  };
+  now: string;
+};
+
+export type StopgapHandler<TArgs, TResult> = (
+  args: TArgs,
+  ctx: StopgapContext<TArgs>
+) => TResult | Promise<TResult>;
+
+type MiniSchema<T> = SchemaLike<T>;
+
+type InferObjectShape<T extends Record<string, MiniSchema<unknown>>> = {
+  [K in keyof T]: InferSchemaValue<T[K]>;
+};
+
+export declare const v: {
+  string: () => MiniSchema<string>;
+  number: () => MiniSchema<number>;
+  int: () => MiniSchema<number>;
+  boolean: () => MiniSchema<boolean>;
+  null: () => MiniSchema<null>;
+  literal: <const T extends JsonPrimitive>(value: T) => MiniSchema<T>;
+  array: <T>(schema: MiniSchema<T>) => MiniSchema<T[]>;
+  object: <T extends Record<string, MiniSchema<unknown>>>(shape: T) => MiniSchema<InferObjectShape<T>>;
+  union: <T extends readonly [MiniSchema<unknown>, ...MiniSchema<unknown>[]]>(schemas: T) => MiniSchema<InferSchemaValue<T[number]>>;
+  enum: <const T extends readonly [string, ...string[]]>(values: T) => MiniSchema<T[number]>;
+};
+
+export declare const validateArgs: (
+  schema: StopgapSchema | null | undefined,
+  value: unknown,
+  path?: string
+) => void;
+
+export declare function query<S, TResult>(
+  argsSchema: S,
+  handler: StopgapHandler<InferArgsSchema<S>, TResult>
+): StopgapWrapped;
+export declare function query<TResult>(handler: StopgapHandler<JsonValue, TResult>): StopgapWrapped;
+
+export declare function mutation<S, TResult>(
+  argsSchema: S,
+  handler: StopgapHandler<InferArgsSchema<S>, TResult>
+): StopgapWrapped;
+export declare function mutation<TResult>(handler: StopgapHandler<JsonValue, TResult>): StopgapWrapped;
+
+declare const runtimeApi: {
+  v: typeof v;
+  query: typeof query;
+  mutation: typeof mutation;
+  validateArgs: typeof validateArgs;
+};
+
+export default runtimeApi;
+"#;
 const PLTS_RUNTIME_TYPECHECK_STUBS: &str = r#"declare module "plts+artifact:*" {
-  const value: any;
+  const value: unknown;
   export default value;
-  export const imported: any;
-  export const base: any;
+  export const imported: unknown;
+  export const base: unknown;
 }
 
 declare module "data:*" {
-  const value: any;
+  const value: unknown;
   export default value;
-  export const imported: any;
-  export const base: any;
+  export const imported: unknown;
+  export const base: unknown;
 }
 
 interface GlobalThis {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
-declare const Deno: any;
-declare const fetch: any;
-declare const Request: any;
-declare const WebSocket: any;
+declare const Deno: unknown;
+declare const fetch: unknown;
+declare const Request: unknown;
+declare const WebSocket: unknown;
 "#;
 static TS_COMPILER_FINGERPRINT: OnceLock<String> = OnceLock::new();
 
@@ -241,17 +343,13 @@ impl TypecheckWorkspace {
             SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or_default();
         let root = env::temp_dir().join(format!("plts-typecheck-{}-{stamp}", std::process::id()));
         let runtime_dir = root.join("node_modules/@stopgap/runtime");
-        let zod_dir = root.join("node_modules/zod");
         fs::create_dir_all(&runtime_dir)?;
-        fs::create_dir_all(&zod_dir)?;
 
         fs::write(
             runtime_dir.join("package.json"),
             "{\n  \"name\": \"@stopgap/runtime\",\n  \"types\": \"index.d.ts\"\n}\n",
         )?;
-        fs::write(runtime_dir.join("index.d.ts"), RUNTIME_TYPES_D_TS)?;
-        fs::write(runtime_dir.join("embedded.d.ts"), RUNTIME_EMBEDDED_D_TS)?;
-        fs::write(zod_dir.join("mini.d.ts"), ZOD_MINI_D_TS_STUB)?;
+        fs::write(runtime_dir.join("index.d.ts"), RUNTIME_TYPECHECK_D_TS)?;
         fs::write(root.join("plts_typecheck_stubs.d.ts"), PLTS_RUNTIME_TYPECHECK_STUBS)?;
         fs::write(root.join("plts_module.ts"), source_ts)?;
 

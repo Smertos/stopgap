@@ -605,6 +605,7 @@ Current progress snapshot:
 - runtime now evaluates ES modules via the module loader (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, a built-in bare `@stopgap/runtime` module, and additional bare-specifier imports mapped via inline `plts-import-map` comments)
 - `plts.compile_ts` now performs TS transpilation with structured diagnostics
 - semantic typechecking is currently exposed via `plts.typecheck_ts` and validator enforcement; current semantic checks still shell out, and roadmap direction is to consolidate transpile/typecheck on an in-process TSGo WASM backend.
+- the semantic typecheck workspace now injects strict `@stopgap/runtime` declarations with typed `v` schema inference (replacing permissive `any`-heavy stubs) so `strict` + `noImplicitAny` checks surface wrapper-arg misuse early.
 - `plts` compiler fingerprinting now derives from real dependency versions (`deno_ast`/`deno_core`) from workspace lock metadata
 - optional source-map persistence is now supported in `plts.artifact` when `compiler_opts.source_map=true`
 - basic arg conversion work has started

@@ -51,6 +51,7 @@ This file captures how to work effectively in this repository.
 - Current migration bridge: `stopgap.call_fn` routes through active deployment metadata, prefers exact `function_path` matches in `stopgap.fn_version`, and falls back to terminal export-segment resolution only for legacy rows; malformed paths and ambiguous fallback matches must fail with explicit route errors.
 - Runtime pointer metadata supports explicit entrypoint selection (`{"export":"<named_export>"}`) with `default` fallback, so stopgap path routing can target named exports once deployment metadata emits non-default export pointers.
 - TSGo migration first pass currently defers `@app/*` semantic-typecheck support; unresolved `@app/*` imports should emit explicit unsupported-import diagnostics.
+- Semantic typecheck workspace stubs for `@stopgap/runtime` should remain strict and typed (avoid permissive `any` fallbacks so `strict`/`noImplicitAny` catches wrapper-arg misuse).
 - Stopgap-managed overloading is forbidden.
 - Regular `plts` calling convention should expose both positional and named/object argument forms.
 - Entrypoint conventions: regular `plts` modules use default export; stopgap app modules use named exports discovered at deploy time.
