@@ -15,7 +15,7 @@ Primary product direction is now being course-corrected to a Convex-style TypeSc
 - modules can export multiple named `query(...)` / `mutation(...)` handlers
 - deployed function identity is path-based (`api.<module_path>.<export_name>`)
 - DB invocation entrypoint is `stopgap.call_fn(path, args)`
-- `stopgap-cli deploy` deploys TS modules directly (no user-authored SQL wrappers)
+- `stopgap deploy` deploys TS modules directly (no user-authored SQL wrappers)
 
 The sections below remain useful implementation history; active net-new product work is tracked in section 14.
 
@@ -29,7 +29,7 @@ The sections below remain useful implementation history; active net-new product 
 - [x] Legacy stopgap deployable SQL signature foundation: `(args jsonb) returns jsonb language plts`
 - [x] Stopgap-managed overloading: forbidden
 - [x] Regular `plts` args target: expose both positional and named/object forms
-- [x] Entrypoint convention (runtime substrate): default export
+- [x] Entrypoint convention (runtime substrate): default export (`plts` source-backed); artifact pointers may target named exports via pointer metadata
 - [x] Entrypoint convention (stopgap app workflow): named exports mapped to `api.<module>.<export>` function paths
 - [x] P0 DB API enforcement mode: RW-only (defer read-only gates)
 
@@ -117,6 +117,9 @@ The sections below remain useful implementation history; active net-new product 
 - [x] Return diagnostics payload with line/column and severity
 - [x] Persist compiler metadata/fingerprint from real toolchain versions
 - [x] Optionally persist source maps in `plts.artifact`
+- [x] Run semantic TypeScript checking in compile pipeline and reject diagnostics with `severity=error`
+- [x] Enforce `LANGUAGE plts` DDL validation via semantic TypeScript checks on CREATE/REPLACE
+- [x] Provide `@stopgap/runtime` declaration files (`.d.ts`) to checker resolution during compile/validation
 
 ### 2.6 DB API Surface (unfinished)
 
@@ -263,7 +266,7 @@ The sections below remain useful implementation history; active net-new product 
 
 ---
 
-## 8) CLI Roadmap (`stopgap-cli`)
+## 8) CLI Roadmap (`stopgap` binary)
 
 - [x] Scaffold CLI project
 - [x] Implement `deploy`
@@ -271,6 +274,7 @@ The sections below remain useful implementation history; active net-new product 
 - [x] Implement `status`
 - [x] Implement `deployments`
 - [x] Optional: implement `diff`
+- [x] Add `init` project scaffolding command (`stopgap/example.ts`)
 - [x] Add human-readable + JSON output modes
 - [x] Add CI/CD-oriented exit codes and failure diagnostics
 
@@ -313,7 +317,7 @@ This snapshot is baseline implementation status for the pre-pivot architecture. 
 - **Runtime evolution note:** next work formalizes startup snapshot boundaries, isolate reuse lifecycle, and deterministic failure recovery semantics for backend-local runtime execution.
 - **Performance note:** iteration 10 benchmark-backed optimizations are now in place for hot execute paths via backend-local non-pointer function program caching and argument-type caching for regular invocation payload mapping; iteration 12 hardens function-program caching with explicit LRU keying (`fn_oid`), TTL invalidation, and source-byte memory bounds.
 - **Runtime contract note:** `docs/RUNTIME-CONTRACT.md` is now aligned to current runtime behavior and is guarded by dedicated DB-backed tests in `crates/plts/tests/pg/runtime_contract.rs` plus existing runtime contract suites.
-- **CLI note:** `crates/stopgap-cli` now provides `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
+- **CLI note:** `crates/stopgap-cli` now ships the `stopgap` binary and provides `init`, `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
 - **Runtime package note:** `packages/runtime` now uses Vitest coverage for wrapper metadata/validation/API parity checks and ships with direct `zod/mini` usage for `v` schemas.
 - **CI note:** CI now includes a dedicated `plts runtime v8 (pg17)` job for runtime-heavy `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` coverage in addition to the baseline pgrx matrix.
 - **Cross-extension e2e note:** stopgap rollback pg_regress now covers `deploy -> live execute -> rollback` and verifies both execution continuity and pointer rematerialization after rollback.

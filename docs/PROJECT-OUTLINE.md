@@ -18,7 +18,7 @@ Primary expectations:
   - nested file `stopgap/admin/users.ts` + export `list` => `api.admin.users.list`
 - PostgreSQL invocation must not require user-authored `CREATE FUNCTION` wrappers:
   - `SELECT stopgap.call_fn('api.coolApi.myFn', '{"id":1}'::jsonb);`
-- `stopgap-cli deploy` reads function modules from `stopgap/`, compiles/packages them, and installs a new deployment version in DB.
+- `stopgap deploy` reads function modules from `stopgap/`, compiles/packages them, and installs a new deployment version in DB.
 - Stopgap users should write only TypeScript application functions; SQL wrapper creation/materialization is owned by stopgap extension + CLI automation.
 
 You’ll have **two Postgres extensions** plus **shared TS/JS runtime conventions**:
@@ -72,7 +72,7 @@ stopgap/
       tests/pg/           # pgrx integration tests outside extension source
     stopgap/              # Rust extension: deployments, live schema management
       tests/pg/           # pgrx integration tests outside extension source
-    stopgap-cli/          # Rust CLI: deploy/rollback/status/deployments/diff
+    stopgap-cli/          # Rust CLI crate; ships `stopgap` binary (init/deploy/rollback/status/deployments/diff)
   packages/
     runtime/              # NPM package: TS types + wrappers (`@stopgap/runtime`)
   docs/
@@ -520,17 +520,19 @@ Follow-up work can expand package/bundling coverage for richer in-DB Drizzle com
 Even if DB-side deploy exists, the CLI is the real product surface.
 
 ## 6.1 Commands
-- `stopgap deploy --db <dsn> --env prod --label <sha> [--prune]`
+- `stopgap init`
+- `stopgap deploy --db <dsn> --env prod --from-schema app --label <sha> [--prune]`
 - `stopgap rollback --db <dsn> --env prod [--steps 1 | --to <id>]`
 - `stopgap deployments --db <dsn> --env prod`
 - `stopgap status --db <dsn> --env prod`
-- (optional) `stopgap diff --db ...` compare local `stopgap/**/*.ts` vs active deployment manifest
+- (optional) `stopgap diff --db <dsn> --env prod --from-schema app` compare local `stopgap/**/*.ts` vs active deployment manifest
 
 Current implementation status:
 - `crates/stopgap-cli` now implements deploy/rollback/status/deployments and diff commands against the SQL API.
 - CLI supports `--output human|json` for operator and automation workflows.
 - CLI uses explicit non-zero exit codes for connection/query/decode/output failures for CI/CD diagnostics.
 - CLI deploy command now preflights project layout by requiring `./stopgap`, failing fast with a clear not-initialized error when missing.
+- CLI now includes `stopgap init`, which detects project root by marker precedence (`.git`, `.gitignore`, `package.json`) and scaffolds `stopgap/example.ts`.
 - CLI deploy preflight now discovers named `query(...)` / `mutation(...)` exports from `stopgap/**/*.ts`, rejects non-wrapper named exports, and normalizes deterministic function paths (`api.<module_path_without_ext>.<export_name>`) before issuing SQL deploy calls.
 - CLI deploy now forwards discovered export metadata to DB deploy via transaction-local `stopgap.deploy_exports`; stopgap deploy consumes that metadata to persist `function_path`/`module_path`/`export_name`/`kind` in `stopgap.fn_version` and deployment manifests, while live pointer bodies now set pointer `export` to the selected named export for routed execution.
 - Stopgap deploy now validates export-metadata coverage against discovered deployable functions and fails fast on drift (missing, unknown, or duplicate `stopgap.deploy_exports` entries) before compile/materialization.
@@ -547,7 +549,7 @@ Pivot note: current CLI semantics still include pre-pivot SQL-schema-oriented be
 5) For each:
    - read module TS source
    - resolve canonical `function_path` (`api.<module>.<export>`)
-   - compile TS→JS using `plts.compile_ts(...)` (DB-side) or CLI-side compiler
+   - compile/typecheck TS using `plts.compile_ts(...)` + `plts.compile_and_store(...)` (DB-side)
    - `plts.compile_and_store(...) -> artifact_hash`
    - insert `stopgap.fn_version` row keyed by `function_path`
 6) Seal deployment
@@ -579,9 +581,9 @@ This gives you controlled deployment updates without requiring app developers to
 
 Status note: milestone details below include substantial completed baseline work from the pre-pivot SQL-first flow. Active product-direction deltas for the Convex-style TS-first model are tracked in `docs/ROADMAP.md` section 14.
 
-## P0 (your stated P0: transpile + store + execute)
+## P0 (your stated P0: typecheck + store + execute)
 **In `plts`:**
-- Implement `LANGUAGE plts` handler executing TS (transpile-only) and returning jsonb
+- Implement `LANGUAGE plts` handler executing TS and returning jsonb
 - Implement arg conversion for common PG types (at least: text, int, bool, jsonb)
 - Implement artifact table + `plts.compile_and_store`
 - Implement `db.query` via SPI (start read-write; add read-only gate right after)
@@ -595,7 +597,7 @@ Current progress snapshot:
 - deno_core dependency and feature-gated isolate bootstrap scaffolding are in place
 - async default-export handler execution is now supported in the V8 runtime path
 - runtime now evaluates ES modules via the module loader (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, a built-in bare `@stopgap/runtime` module, and additional bare-specifier imports mapped via inline `plts-import-map` comments)
-- `plts.compile_ts` now performs real TS->JS transpilation via `deno_ast` and returns structured diagnostics
+- `plts.compile_ts` now performs TS transpilation and semantic typechecking with structured diagnostics
 - `plts` compiler fingerprinting now derives from real dependency versions (`deno_ast`/`deno_core`) from workspace lock metadata
 - optional source-map persistence is now supported in `plts.artifact` when `compiler_opts.source_map=true`
 - basic arg conversion work has started
@@ -693,6 +695,7 @@ Acceptance criteria:
 2) **Return null semantics**: JS `undefined` and `null` normalize to SQL `NULL`.
 3) **Schema format**: runtime wrapper validation is `v` (zod/mini-style) with compatibility fallback for the legacy JSON Schema subset and preserved error-shape semantics.
 4) **Deploy compilation location**: **DB compile path** (`plts.compile_ts` / `plts.compile_and_store`).
+4.1) **Type environment**: checker must resolve `@stopgap/runtime` declarations (`.d.ts`) during both `plts` validation and stopgap deploy compile flows.
 5) **Function identity**: **forbid overloading** for stopgap-managed functions.
 6) **Regular `plts` args view**: expose **both positional and named/object forms**.
 7) **Entrypoint convention**:

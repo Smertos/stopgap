@@ -47,7 +47,7 @@ cargo pgrx regress -p stopgap
 `stopgap-cli` is a Rust binary crate at `crates/stopgap-cli`.
 
 ```bash
-cargo run -p stopgap-cli -- --help
+cargo run -p stopgap-cli --bin stopgap -- --help
 ```
 
 The CLI requires a database connection string via `--db` or `STOPGAP_DB`.
@@ -56,14 +56,19 @@ The CLI requires a database connection string via `--db` or `STOPGAP_DB`.
 
 For stopgap-cli users (application repos):
 
-1. Create project-local `stopgap/` directory.
+1. Initialize project-local scaffolding:
+
+```bash
+stopgap init
+```
+
 2. Add `*.ts` function modules with named wrapper exports:
    - `export const myFn = query(argsSchema, handler)`
    - `export const myMutation = mutation(argsSchema, handler)`
 3. Deploy from project root:
 
 ```bash
-stopgap --db "$STOPGAP_DB" deploy --env prod --label <release>
+stopgap --db "$STOPGAP_DB" deploy --env prod --from-schema app --label <release>
 ```
 
 4. Invoke from SQL by function path:

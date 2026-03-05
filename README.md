@@ -114,9 +114,10 @@ SELECT stopgap.rollback('prod', 1, NULL);
 Use the CLI if you prefer command-line deploy flows over raw SQL:
 
 ```bash
-cargo run -p stopgap-cli -- --db "$STOPGAP_DB" deploy --env prod --label initial
-cargo run -p stopgap-cli -- --db "$STOPGAP_DB" status --env prod
-cargo run -p stopgap-cli -- --db "$STOPGAP_DB" rollback --env prod --steps 1
+cargo run -p stopgap-cli --bin stopgap -- init
+cargo run -p stopgap-cli --bin stopgap -- --db "$STOPGAP_DB" deploy --env prod --from-schema app --label initial
+cargo run -p stopgap-cli --bin stopgap -- --db "$STOPGAP_DB" status --env prod
+cargo run -p stopgap-cli --bin stopgap -- --db "$STOPGAP_DB" rollback --env prod --steps 1
 ```
 
 ## Using the extensions
@@ -129,7 +130,8 @@ For stopgap, the CLI is the recommended interface for deployment operations. Dir
 
 2. **Deploy via CLI** - Publish the local `stopgap/` module set to an environment:
    ```bash
-   stopgap-cli deploy --env prod --label v1.0
+   stopgap init
+   stopgap deploy --db "$STOPGAP_DB" --env prod --from-schema app --label v1.0
    ```
 
 3. **Invoke functions by path** - Call deployed handlers through `stopgap.call_fn`:
@@ -139,10 +141,10 @@ For stopgap, the CLI is the recommended interface for deployment operations. Dir
 
 4. **Manage via CLI** - Check status, view history, or rollback:
    ```bash
-   stopgap-cli status --env prod
-   stopgap-cli deployments --env prod
-   stopgap-cli diff --env prod
-   stopgap-cli rollback --env prod --steps 1
+   stopgap status --db "$STOPGAP_DB" --env prod
+   stopgap deployments --db "$STOPGAP_DB" --env prod
+   stopgap diff --db "$STOPGAP_DB" --env prod --from-schema app
+   stopgap rollback --db "$STOPGAP_DB" --env prod --steps 1
    ```
 
 ### Environment variable
