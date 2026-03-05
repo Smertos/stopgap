@@ -22,7 +22,7 @@ CREATE OR REPLACE FUNCTION workspace.echo(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
-export default (ctx) => ctx.args;
+export default (ctx: any) => ctx.args;
 $$;
 
 SELECT stopgap.deploy('prod', 'workspace', 'demo') > 0 AS deployed;

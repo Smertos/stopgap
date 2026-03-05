@@ -24,7 +24,7 @@ CREATE OR REPLACE FUNCTION sg_reg_rb_src.stepper(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
-export default (_ctx) => ({version: "one"});
+export default (_ctx: any) => ({version: "one"});
 $$;
 
 SELECT stopgap.deploy('rg_rb', 'sg_reg_rb_src', 'one') > 0 AS deployed_one;
@@ -33,7 +33,7 @@ CREATE OR REPLACE FUNCTION sg_reg_rb_src.stepper(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
-export default (_ctx) => ({version: "two"});
+export default (_ctx: any) => ({version: "two"});
 $$;
 
 SELECT stopgap.deploy('rg_rb', 'sg_reg_rb_src', 'two') > 0 AS deployed_two;

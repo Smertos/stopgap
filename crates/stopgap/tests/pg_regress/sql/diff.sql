@@ -24,14 +24,14 @@ CREATE OR REPLACE FUNCTION sg_reg_diff_src.alpha(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
-export default (_ctx) => ({version: 1});
+export default (_ctx: any) => ({version: 1});
 $$;
 
 CREATE OR REPLACE FUNCTION sg_reg_diff_src.beta(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
-export default (_ctx) => ({version: 1});
+export default (_ctx: any) => ({version: 1});
 $$;
 
 SELECT stopgap.deploy('rg_diff', 'sg_reg_diff_src', 'baseline') > 0 AS deployed_baseline;
@@ -40,7 +40,7 @@ CREATE OR REPLACE FUNCTION sg_reg_diff_src.alpha(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
-export default (_ctx) => ({version: 2});
+export default (_ctx: any) => ({version: 2});
 $$;
 
 DROP FUNCTION sg_reg_diff_src.beta(jsonb);
@@ -49,7 +49,7 @@ CREATE OR REPLACE FUNCTION sg_reg_diff_src.gamma(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
-export default (_ctx) => ({version: 1});
+export default (_ctx: any) => ({version: 1});
 $$;
 
 SELECT (stopgap.diff('rg_diff', 'sg_reg_diff_src')->'summary'->>'added')::int = 1 AS added_is_one;

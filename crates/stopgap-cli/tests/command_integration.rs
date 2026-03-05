@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -306,6 +306,58 @@ fn discover_stopgap_exports_rejects_non_wrapper_named_exports() {
     let error = discover_stopgap_exports(&project).expect_err("non-wrapper exports should fail");
     assert!(error.to_string().contains("exports non-wrapper symbols"));
     assert!(error.to_string().contains("helper"));
+}
+
+#[test]
+fn init_creates_stopgap_example_without_db_calls() {
+    let mut api = MockApi::default();
+    api.deploy_result = Err(anyhow!("deploy should never run for init"));
+    let mut out = Vec::new();
+    let project = create_project_root("init_creates_stopgap_example_without_db_calls");
+    write_file(project.join(".gitignore"), "node_modules\n");
+
+    execute_command_with_project_root(
+        Command::Init,
+        OutputMode::Json,
+        &mut api,
+        &mut out,
+        &project,
+    )
+    .expect("init should succeed without db calls");
+
+    let payload = parse_json_output(out);
+    assert_eq!(payload["command"], "init");
+    assert_eq!(payload["marker"], ".gitignore");
+    assert_eq!(payload["created_stopgap_dir"], true);
+    assert_eq!(payload["created_example_file"], true);
+    let example_path = project.join("stopgap/example.ts");
+    assert!(example_path.exists());
+    let example_source =
+        fs::read_to_string(example_path).expect("example source should be readable");
+    assert!(example_source.contains("export const getPets = query"));
+    assert!(example_source.contains("export const getPetByName = query"));
+    assert!(example_source.contains("export const createPet = mutation"));
+}
+
+#[test]
+fn init_prefers_nearest_marker_by_priority() {
+    let mut api = MockApi::default();
+    let mut out = Vec::new();
+    let project = create_project_root("init_prefers_nearest_marker_by_priority");
+    write_file(project.join("package.json"), "{}\n");
+    let nested = project.join("apps/service");
+    fs::create_dir_all(&nested).expect("nested app path should be created");
+    write_file(project.join("apps/.gitignore"), "dist\n");
+    write_file(project.join("apps/service/.git"), "");
+
+    execute_command_with_project_root(Command::Init, OutputMode::Json, &mut api, &mut out, &nested)
+        .expect("init should discover root marker");
+
+    let payload = parse_json_output(out);
+    assert_eq!(payload["marker"], ".git");
+    let detected_root = payload["project_root"].as_str().expect("project_root should be rendered");
+    assert_eq!(Path::new(detected_root), project.join("apps/service"));
+    assert!(project.join("apps/service/stopgap/example.ts").exists());
 }
 
 fn project_root_for_non_deploy_tests() -> PathBuf {

@@ -9,7 +9,7 @@ fn test_runtime_supports_module_imports_via_data_url() {
         LANGUAGE plts
         AS $$
         import { imported } from \"data:text/javascript;base64,ZXhwb3J0IGNvbnN0IGltcG9ydGVkID0gOTs=\";
-        export default (ctx) => ({ imported, id: ctx.args.id });
+        export default (ctx: any) => ({ imported, id: ctx.args.id });
         $$;
         ",
     )
@@ -49,7 +49,7 @@ fn test_runtime_supports_module_imports_via_artifact_specifier() {
         LANGUAGE plts
         AS $$
         import {{ imported }} from "plts+artifact:{artifact_hash}";
-        export default (ctx) => ({{ imported, id: ctx.args.id }});
+        export default (ctx: any) => ({{ imported, id: ctx.args.id }});
         $$;
         "#,
     );
@@ -120,9 +120,10 @@ fn test_runtime_supports_bare_imports_via_inline_import_map() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        // plts-import-map: {"@app/math":"data:text/javascript;base64,ZXhwb3J0IGNvbnN0IGJhc2UgPSA0MDs="}
-        import { base } from "@app/math";
-        export default (ctx) => ({ total: base + ctx.args.delta });
+        // plts-import-map: {"@pkg/math":"data:text/javascript;base64,ZXhwb3J0IGNvbnN0IGJhc2UgPSA0MDs="}
+        // @ts-ignore runtime import-map coverage test
+        import { base } from "@pkg/math";
+        export default (ctx: any) => ({ total: base + ctx.args.delta });
         $$;
         "#,
     )
@@ -157,8 +158,8 @@ fn test_runtime_supports_bare_imports_via_pointer_import_map() {
         r#"
         SELECT plts.compile_and_store(
             $$
-            import { base } from "@app/math";
-            export default (ctx) => ({ total: base + ctx.args.delta });
+            import { base } from "@pkg/math";
+            export default (ctx: any) => ({ total: base + ctx.args.delta });
             $$,
             '{}'::jsonb
         )
@@ -174,7 +175,7 @@ fn test_runtime_supports_bare_imports_via_pointer_import_map() {
         "export": "default",
         "mode": "stopgap_deployed",
         "import_map": {
-            "@app/math": format!("plts+artifact:{dependency_hash}")
+            "@pkg/math": format!("plts+artifact:{dependency_hash}")
         }
     })
     .to_string();
@@ -213,7 +214,8 @@ fn test_runtime_rejects_unmapped_bare_import_with_actionable_error() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        import { base } from "@app/math";
+        // @ts-ignore runtime unmapped bare import test
+        import { base } from "@pkg/math";
         export default () => ({ base });
         $$;
         "#,
@@ -228,7 +230,7 @@ fn test_runtime_rejects_unmapped_bare_import_with_actionable_error() {
             RAISE EXCEPTION 'expected unmapped bare import failure';
         EXCEPTION
             WHEN OTHERS THEN
-                IF POSITION('unsupported bare module import `@app/math`' IN SQLERRM) = 0 THEN
+                IF POSITION('unsupported bare module import `@pkg/math`' IN SQLERRM) = 0 THEN
                     RAISE;
                 END IF;
                 IF POSITION('plts-import-map' IN SQLERRM) = 0 THEN
@@ -242,6 +244,46 @@ fn test_runtime_rejects_unmapped_bare_import_with_actionable_error() {
 
     Spi::run("DROP SCHEMA IF EXISTS plts_runtime_module_bare_missing_it CASCADE;")
         .expect("unmapped bare import teardown SQL should succeed");
+}
+
+#[pg_test]
+fn test_runtime_typecheck_rejects_app_imports() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_module_app_import_it CASCADE;
+        CREATE SCHEMA plts_runtime_module_app_import_it;
+        "#,
+    )
+    .expect("app import schema setup should succeed");
+
+    Spi::run(
+        r#"
+        DO $outer$
+        BEGIN
+            CREATE OR REPLACE FUNCTION plts_runtime_module_app_import_it.imported(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $fn$
+            import { base } from "@app/math";
+            export default () => ({ base });
+            $fn$;
+            RAISE EXCEPTION 'expected @app import typecheck failure';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('unsupported bare module import `@app/math`' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+                IF POSITION('@app/*` imports are not supported yet during plts typecheck' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END;
+        $outer$;
+        "#,
+    )
+    .expect("@app imports should fail with explicit typecheck diagnostics");
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_module_app_import_it CASCADE;")
+        .expect("app import schema teardown should succeed");
 }
 
 #[pg_test]

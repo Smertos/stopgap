@@ -1,5 +1,6 @@
 use crate::compiler::{
-    compiler_fingerprint, compute_artifact_hash, maybe_extract_source_map, transpile_typescript,
+    compiler_fingerprint, compute_artifact_hash, contains_error_diagnostics,
+    maybe_extract_source_map, semantic_typecheck_typescript, transpile_typescript,
 };
 use crate::observability::{
     classify_compile_error, log_info, log_warn, metrics_json, record_compile_error,
@@ -40,6 +41,12 @@ mod plts {
         bootstrap_v8_isolate();
         let (compiled_js, diagnostics) = transpile_typescript(source_ts, &compiler_opts.0);
         TableIterator::once((compiled_js, JsonB(diagnostics), compiler_fingerprint().to_string()))
+    }
+
+    #[pg_extern]
+    fn typecheck_ts(source_ts: &str) -> JsonB {
+        bootstrap_v8_isolate();
+        JsonB(semantic_typecheck_typescript(source_ts))
     }
 
     #[pg_extern]
@@ -131,15 +138,4 @@ mod plts {
 
         Spi::get_one::<JsonB>(&sql).ok().flatten()
     }
-}
-
-fn contains_error_diagnostics(diagnostics: &serde_json::Value) -> bool {
-    diagnostics
-        .as_array()
-        .map(|entries| {
-            entries
-                .iter()
-                .any(|entry| entry.get("severity").and_then(|v| v.as_str()) == Some("error"))
-        })
-        .unwrap_or(false)
 }

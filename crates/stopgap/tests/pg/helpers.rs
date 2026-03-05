@@ -38,6 +38,13 @@ fn ensure_mock_plts_runtime() {
             RETURN hash;
         END;
         $$;
+
+        CREATE OR REPLACE FUNCTION plts.typecheck_ts(source_ts text)
+        RETURNS jsonb
+        LANGUAGE sql
+        AS $$
+            SELECT '[]'::jsonb
+        $$;
         ",
     )
     .expect("mock plts runtime setup should succeed");

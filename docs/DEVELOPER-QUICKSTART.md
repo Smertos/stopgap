@@ -4,6 +4,8 @@ This quickstart gets a local Stopgap + PLTS workspace running for day-to-day dev
 
 Status note (Mar 2026): user-facing product workflow is being course-corrected to a Convex-style TypeScript-first model (`./stopgap` directory with path-based invocation), while this document remains focused on extension/CLI development in this repository.
 
+Compiler backend migration note: roadmap work is planned to move `plts` typecheck/transpile to an in-process TSGo WASM backend. Until that lands, the current checker pipeline still depends on existing runtime package build tooling.
+
 ## Prerequisites
 
 - Rust toolchain from `rust-toolchain.toml`
@@ -14,13 +16,19 @@ Status note (Mar 2026): user-facing product workflow is being course-corrected t
 
 ## One-time setup
 
-1. Initialize pgrx:
+1. Initialize pinned third-party sources:
+
+```bash
+git submodule update --init --recursive
+```
+
+2. Initialize pgrx:
 
 ```bash
 cargo pgrx init
 ```
 
-2. Build workspace dependencies:
+3. Build workspace dependencies:
 
 ```bash
 pnpm --dir packages/runtime install --frozen-lockfile

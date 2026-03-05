@@ -9,9 +9,42 @@ use deno_ast::TranspileOptions;
 use serde_json::Value;
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use std::env;
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
 use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const CARGO_LOCK_CONTENT: &str = include_str!("../../../Cargo.lock");
+const RUNTIME_TYPES_D_TS: &str = include_str!("../../../packages/runtime/dist/index.d.ts");
+const RUNTIME_EMBEDDED_D_TS: &str = include_str!("../../../packages/runtime/dist/embedded.d.ts");
+const RUNTIME_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/runtime");
+const ZOD_MINI_D_TS_STUB: &str =
+    "declare module \"zod/mini\" {\n  const zodMini: any;\n  export = zodMini;\n}\n";
+const PLTS_RUNTIME_TYPECHECK_STUBS: &str = r#"declare module "plts+artifact:*" {
+  const value: any;
+  export default value;
+  export const imported: any;
+  export const base: any;
+}
+
+declare module "data:*" {
+  const value: any;
+  export default value;
+  export const imported: any;
+  export const base: any;
+}
+
+interface GlobalThis {
+  [key: string]: any;
+}
+
+declare const Deno: any;
+declare const fetch: any;
+declare const Request: any;
+declare const WebSocket: any;
+"#;
 static TS_COMPILER_FINGERPRINT: OnceLock<String> = OnceLock::new();
 
 pub(crate) fn compute_artifact_hash(
@@ -111,6 +144,65 @@ pub(crate) fn transpile_typescript(source_ts: &str, compiler_opts: &Value) -> (S
     }
 }
 
+pub(crate) fn semantic_typecheck_typescript(source_ts: &str) -> Value {
+    let Ok(workspace) = TypecheckWorkspace::prepare(source_ts) else {
+        return json!([diagnostic_from_message(
+            "error",
+            "failed to prepare TypeScript typecheck workspace",
+        )]);
+    };
+
+    let output = Command::new("pnpm")
+        .arg("--dir")
+        .arg(RUNTIME_DIR)
+        .arg("exec")
+        .arg("tsc")
+        .arg("--project")
+        .arg(workspace.tsconfig_path.as_os_str())
+        .arg("--pretty")
+        .arg("false")
+        .arg("--noEmit")
+        .output();
+
+    let mut diagnostics: Vec<Value> = match output {
+        Ok(result) => {
+            let mut parsed = parse_tsc_diagnostics(&result.stdout);
+            parsed.extend(parse_tsc_diagnostics(&result.stderr));
+            if !result.status.success() && parsed.is_empty() {
+                parsed.push(diagnostic_from_message(
+                    "error",
+                    "TypeScript typecheck failed with unknown diagnostics output",
+                ));
+            }
+            parsed
+        }
+        Err(err) => vec![diagnostic_from_message(
+            "error",
+            &format!("failed to execute TypeScript checker: {err}"),
+        )],
+    };
+
+    if let Err(err) = workspace.cleanup() {
+        diagnostics.push(diagnostic_from_message(
+            "warning",
+            &format!("failed to remove temporary typecheck workspace: {err}"),
+        ));
+    }
+
+    Value::Array(diagnostics)
+}
+
+pub(crate) fn contains_error_diagnostics(diagnostics: &Value) -> bool {
+    diagnostics
+        .as_array()
+        .map(|entries| {
+            entries
+                .iter()
+                .any(|entry| entry.get("severity").and_then(|v| v.as_str()) == Some("error"))
+        })
+        .unwrap_or(false)
+}
+
 fn diagnostic_from_message(severity: &str, message: &str) -> Value {
     let mut line = Value::Null;
     let mut column = Value::Null;
@@ -135,6 +227,133 @@ fn extract_line_column(message: &str) -> Option<(u32, u32)> {
     let col = pieces.next()?.parse::<u32>().ok()?;
     let line = pieces.next()?.parse::<u32>().ok()?;
     Some((line, col))
+}
+
+#[derive(Debug)]
+struct TypecheckWorkspace {
+    root: PathBuf,
+    tsconfig_path: PathBuf,
+}
+
+impl TypecheckWorkspace {
+    fn prepare(source_ts: &str) -> Result<Self, std::io::Error> {
+        let stamp =
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or_default();
+        let root = env::temp_dir().join(format!("plts-typecheck-{}-{stamp}", std::process::id()));
+        let runtime_dir = root.join("node_modules/@stopgap/runtime");
+        let zod_dir = root.join("node_modules/zod");
+        fs::create_dir_all(&runtime_dir)?;
+        fs::create_dir_all(&zod_dir)?;
+
+        fs::write(
+            runtime_dir.join("package.json"),
+            "{\n  \"name\": \"@stopgap/runtime\",\n  \"types\": \"index.d.ts\"\n}\n",
+        )?;
+        fs::write(runtime_dir.join("index.d.ts"), RUNTIME_TYPES_D_TS)?;
+        fs::write(runtime_dir.join("embedded.d.ts"), RUNTIME_EMBEDDED_D_TS)?;
+        fs::write(zod_dir.join("mini.d.ts"), ZOD_MINI_D_TS_STUB)?;
+        fs::write(root.join("plts_typecheck_stubs.d.ts"), PLTS_RUNTIME_TYPECHECK_STUBS)?;
+        fs::write(root.join("plts_module.ts"), source_ts)?;
+
+        let tsconfig_path = root.join("tsconfig.json");
+        fs::write(
+            &tsconfig_path,
+            "{\n  \"compilerOptions\": {\n    \"strict\": true,\n    \"target\": \"ES2022\",\n    \"module\": \"ES2022\",\n    \"moduleResolution\": \"Bundler\",\n    \"skipLibCheck\": true,\n    \"noEmit\": true,\n    \"noImplicitAny\": true\n  },\n  \"files\": [\"./plts_typecheck_stubs.d.ts\", \"./plts_module.ts\"]\n}\n",
+        )?;
+
+        Ok(Self { root, tsconfig_path })
+    }
+
+    fn cleanup(&self) -> Result<(), std::io::Error> {
+        fs::remove_dir_all(&self.root)
+    }
+}
+
+fn parse_tsc_diagnostics(raw: &[u8]) -> Vec<Value> {
+    let text = String::from_utf8_lossy(raw);
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| line.contains("error TS"))
+        .map(parse_tsc_diagnostic_line)
+        .collect()
+}
+
+fn parse_tsc_diagnostic_line(line: &str) -> Value {
+    let mut line_number = Value::Null;
+    let mut column_number = Value::Null;
+    let message = rewrite_tsc_diagnostic_message(line);
+
+    if let Some((line_pos, col_pos)) = extract_tsc_line_column(line) {
+        line_number = json!(line_pos);
+        column_number = json!(col_pos);
+    }
+
+    json!({
+        "severity": "error",
+        "phase": "semantic",
+        "message": message,
+        "line": line_number,
+        "column": column_number,
+    })
+}
+
+fn rewrite_tsc_diagnostic_message(line: &str) -> String {
+    let unresolved_prefix = "Cannot find module '@app/";
+    let message_prefix = ": error TS2307: ";
+    let Some(message_start) = line.find(message_prefix).map(|idx| idx + message_prefix.len())
+    else {
+        return line.to_string();
+    };
+    let message = &line[message_start..];
+    if !message.starts_with(unresolved_prefix) {
+        return line.to_string();
+    }
+
+    let Some(spec_start) = message.find('\'').map(|idx| idx + 1) else {
+        return line.to_string();
+    };
+    let Some(spec_end_rel) = message[spec_start..].find('\'') else {
+        return line.to_string();
+    };
+    let specifier = &message[spec_start..(spec_start + spec_end_rel)];
+    format!(
+        "unsupported bare module import `{specifier}`: `@app/*` imports are not supported yet during plts typecheck"
+    )
+}
+
+fn extract_tsc_line_column(message: &str) -> Option<(u32, u32)> {
+    let end = message.find("): error TS")?;
+    let start = message[..end].rfind('(')?;
+    let raw = &message[(start + 1)..end];
+    let mut parts = raw.split(',');
+    let line = parts.next()?.trim().parse::<u32>().ok()?;
+    let column = parts.next()?.trim().parse::<u32>().ok()?;
+    Some((line, column))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_tsc_diagnostic_line, rewrite_tsc_diagnostic_message};
+
+    #[test]
+    fn rewrites_unresolved_app_import_diagnostic() {
+        let line = "plts_module.ts(2,22): error TS2307: Cannot find module '@app/math' or its corresponding type declarations.";
+        let rewritten = rewrite_tsc_diagnostic_message(line);
+        assert_eq!(
+            rewritten,
+            "unsupported bare module import `@app/math`: `@app/*` imports are not supported yet during plts typecheck"
+        );
+    }
+
+    #[test]
+    fn keeps_other_tsc_diagnostics_unchanged() {
+        let line = "plts_module.ts(3,11): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.";
+        let parsed = parse_tsc_diagnostic_line(line);
+        assert_eq!(parsed.get("message").and_then(|value| value.as_str()), Some(line));
+        assert_eq!(parsed.get("line").and_then(|value| value.as_u64()), Some(3));
+        assert_eq!(parsed.get("column").and_then(|value| value.as_u64()), Some(11));
+    }
 }
 
 pub(crate) fn maybe_extract_source_map(compiled_js: &str, compiler_opts: &Value) -> Option<String> {

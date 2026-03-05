@@ -14,6 +14,8 @@ This file captures how to work effectively in this repository.
   - `crates/stopgap-cli`: Rust CLI for deploy/rollback/status/deployments/diff flows
 - Packages:
   - `packages/runtime`: `@stopgap/runtime` wrappers + `v` schema/type helpers
+- Third-party:
+  - `third_party/typescript-go`: pinned `typescript-go` submodule for upcoming in-process TSGo WASM compiler backend migration
 - Docs:
   - `docs/ROADMAP.md`: tracked implementation plan and current backlog
   - `docs/PROJECT-OUTLINE.md`: product/architecture source of truth
@@ -47,6 +49,7 @@ This file captures how to work effectively in this repository.
 - Deployment manifests should include both ordered `functions` and canonical `functions_by_path` entries keyed by `function_path` for deterministic path-addressable introspection.
 - Current migration bridge: `stopgap.call_fn` routes through active deployment metadata, prefers exact `function_path` matches in `stopgap.fn_version`, and falls back to terminal export-segment resolution only for legacy rows; malformed paths and ambiguous fallback matches must fail with explicit route errors.
 - Runtime pointer metadata supports explicit entrypoint selection (`{"export":"<named_export>"}`) with `default` fallback, so stopgap path routing can target named exports once deployment metadata emits non-default export pointers.
+- TSGo migration first pass currently defers `@app/*` semantic-typecheck support; unresolved `@app/*` imports should emit explicit unsupported-import diagnostics.
 - Stopgap-managed overloading is forbidden.
 - Regular `plts` calling convention should expose both positional and named/object argument forms.
 - Entrypoint conventions: regular `plts` modules use default export; stopgap app modules use named exports discovered at deploy time.

@@ -30,13 +30,13 @@ CREATE OR REPLACE FUNCTION sg_reg_prune_src.keep(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
-export default (_ctx) => ({fn: "keep"});
+export default (_ctx: any) => ({fn: "keep"});
 $$;
 CREATE OR REPLACE FUNCTION sg_reg_prune_src.dropme(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
-export default (_ctx) => ({fn: "dropme"});
+export default (_ctx: any) => ({fn: "dropme"});
 $$;
 SELECT stopgap.deploy('rg_prune', 'sg_reg_prune_src', 'initial') > 0 AS deployed_initial;
  deployed_initial 

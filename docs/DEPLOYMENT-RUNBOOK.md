@@ -27,6 +27,8 @@ Status note (Mar 2026): primary workflow is now Convex-style and TypeScript-firs
 
 Users should not author PostgreSQL `CREATE FUNCTION ... LANGUAGE plts` wrappers manually.
 
+Roadmap note: compile/typecheck internals are planned to migrate to an in-process TSGo WASM backend; deploy lifecycle semantics stay the same (`plts` API boundary remains the integration point).
+
 ## Rollback lifecycle
 
 `stopgap.rollback(env, steps, to_id)`:

@@ -39,6 +39,13 @@ cargo check
   - `select plts.metrics();`
   - `select stopgap.metrics();`
 
+## `LANGUAGE plts` create/replace fails with TypeScript diagnostics
+
+- The validator enforces semantic TypeScript checks; fix reported diagnostics first.
+- If errors mention checker execution/tooling, confirm runtime package dependencies are installed (`pnpm --dir packages/runtime install --frozen-lockfile`) and retry.
+- Use `SELECT plts.typecheck_ts($$...$$);` to inspect diagnostics directly before deploy.
+- Roadmap direction is to move checker/transpile internals to in-process TSGo WASM; until that lands, checker failures can still reflect local toolchain/runtime-package issues.
+
 ## CLI failures
 
 - Ensure `--db` or `STOPGAP_DB` is provided.

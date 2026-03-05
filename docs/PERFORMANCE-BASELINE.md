@@ -14,13 +14,14 @@ cargo pgrx test -p plts pg17 test_runtime_performance_baseline_snapshot
 The test captures wall-clock timings around two hotspot loops:
 
 1. compile loop: 25 calls to `plts.compile_and_store(...)`
-2. execute loop: 100 calls to a stopgap-signature `LANGUAGE plts` function invocation path
+2. execute loop: 1,000 calls to a stopgap-signature `LANGUAGE plts` function invocation path
 
 ## Bottlenecks and threshold targets
 
 Based on current behavior and code-path review, the highest-cost paths are:
 
-- compile path: TS parse/transpile (`deno_ast`) + artifact hashing + artifact row write
+- compile path (current): TS parse/transpile (`deno_ast`) + artifact hashing + artifact row write
+- compile path (planned): in-process TSGo WASM typecheck/transpile backend replacing DB-path checker subprocess work
 - execute path: call handler argument mapping + function source loading/dispatch
 
 Tracking targets for this baseline:

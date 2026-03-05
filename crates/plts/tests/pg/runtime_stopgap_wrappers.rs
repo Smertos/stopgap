@@ -10,7 +10,7 @@ fn test_runtime_supports_stopgap_runtime_bare_import() {
         AS $$
         import { query } from "@stopgap/runtime";
 
-        export default query({ type: "object" }, async (args, ctx) => ({
+        export default query({ type: "object" }, async (args: any, ctx: any) => ({
             kind: "query",
             id: args.id,
             dbMode: ctx.db.mode,
@@ -46,7 +46,7 @@ fn test_stopgap_query_wrapper_rejects_db_exec() {
         AS $$
         import { query } from "@stopgap/runtime";
 
-        export default query({ type: "object" }, async (_args, ctx) => {
+        export default query({ type: "object" }, async (_args: any, ctx: any) => {
             await ctx.db.exec("SELECT 1", []);
             return { ok: true };
         });
@@ -92,7 +92,7 @@ fn test_stopgap_query_wrapper_validates_json_schema() {
             id: v.int()
         });
 
-        export default query(schema, async (args, _ctx) => ({ id: args.id }));
+        export default query(schema, async (args: any, _ctx: any) => ({ id: args.id }));
         $$;
         "#,
     )
@@ -140,7 +140,7 @@ fn test_stopgap_query_wrapper_rejects_write_sql_in_db_query() {
         AS $$
         import { query } from "@stopgap/runtime";
 
-        export default query({ type: "object" }, async (_args, ctx) => {
+        export default query({ type: "object" }, async (_args: any, ctx: any) => {
             await ctx.db.query("WITH w AS (INSERT INTO plts_runtime_stopgap_query_write_it.items(id) VALUES (1) RETURNING id) SELECT id FROM w", []);
             return { ok: true };
         });
@@ -182,7 +182,7 @@ fn test_stopgap_query_wrapper_allows_keyword_literals() {
         AS $$
         import { query } from "@stopgap/runtime";
 
-        export default query({ type: "object" }, async (_args, ctx) => {
+        export default query({ type: "object" }, async (_args: any, ctx: any) => {
             const rows = await ctx.db.query("SELECT 'update' AS verb, 'delete' AS body", []);
             return { verb: rows[0].verb, body: rows[0].body, dbMode: ctx.db.mode };
         });
@@ -217,7 +217,7 @@ fn test_stopgap_mutation_wrapper_allows_db_exec() {
         AS $$
         import { mutation } from "@stopgap/runtime";
 
-        export default mutation({ type: "object" }, async (args, ctx) => {
+        export default mutation({ type: "object" }, async (args: any, ctx: any) => {
             await ctx.db.exec("INSERT INTO plts_runtime_stopgap_mutation_it.items(id) VALUES ($1)", [args.id]);
             const rows = await ctx.db.query("SELECT id FROM plts_runtime_stopgap_mutation_it.items ORDER BY id", []);
             return { kind: "mutation", dbMode: ctx.db.mode, count: rows.length };

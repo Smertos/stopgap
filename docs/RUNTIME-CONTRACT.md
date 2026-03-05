@@ -66,7 +66,10 @@ SELECT stopgap.call_fn('api.coolApi.myFn', '{"id":1}'::jsonb);
 Current implementation status:
 - `stopgap.call_fn(path, args)` is implemented and routes via the active deployment for `stopgap.default_env` (fallback `prod`).
 - Invalid path format, missing environment/active deployment, and unknown routed path return explicit `stopgap.call_fn` errors.
-- While legacy SQL-name catalogs remain, route lookup currently resolves using the terminal export segment from `api.<module_path>.<export_name>`.
+- Route lookup now prefers exact `function_path` matches and only falls back to legacy terminal export-segment resolution for rows without path metadata.
+
+Compiler backend note:
+- Typecheck/transpile internals are planned to migrate to in-process TSGo WASM for DB-path execution; this does not change the runtime `ctx`/return contract documented here.
 
 ## DB API mode behavior
 

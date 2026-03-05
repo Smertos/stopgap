@@ -1,5 +1,7 @@
 use crate::arg_mapping::{build_args_payload, is_single_jsonb_arg_function};
+use crate::compiler::{contains_error_diagnostics, semantic_typecheck_typescript};
 use crate::function_program::load_function_program;
+use crate::function_program::parse_artifact_ptr;
 use crate::observability::{
     classify_execute_error, log_info, log_warn, record_execute_error, record_execute_start,
     record_execute_success,
@@ -113,8 +115,85 @@ pub extern "C" fn pg_finfo_plts_call_handler() -> &'static pg_sys::Pg_finfo_reco
 
 #[pg_guard]
 #[unsafe(no_mangle)]
-pub unsafe extern "C-unwind" fn plts_validator(_fcinfo: pg_sys::FunctionCallInfo) -> pg_sys::Datum {
+pub unsafe extern "C-unwind" fn plts_validator(fcinfo: pg_sys::FunctionCallInfo) -> pg_sys::Datum {
+    if check_function_bodies_disabled() {
+        return pg_sys::Datum::from(0);
+    }
+
+    let Some(fn_oid) = (unsafe { validator_fn_oid(fcinfo) }) else {
+        return pg_sys::Datum::from(0);
+    };
+
+    let Some(prosrc) = load_prosrc(fn_oid) else {
+        return pg_sys::Datum::from(0);
+    };
+
+    if let Some(pointer) = parse_artifact_ptr(&prosrc) {
+        let artifact_exists = Spi::get_one_with_args::<bool>(
+            "SELECT EXISTS(SELECT 1 FROM plts.artifact WHERE artifact_hash = $1)",
+            &[pointer.artifact_hash.as_str().into()],
+        )
+        .ok()
+        .flatten()
+        .unwrap_or(false);
+
+        if !artifact_exists {
+            error!(
+                "plts validator rejected function oid={} because artifact `{}` does not exist",
+                fn_oid, pointer.artifact_hash
+            );
+        }
+
+        return pg_sys::Datum::from(0);
+    }
+
+    let diagnostics = semantic_typecheck_typescript(&prosrc);
+    if contains_error_diagnostics(&diagnostics) {
+        error!(
+            "plts validator rejected function oid={} due to TypeScript diagnostics: {}",
+            fn_oid, diagnostics
+        );
+    }
+
     pg_sys::Datum::from(0)
+}
+
+fn check_function_bodies_disabled() -> bool {
+    Spi::get_one::<String>("SHOW check_function_bodies")
+        .ok()
+        .flatten()
+        .is_some_and(|value| value.eq_ignore_ascii_case("off"))
+}
+
+unsafe fn validator_fn_oid(fcinfo: pg_sys::FunctionCallInfo) -> Option<pg_sys::Oid> {
+    if fcinfo.is_null() {
+        return None;
+    }
+
+    if unsafe { (*fcinfo).nargs } < 1 {
+        return None;
+    }
+
+    let args = unsafe { (*fcinfo).args.as_ptr() };
+    if args.is_null() {
+        return None;
+    }
+
+    let arg0 = unsafe { *args };
+    if arg0.isnull {
+        return None;
+    }
+
+    unsafe { u32::from_datum(arg0.value, false) }.map(pg_sys::Oid::from)
+}
+
+fn load_prosrc(fn_oid: pg_sys::Oid) -> Option<String> {
+    Spi::get_one_with_args::<String>(
+        "SELECT prosrc::text FROM pg_proc WHERE oid = $1",
+        &[fn_oid.into()],
+    )
+    .ok()
+    .flatten()
 }
 
 #[unsafe(no_mangle)]

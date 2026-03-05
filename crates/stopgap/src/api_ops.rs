@@ -168,6 +168,8 @@ pub(crate) fn run_deploy_flow(
         let kind =
             override_meta.map(|meta| meta.kind.clone()).unwrap_or_else(|| "mutation".to_string());
 
+        enforce_typescript_typecheck(item.prosrc.as_str(), item.fn_name.as_str())?;
+
         let artifact_hash = Spi::get_one_with_args::<String>(
             "SELECT plts.compile_and_store($1::text, '{}'::jsonb)",
             &[item.prosrc.as_str().into()],
@@ -435,6 +437,8 @@ fn compile_candidate_functions(from_schema: &str) -> Result<Vec<CandidateFn>, St
     let mut out = Vec::with_capacity(deployables.len());
 
     for item in deployables {
+        enforce_typescript_typecheck(item.prosrc.as_str(), item.fn_name.as_str())?;
+
         let artifact_hash = Spi::get_one_with_args::<String>(
             "SELECT plts.compile_and_store($1::text, '{}'::jsonb)",
             &[item.prosrc.as_str().into()],
@@ -450,4 +454,22 @@ fn compile_candidate_functions(from_schema: &str) -> Result<Vec<CandidateFn>, St
     }
 
     Ok(out)
+}
+
+fn enforce_typescript_typecheck(source_ts: &str, fn_name: &str) -> Result<(), String> {
+    let diagnostics =
+        Spi::get_one_with_args::<JsonB>("SELECT plts.typecheck_ts($1::text)", &[source_ts.into()])
+            .map_err(|e| format!("typecheck_ts SPI error for {fn_name}: {e}"))?
+            .map(|value| value.0)
+            .unwrap_or_else(|| json!([]));
+
+    let has_error = diagnostics.as_array().is_some_and(|items| {
+        items.iter().any(|entry| entry.get("severity").and_then(Value::as_str) == Some("error"))
+    });
+
+    if has_error {
+        return Err(format!("TypeScript typecheck failed for {}: {}", fn_name, diagnostics));
+    }
+
+    Ok(())
 }

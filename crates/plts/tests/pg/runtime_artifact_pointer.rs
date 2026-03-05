@@ -8,7 +8,7 @@ fn test_artifact_pointer_executes_compiled_program() {
     )
     .expect("artifact-pointer setup schema SQL should succeed");
 
-    let source = "export default (ctx) => ({ mode: 'artifact', echoed: ctx.args });";
+    let source = "export default (ctx: any) => ({ mode: 'artifact', echoed: ctx.args });";
     let artifact_hash = Spi::get_one_with_args::<String>(
         "SELECT plts.compile_and_store($1::text, '{}'::jsonb)",
         &[source.into()],
@@ -64,7 +64,7 @@ fn test_artifact_pointer_supports_named_export_entrypoint() {
     .expect("named-export artifact-pointer setup schema SQL should succeed");
 
     let source = "
-        export const listUsers = (ctx) => ({ route: 'named', echoed: ctx.args });
+        export const listUsers = (ctx: any) => ({ route: 'named', echoed: ctx.args });
         export default () => ({ route: 'default' });
     ";
     let artifact_hash = Spi::get_one_with_args::<String>(

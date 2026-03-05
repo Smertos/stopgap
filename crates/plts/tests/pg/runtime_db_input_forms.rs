@@ -8,7 +8,7 @@ fn test_runtime_db_query_accepts_sql_object_input() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        export default async (_ctx) => {
+        export default async (_ctx: any) => {
             const rows = await _ctx.db.query({
                 sql: "SELECT $1::int4 AS id",
                 params: [41]
@@ -42,7 +42,7 @@ fn test_runtime_db_exec_accepts_to_sql_input() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        export default async (_ctx) => {
+        export default async (_ctx: any) => {
             const insert = {
                 toSQL() {
                     return {
@@ -92,7 +92,7 @@ fn test_runtime_db_query_enforces_max_query_rows_limit() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        export default async (_ctx) => {
+        export default async (_ctx: any) => {
             return await _ctx.db.query("SELECT gs AS id FROM generate_series(1, 3) AS gs", []);
         };
         $$;
@@ -132,7 +132,7 @@ fn test_runtime_db_query_enforces_max_params_limit() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        export default async (_ctx) => {
+        export default async (_ctx: any) => {
             return await _ctx.db.query("SELECT $1::int4 AS id", [1, 2]);
         };
         $$;

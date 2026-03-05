@@ -4,6 +4,8 @@ Run TypeScript/JavaScript inside PostgreSQL, then deploy and roll back function 
 
 Status note (Mar 2026): product direction is being course-corrected to a Convex-style TypeScript-first workflow where app code lives in `./stopgap` and is invoked by function path (`stopgap.call_fn`).
 
+Compiler roadmap note: the TypeScript compiler backend is planned to move to an in-process TSGo WASM flow for both semantic typecheck and transpile in DB paths.
+
 - `plts` gives you `LANGUAGE plts` and artifact compile/store APIs.
 - `stopgap` gives you versioned deploy, activation, rollback, and path-based function invocation.
 
@@ -157,6 +159,7 @@ export STOPGAP_DB="postgres://user:pass@localhost:5432/mydb"
 ## Important SQL APIs
 
 - `plts.compile_ts(source_ts text, compiler_opts jsonb)`
+- `plts.typecheck_ts(source_ts text)`
 - `plts.compile_and_store(source_ts text, compiler_opts jsonb)`
 - `plts.get_artifact(artifact_hash text)`
 - `stopgap.call_fn(path text, args jsonb)`

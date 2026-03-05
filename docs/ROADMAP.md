@@ -16,6 +16,7 @@ Primary product direction is now being course-corrected to a Convex-style TypeSc
 - deployed function identity is path-based (`api.<module_path>.<export_name>`)
 - DB invocation entrypoint is `stopgap.call_fn(path, args)`
 - `stopgap deploy` deploys TS modules directly (no user-authored SQL wrappers)
+- compiler backend direction is moving toward in-process TSGo WASM for both typecheck and transpile (no DB-path subprocesses)
 
 The sections below remain useful implementation history; active net-new product work is tracked in section 14.
 
@@ -117,9 +118,12 @@ The sections below remain useful implementation history; active net-new product 
 - [x] Return diagnostics payload with line/column and severity
 - [x] Persist compiler metadata/fingerprint from real toolchain versions
 - [x] Optionally persist source maps in `plts.artifact`
-- [x] Run semantic TypeScript checking in compile pipeline and reject diagnostics with `severity=error`
+- [x] Run semantic TypeScript checking in DB compile flow (`plts.typecheck_ts` + validator) and reject diagnostics with `severity=error`
 - [x] Enforce `LANGUAGE plts` DDL validation via semantic TypeScript checks on CREATE/REPLACE
 - [x] Provide `@stopgap/runtime` declaration files (`.d.ts`) to checker resolution during compile/validation
+- [ ] Replace subprocess-based semantic checker with in-process TSGo WASM backend
+- [ ] Route `plts.compile_ts` transpilation through TSGo WASM backend
+- [ ] Remove DB-path checker subprocess execution (`pnpm exec tsc`) from validator/compile/typecheck flows
 
 ### 2.6 DB API Surface (unfinished)
 
@@ -662,3 +666,19 @@ Minimum implementation evidence:
   - supporting evidence: CI run `22617611887` executed and passed the focused `Run stopgap function-path call_fn tests` (`test_call_fn_`) step in `pgrx baseline pg17 (stopgap)`.
   - local iteration 19 verification passed after warm-loop timing flake fix: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
   - [x] unexpected blocker addressed: `pgrx baseline pg17 (plts)` measurable-time flake (`warm execute loop should take measurable time`) hardened with bounded nanosecond measurement retries in `crates/plts/tests/pg/runtime_performance_baseline.rs`; local verification rerun passed with the full section 13.1 command set.
+
+### 14.7 TSGo WASM compiler backend migration (planned)
+
+- [x] Add mandatory `typescript-go` git submodule and pin a stable commit.
+- [ ] Add `stopgap-tsgo-api` Go wrapper exposing narrow typecheck/transpile APIs for `plts`.
+- [ ] Build and embed `stopgap-tsgo-api.wasm` into `plts` for in-process DB-path execution.
+- [ ] Keep strict typing (`strict`, `noImplicitAny`) and reduce permissive `any` stubs.
+- [ ] Add/generated per-function type declarations for function args/context where metadata is available.
+- [x] Defer `@app/*` support in first pass; emit explicit diagnostics for unresolved usage.
+
+Minimum implementation evidence:
+- [ ] `plts` validator and SQL compile/typecheck paths perform no subprocess execution.
+- [ ] `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` remains green.
+- [ ] stopgap deploy/diff typecheck enforcement remains unchanged at API boundary (`plts.typecheck_ts`).
+- [x] `typescript-go` submodule added at `third_party/typescript-go` and pinned in git metadata (`.gitmodules` + submodule gitlink).
+- [x] unresolved `@app/*` imports now fail semantic typecheck with explicit unsupported-import diagnostics (`crates/plts/src/compiler.rs`) and unit coverage for rewrite/line-column extraction behavior.

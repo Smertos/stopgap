@@ -8,7 +8,7 @@ fn test_runtime_supports_async_default_export() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        export default async (ctx) => {
+        export default async (ctx: any) => {
             const row = await Promise.resolve({ ok: true, id: ctx.args.id });
             return row;
         };

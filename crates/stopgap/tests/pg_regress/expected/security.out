@@ -33,7 +33,7 @@ CREATE OR REPLACE FUNCTION sg_reg_sec_src.secure_fn(args jsonb)
 RETURNS jsonb
 LANGUAGE plts
 AS $$
-export default (_ctx) => ({ok: true});
+export default (_ctx: any) => ({ok: true});
 $$;
 CREATE ROLE rg_sec_actor;
 GRANT stopgap_deployer TO rg_sec_actor;

@@ -8,7 +8,7 @@ fn test_runtime_contract_exposes_fn_identity_and_now() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        export default (ctx) => ({
+        export default (ctx: any) => ({
             schema: ctx.fn.schema,
             name: ctx.fn.name,
             oid: ctx.fn.oid,
@@ -54,7 +54,7 @@ fn test_runtime_contract_regular_handler_db_exec_returns_ok() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        export default async (ctx) => {
+        export default async (ctx: any) => {
             const execResult = await ctx.db.exec(
                 "INSERT INTO plts_runtime_contract_exec_it.items(id) VALUES ($1)",
                 [9]
@@ -100,9 +100,10 @@ fn test_runtime_contract_invocation_state_is_isolated() {
         RETURNS jsonb
         LANGUAGE plts
         AS $$
-        export default (ctx) => {
-            const previousId = globalThis.__plts_last_seen_id ?? null;
-            globalThis.__plts_last_seen_id = ctx.args.id;
+        export default (ctx: any) => {
+            const runtimeState = globalThis as any;
+            const previousId = runtimeState.__plts_last_seen_id ?? null;
+            runtimeState.__plts_last_seen_id = ctx.args.id;
             return {
                 previousId,
                 currentId: ctx.args.id,

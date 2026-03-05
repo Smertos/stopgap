@@ -37,6 +37,19 @@ pub(crate) fn ensure_deploy_permissions(
         );
     }
 
+    let can_execute_typecheck = Spi::get_one::<bool>(
+        "SELECT has_function_privilege(session_user, 'plts.typecheck_ts(text)', 'EXECUTE')",
+    )
+    .map_err(|e| format!("failed to check plts.typecheck_ts execute privilege: {e}"))?
+    .unwrap_or(false);
+
+    if !can_execute_typecheck {
+        return Err(
+            "permission denied for stopgap deploy: current_user lacks EXECUTE on plts.typecheck_ts(text)"
+                .to_string(),
+        );
+    }
+
     ensure_live_schema_is_stopgap_managed(live_schema)?;
 
     Ok(())

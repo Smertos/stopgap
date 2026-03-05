@@ -1,3 +1,4 @@
+use crate::compiler::{contains_error_diagnostics, transpile_typescript};
 use common::sql::quote_literal;
 use pgrx::prelude::*;
 use serde_json::Value;
@@ -84,7 +85,12 @@ fn resolve_program_source(prosrc: &str) -> Option<(String, String, HashMap<Strin
             .map(|source| (source, ptr.export_name, ptr.import_map, false));
     }
 
-    Some((prosrc.to_string(), "default".to_string(), HashMap::new(), true))
+    let (compiled_js, diagnostics) = transpile_typescript(prosrc, &serde_json::json!({}));
+    if contains_error_diagnostics(&diagnostics) {
+        return None;
+    }
+
+    Some((compiled_js, "default".to_string(), HashMap::new(), true))
 }
 
 fn load_compiled_artifact_from_cache_or_db(artifact_hash: &str) -> Option<String> {

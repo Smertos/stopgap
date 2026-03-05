@@ -75,6 +75,8 @@ stopgap/
     stopgap-cli/          # Rust CLI crate; ships `stopgap` binary (init/deploy/rollback/status/deployments/diff)
   packages/
     runtime/              # NPM package: TS types + wrappers (`@stopgap/runtime`)
+  third_party/
+    typescript-go/        # pinned `typescript-go` submodule for TSGo WASM migration
   docs/
     ROADMAP.md
     DEVELOPER-QUICKSTART.md
@@ -126,6 +128,8 @@ You want a **stable SQL API** stopgap can call:
 
 - `plts.compile_ts(source_ts text, compiler_opts jsonb default '{}'::jsonb)`
   - returns: `(compiled_js text, diagnostics jsonb, compiler_fingerprint text)`
+- `plts.typecheck_ts(source_ts text)`
+  - returns: `diagnostics jsonb`
 - `plts.upsert_artifact(source_ts text, compiled_js text, compiler_opts jsonb)`
   - returns: `artifact_hash text`
 - `plts.get_artifact(artifact_hash text)`
@@ -467,6 +471,7 @@ Runtime module imports currently support:
 Unsupported for now:
 - arbitrary filesystem/network module resolution
 - package-manager style bare imports that are not explicitly mapped via inline or deploy-managed import maps
+- `@app/*` module imports during semantic typecheck (`plts.typecheck_ts`) are intentionally rejected in the first TSGo migration pass with explicit unsupported-import diagnostics
 
 ## 5.2 Schema format
 Current state:
@@ -597,7 +602,8 @@ Current progress snapshot:
 - deno_core dependency and feature-gated isolate bootstrap scaffolding are in place
 - async default-export handler execution is now supported in the V8 runtime path
 - runtime now evaluates ES modules via the module loader (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, a built-in bare `@stopgap/runtime` module, and additional bare-specifier imports mapped via inline `plts-import-map` comments)
-- `plts.compile_ts` now performs TS transpilation and semantic typechecking with structured diagnostics
+- `plts.compile_ts` now performs TS transpilation with structured diagnostics
+- semantic typechecking is currently exposed via `plts.typecheck_ts` and validator enforcement; current semantic checks still shell out, and roadmap direction is to consolidate transpile/typecheck on an in-process TSGo WASM backend.
 - `plts` compiler fingerprinting now derives from real dependency versions (`deno_ast`/`deno_core`) from workspace lock metadata
 - optional source-map persistence is now supported in `plts.artifact` when `compiler_opts.source_map=true`
 - basic arg conversion work has started
@@ -696,6 +702,7 @@ Acceptance criteria:
 3) **Schema format**: runtime wrapper validation is `v` (zod/mini-style) with compatibility fallback for the legacy JSON Schema subset and preserved error-shape semantics.
 4) **Deploy compilation location**: **DB compile path** (`plts.compile_ts` / `plts.compile_and_store`).
 4.1) **Type environment**: checker must resolve `@stopgap/runtime` declarations (`.d.ts`) during both `plts` validation and stopgap deploy compile flows.
+4.2) **Compiler backend target**: migrate to in-process TSGo WASM for semantic typecheck + transpile; no subprocesses in DB validator/compile/typecheck paths.
 5) **Function identity**: **forbid overloading** for stopgap-managed functions.
 6) **Regular `plts` args view**: expose **both positional and named/object forms**.
 7) **Entrypoint convention**:

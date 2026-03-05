@@ -1,6 +1,6 @@
 #[pg_test]
 fn test_compile_and_store_round_trip() {
-    let source = "export default (ctx) => ({ ok: true, args: ctx.args })";
+    let source = "export default (ctx: any) => ({ ok: true, args: ctx.args })";
     let artifact_hash = Spi::get_one_with_args::<String>(
         "SELECT plts.compile_and_store($1::text, '{}'::jsonb)",
         &[source.into()],

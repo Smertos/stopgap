@@ -1,4 +1,8 @@
-use std::{fmt, fs, io::Write, path::Path};
+use std::{
+    fmt, fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
@@ -11,6 +15,7 @@ pub const EXIT_DB_QUERY: u8 = 11;
 pub const EXIT_RESPONSE_DECODE: u8 = 12;
 pub const EXIT_OUTPUT_FORMAT: u8 = 13;
 pub const EXIT_PROJECT_LAYOUT: u8 = 14;
+const INIT_EXAMPLE_TEMPLATE: &[u8] = include_bytes!("../templates/example.ts");
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct StopgapExport {
@@ -50,6 +55,7 @@ pub struct Cli {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+    Init,
     Deploy {
         #[arg(long, default_value = "prod")]
         env: String,
@@ -197,8 +203,44 @@ impl StopgapApi for PgStopgapApi {
 }
 
 pub fn run(cli: Cli, writer: &mut dyn Write) -> std::result::Result<(), AppError> {
+    if matches!(cli.command, Command::Init) {
+        let mut api = NoopStopgapApi;
+        return execute_command(cli.command, cli.output, &mut api, writer);
+    }
+
     let mut api = PgStopgapApi::connect(&cli.db)?;
     execute_command(cli.command, cli.output, &mut api, writer)
+}
+
+struct NoopStopgapApi;
+
+impl StopgapApi for NoopStopgapApi {
+    fn deploy(
+        &mut self,
+        _env: &str,
+        _from_schema: &str,
+        _label: Option<&str>,
+        _prune: bool,
+        _deploy_exports_json: Option<&str>,
+    ) -> Result<i64> {
+        unreachable!("deploy should not be called by local-only commands")
+    }
+
+    fn rollback(&mut self, _env: &str, _steps: i32, _to_id: Option<i64>) -> Result<i64> {
+        unreachable!("rollback should not be called by local-only commands")
+    }
+
+    fn status(&mut self, _env: &str) -> Result<Option<Value>> {
+        unreachable!("status should not be called by local-only commands")
+    }
+
+    fn deployments(&mut self, _env: &str) -> Result<Value> {
+        unreachable!("deployments should not be called by local-only commands")
+    }
+
+    fn diff(&mut self, _env: &str, _from_schema: &str) -> Result<Value> {
+        unreachable!("diff should not be called by local-only commands")
+    }
 }
 
 pub fn execute_command(
@@ -220,6 +262,27 @@ pub fn execute_command_with_project_root(
     project_root: &Path,
 ) -> std::result::Result<(), AppError> {
     match command {
+        Command::Init => {
+            let init_report =
+                initialize_stopgap_project(project_root).map_err(AppError::ProjectLayout)?;
+            let payload = json!({
+                "command": "init",
+                "project_root": init_report.project_root,
+                "marker": init_report.marker,
+                "created_stopgap_dir": init_report.created_stopgap_dir,
+                "created_example_file": init_report.created_example_file,
+                "example_file": init_report.example_file,
+            });
+            print_payload(output, payload, writer, || {
+                format!(
+                    "initialized stopgap root={} marker={} created_stopgap_dir={} created_example_file={}",
+                    init_report.project_root,
+                    init_report.marker,
+                    init_report.created_stopgap_dir,
+                    init_report.created_example_file,
+                )
+            })
+        }
         Command::Deploy { env, from_schema, label, prune } => {
             let exports =
                 discover_stopgap_exports(project_root).map_err(AppError::ProjectLayout)?;
@@ -323,6 +386,59 @@ pub fn execute_command_with_project_root(
             })
         }
     }
+}
+
+#[derive(Debug)]
+struct InitReport {
+    project_root: String,
+    marker: String,
+    created_stopgap_dir: bool,
+    created_example_file: bool,
+    example_file: String,
+}
+
+fn initialize_stopgap_project(start_dir: &Path) -> Result<InitReport> {
+    let (project_root, marker) = detect_project_root(start_dir)?;
+    let stopgap_dir = project_root.join("stopgap");
+    let created_stopgap_dir = if stopgap_dir.exists() {
+        false
+    } else {
+        fs::create_dir_all(&stopgap_dir)
+            .with_context(|| format!("failed to create {}", stopgap_dir.display()))?;
+        true
+    };
+
+    let example_path = stopgap_dir.join("example.ts");
+    let created_example_file = if example_path.exists() {
+        false
+    } else {
+        fs::write(&example_path, INIT_EXAMPLE_TEMPLATE)
+            .with_context(|| format!("failed to write {}", example_path.display()))?;
+        true
+    };
+
+    Ok(InitReport {
+        project_root: project_root.display().to_string(),
+        marker,
+        created_stopgap_dir,
+        created_example_file,
+        example_file: example_path.display().to_string(),
+    })
+}
+
+fn detect_project_root(start_dir: &Path) -> Result<(PathBuf, String)> {
+    for dir in start_dir.ancestors() {
+        for marker in [".git", ".gitignore", "package.json"] {
+            if dir.join(marker).exists() {
+                return Ok((dir.to_path_buf(), marker.to_string()));
+            }
+        }
+    }
+
+    anyhow::bail!(
+        "project root not found from {}; expected one of .git, .gitignore, or package.json",
+        start_dir.display()
+    )
 }
 
 pub fn discover_stopgap_modules(project_root: &Path) -> Result<Vec<String>> {
@@ -516,7 +632,7 @@ mod tests {
         let command = Cli::command();
         let names: Vec<_> =
             command.get_subcommands().map(|subcommand| subcommand.get_name().to_string()).collect();
-        assert_eq!(names, vec!["deploy", "rollback", "status", "deployments", "diff"]);
+        assert_eq!(names, vec!["init", "deploy", "rollback", "status", "deployments", "diff"]);
     }
 
     #[test]

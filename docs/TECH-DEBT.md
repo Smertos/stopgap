@@ -4,6 +4,7 @@ Current technical debt and follow-up notes for near-term work.
 
 - Product UX pivot in progress: primary model is now Convex-style (`./stopgap` TS modules + path-based invocation via `stopgap.call_fn`), while current deployed SQL-scan/live-schema flow remains implemented foundation and must be migrated/reshaped.
 - Missing pivot primitives (tracked in roadmap section 14): CLI `./stopgap` initialization checks, multi-export module discovery, canonical `api.<module>.<export>` registration, and DB path router.
+- Compiler backend debt: semantic checker currently relies on subprocess execution in `plts`; planned direction is an in-process TSGo WASM backend for semantic typecheck + transpile, with strict typing and minimal permissive `any` stubs.
 
 - `plts` runtime handler executes sync + async default-export JS when built with `v8_runtime`, now via ES module loading (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, bare `@stopgap/runtime`, and additional bare specifiers mapped through inline `plts-import-map` source comments); runtime errors surface stage/message/stack with SQL function identity context.
 - Stopgap deploy now emits live-pointer `import_map` metadata for each deployment (default `@stopgap/<source_schema>/<fn_name>` bare specifiers mapped to `plts+artifact:<hash>`), and rollback rematerialization rebuilds those maps from `fn_version` rows.
@@ -20,7 +21,7 @@ Current technical debt and follow-up notes for near-term work.
 - `plts` runtime now locks down module globals before execution (removing `Deno`, `fetch`, and related web APIs) so handlers only use the explicit `ctx.db` bridge and do not gain filesystem/network runtime surface.
 - `plts` runtime now applies a V8 watchdog per call using the stricter of `statement_timeout` and optional `plts.max_runtime_ms`, and routes pending Postgres cancel/die interrupt flags into the same V8 termination path.
 - `plts` runtime now optionally enforces `plts.max_heap_mb` per call by setting V8 heap limits and terminating execution on near-heap-limit callbacks.
-- `plts.compile_ts` now transpiles TS->JS via `deno_ast`, reports structured diagnostics, records compiler fingerprint metadata from lockfile-resolved dependency versions, and can persist source-map payloads when `compiler_opts.source_map=true`.
+- `plts.compile_ts` currently transpiles TS->JS via `deno_ast` and reports structured diagnostics; semantic checks are enforced through `plts.typecheck_ts`/validator, and both paths are planned to migrate to an in-process TSGo WASM backend.
 - `plts` now caches artifact-pointer compiled JS per backend process to avoid repeat `plts.artifact` lookups during live pointer execution.
 - `plts` now also caches non-pointer function program metadata and regular-call argument type OID lookups per backend process to reduce repeated `pg_proc` catalog SPI work on hot execute paths.
 - DB-backed `plts` integration tests cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization, artifact-pointer execution, and async default-export execution under `v8_runtime`.

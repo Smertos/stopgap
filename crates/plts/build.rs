@@ -10,6 +10,9 @@ fn main() {
     for relative in ["package.json", "tsconfig.json", "src/embedded.ts", "src/index.ts"] {
         println!("cargo:rerun-if-changed={}", runtime_dir.join(relative).display());
     }
+    for relative in ["dist/index.d.ts", "dist/embedded.d.ts", "dist/embedded_runtime.js"] {
+        println!("cargo:rerun-if-changed={}", runtime_dir.join(relative).display());
+    }
 
     let status = Command::new("pnpm")
         .arg("--dir")
