@@ -678,6 +678,7 @@ Minimum implementation evidence:
 
 Minimum implementation evidence:
 - [x] `stopgap-tsgo-api` now publishes a WASI artifact at `third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm`, and `plts` embeds it via `include_bytes!` (`crates/plts/src/compiler.rs`) with unit coverage for wasm-magic validation.
+- [x] `plts` semantic typecheck now runs an in-process WASI invocation of embedded `stopgap-tsgo-api.wasm` for TSGo diagnostics before legacy checker fallback (`crates/plts/src/compiler.rs`).
 - [ ] `plts` validator and SQL compile/typecheck paths perform no subprocess execution.
 - [ ] `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"` remains green.
 - [ ] stopgap deploy/diff typecheck enforcement remains unchanged at API boundary (`plts.typecheck_ts`).

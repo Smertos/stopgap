@@ -1,4 +1,4 @@
-use base64::Engine;
+use base64::Engine as Base64Engine;
 use deno_ast::EmitOptions;
 use deno_ast::MediaType;
 use deno_ast::ModuleSpecifier;
@@ -15,6 +15,11 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
+use wasmtime::{Engine as WasmtimeEngine, Linker, Module, Store};
+use wasmtime_wasi::I32Exit;
+use wasmtime_wasi::WasiCtxBuilder;
+use wasmtime_wasi::pipe::{MemoryInputPipe, MemoryOutputPipe};
+use wasmtime_wasi::preview1::{self, WasiP1Ctx};
 
 const CARGO_LOCK_CONTENT: &str = include_str!("../../../Cargo.lock");
 const RUNTIME_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/runtime");
@@ -150,6 +155,34 @@ declare const Request: unknown;
 declare const WebSocket: unknown;
 "#;
 static TS_COMPILER_FINGERPRINT: OnceLock<String> = OnceLock::new();
+static TSGO_WASM_RUNTIME: OnceLock<Result<TsgoWasmRuntime, String>> = OnceLock::new();
+
+#[derive(serde::Serialize)]
+struct TsgoTypecheckRequest<'a> {
+    source_ts: &'a str,
+}
+
+#[derive(serde::Deserialize)]
+struct TsgoDiagnostic {
+    severity: String,
+    #[serde(default)]
+    phase: Option<String>,
+    message: String,
+    #[serde(default)]
+    line: Option<u32>,
+    #[serde(default)]
+    column: Option<u32>,
+}
+
+#[derive(serde::Deserialize)]
+struct TsgoTypecheckResponse {
+    diagnostics: Vec<TsgoDiagnostic>,
+}
+
+struct TsgoWasmRuntime {
+    engine: WasmtimeEngine,
+    module: Module,
+}
 
 pub(crate) fn compute_artifact_hash(
     source_ts: &str,
@@ -257,6 +290,12 @@ pub(crate) fn transpile_typescript(source_ts: &str, compiler_opts: &Value) -> (S
 }
 
 pub(crate) fn semantic_typecheck_typescript(source_ts: &str) -> Value {
+    if let Ok(tsgo_diagnostics) = semantic_typecheck_typescript_via_tsgo_wasm(source_ts) {
+        if contains_error_diagnostics(&tsgo_diagnostics) {
+            return tsgo_diagnostics;
+        }
+    }
+
     let Ok(workspace) = TypecheckWorkspace::prepare(source_ts) else {
         return json!([diagnostic_from_message(
             "error",
@@ -302,6 +341,85 @@ pub(crate) fn semantic_typecheck_typescript(source_ts: &str) -> Value {
     }
 
     Value::Array(diagnostics)
+}
+
+fn semantic_typecheck_typescript_via_tsgo_wasm(source_ts: &str) -> Result<Value, String> {
+    let runtime = tsgo_wasm_runtime()?;
+
+    let request_json = serde_json::to_vec(&TsgoTypecheckRequest { source_ts })
+        .map_err(|err| format!("failed to encode tsgo typecheck request: {err}"))?;
+
+    let stdout = MemoryOutputPipe::new(1024 * 1024);
+    let stderr = MemoryOutputPipe::new(128 * 1024);
+
+    let mut linker = Linker::new(&runtime.engine);
+    preview1::add_to_linker_sync(&mut linker, |ctx: &mut WasiP1Ctx| ctx)
+        .map_err(|err| format!("failed to wire tsgo wasi linker: {err}"))?;
+
+    let mut wasi_builder = WasiCtxBuilder::new();
+    wasi_builder.args(&["stopgap-tsgo-api", "typecheck"]);
+
+    let wasi = wasi_builder
+        .stdin(MemoryInputPipe::new(request_json))
+        .stdout(stdout.clone())
+        .stderr(stderr.clone())
+        .build_p1();
+
+    let mut store = Store::new(&runtime.engine, wasi);
+
+    let instance = linker
+        .instantiate(&mut store, &runtime.module)
+        .map_err(|err| format!("failed to instantiate tsgo wasm module: {err}"))?;
+
+    let start = instance
+        .get_typed_func::<(), ()>(&mut store, "_start")
+        .map_err(|err| format!("failed to locate tsgo wasm _start export: {err}"))?;
+    if let Err(err) = start.call(&mut store, ()) {
+        if err.downcast_ref::<I32Exit>().map(|exit| exit.0) != Some(0) {
+            return Err(format!("failed to execute tsgo wasm typecheck command: {err}"));
+        }
+    }
+
+    let stdout_bytes = stdout.contents();
+
+    let stderr_bytes = stderr.contents();
+    if !stderr_bytes.is_empty() {
+        let stderr_text = String::from_utf8_lossy(&stderr_bytes);
+        return Err(format!("tsgo wasm stderr output: {stderr_text}"));
+    }
+
+    let decoded: TsgoTypecheckResponse = serde_json::from_slice(&stdout_bytes)
+        .map_err(|err| format!("failed to decode tsgo typecheck response: {err}"))?;
+
+    let diagnostics = decoded
+        .diagnostics
+        .into_iter()
+        .map(|diag| {
+            json!({
+                "severity": diag.severity,
+                "phase": diag.phase,
+                "message": diag.message,
+                "line": diag.line,
+                "column": diag.column,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Value::Array(diagnostics))
+}
+
+fn tsgo_wasm_runtime() -> Result<&'static TsgoWasmRuntime, String> {
+    let runtime = TSGO_WASM_RUNTIME.get_or_init(|| {
+        let engine = WasmtimeEngine::default();
+        let module = Module::new(&engine, tsgo_api_wasm_bytes())
+            .map_err(|err| format!("failed to compile embedded tsgo wasm module: {err}"))?;
+        Ok(TsgoWasmRuntime { engine, module })
+    });
+
+    match runtime {
+        Ok(runtime) => Ok(runtime),
+        Err(err) => Err(err.clone()),
+    }
 }
 
 pub(crate) fn contains_error_diagnostics(diagnostics: &Value) -> bool {
@@ -442,7 +560,10 @@ fn extract_tsc_line_column(message: &str) -> Option<(u32, u32)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_tsc_diagnostic_line, rewrite_tsc_diagnostic_message, tsgo_api_wasm_bytes};
+    use super::{
+        parse_tsc_diagnostic_line, rewrite_tsc_diagnostic_message,
+        semantic_typecheck_typescript_via_tsgo_wasm, tsgo_api_wasm_bytes,
+    };
 
     #[test]
     fn rewrites_unresolved_app_import_diagnostic() {
@@ -468,6 +589,21 @@ mod tests {
         let wasm = tsgo_api_wasm_bytes();
         assert!(wasm.len() > 8, "embedded tsgo wasm must not be empty");
         assert_eq!(&wasm[0..4], b"\0asm", "embedded tsgo payload must be wasm");
+    }
+
+    #[test]
+    fn tsgo_wasm_typecheck_reports_app_import_diagnostic() {
+        let diagnostics = semantic_typecheck_typescript_via_tsgo_wasm(
+            "import { base } from '@app/math';\nexport default () => base;",
+        )
+        .expect("tsgo wasm typecheck call should succeed");
+
+        let entries = diagnostics.as_array().expect("diagnostics must be an array");
+        assert!(!entries.is_empty(), "@app import should produce diagnostics");
+        let first = &entries[0];
+        let message =
+            first.get("message").and_then(|value| value.as_str()).expect("message string");
+        assert!(message.contains("unsupported bare module import `@app/math`"));
     }
 }
 

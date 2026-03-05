@@ -604,7 +604,7 @@ Current progress snapshot:
 - async default-export handler execution is now supported in the V8 runtime path
 - runtime now evaluates ES modules via the module loader (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, a built-in bare `@stopgap/runtime` module, and additional bare-specifier imports mapped via inline `plts-import-map` comments)
 - `plts.compile_ts` now performs TS transpilation with structured diagnostics
-- semantic typechecking is currently exposed via `plts.typecheck_ts` and validator enforcement; current semantic checks still shell out, and roadmap direction is to consolidate transpile/typecheck on an in-process TSGo WASM backend.
+- semantic typechecking is currently exposed via `plts.typecheck_ts` and validator enforcement; the checker now invokes embedded `stopgap-tsgo-api.wasm` in-process for TSGo diagnostics before a legacy `tsc` fallback, and roadmap direction remains full transpile/typecheck consolidation on the in-process TSGo WASM backend.
 - `plts` now embeds a built `stopgap-tsgo-api` WASI artifact (`third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm`) as migration substrate; runtime compile/typecheck flows still need to switch from subprocess execution to this in-process backend.
 - the semantic typecheck workspace now injects strict `@stopgap/runtime` declarations with typed `v` schema inference (replacing permissive `any`-heavy stubs) so `strict` + `noImplicitAny` checks surface wrapper-arg misuse early.
 - `plts` compiler fingerprinting now derives from real dependency versions (`deno_ast`/`deno_core`) from workspace lock metadata
