@@ -59,28 +59,28 @@ jobs:
         shell: bash
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          mkdir -p "release/stopgap-cli-${{ matrix.target }}-v${VERSION}"
-          cp target/${{ matrix.target }}/release/stopgap-cli "release/stopgap-cli-${{ matrix.target }}-v${VERSION}/stopgap-cli"
+          mkdir -p "release/stopgap-${{ matrix.target }}-v${VERSION}"
+          cp target/${{ matrix.target }}/release/stopgap "release/stopgap-${{ matrix.target }}-v${VERSION}/stopgap"
           cd release
-          tar -czvf "../stopgap-cli-${{ matrix.target }}-v${VERSION}.tgz" "stopgap-cli-${{ matrix.target }}-v${VERSION}"
+          tar -czvf "../stopgap-${{ matrix.target }}-v${VERSION}.tgz" "stopgap-${{ matrix.target }}-v${VERSION}"
 
       - name: Package binary (windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
-          $dir = "release/stopgap-cli-${{ matrix.target }}-v$version"
+          $dir = "release/stopgap-${{ matrix.target }}-v$version"
           New-Item -ItemType Directory -Path $dir -Force | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/stopgap-cli.exe" "$dir/stopgap-cli.exe"
-          Compress-Archive -Path $dir -DestinationPath "stopgap-cli-${{ matrix.target }}-v$version.zip" -Force
+          Copy-Item "target/${{ matrix.target }}/release/stopgap.exe" "$dir/stopgap.exe"
+          Compress-Archive -Path $dir -DestinationPath "stopgap-${{ matrix.target }}-v$version.zip" -Force
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: cli-${{ matrix.target }}
           path: |
-            stopgap-cli-${{ matrix.target }}-v*.tgz
-            stopgap-cli-${{ matrix.target }}-v*.zip
+            stopgap-${{ matrix.target }}-v*.tgz
+            stopgap-${{ matrix.target }}-v*.zip
           retention-days: 5
 
   create-release:
@@ -121,7 +121,7 @@ jobs:
             
             ### With cargo-binstall (recommended)
             ```bash
-            cargo binstall stopgap-cli
+            cargo binstall stopgap
             ```
             
             ### Manual

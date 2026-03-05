@@ -8,8 +8,8 @@ license.workspace = true
 description = "CLI for deploying and operating stopgap environments."
 
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/cli-v{ version }/stopgap-cli-{ target }-v{ version }{ archive-suffix }"
-bin-dir = "stopgap-cli-{ target }-v{ version }/stopgap-cli{ binary-ext }"
+pkg-url = "{ repo }/releases/download/cli-v{ version }/stopgap-{ target }-v{ version }{ archive-suffix }"
+bin-dir = "stopgap-{ target }-v{ version }/stopgap{ binary-ext }"
 pkg-fmt = "tgz"
 disabled-strategies = ["quick-install", "compile"]
 
@@ -18,6 +18,10 @@ pkg-fmt = "zip"
 
 [package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
 pkg-fmt = "zip"
+
+[[bin]]
+name = "stopgap"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
