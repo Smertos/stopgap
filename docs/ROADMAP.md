@@ -125,6 +125,10 @@ The sections below remain useful implementation history; active net-new product 
 - [ ] Route `plts.compile_ts` transpilation through TSGo WASM backend
 - [x] Remove DB-path checker subprocess execution (`pnpm exec tsc`) from validator/compile/typecheck flows
 
+Progress note (iteration 21):
+- `plts` now includes a TSGo WASM transpile command bridge (`transpile`) and shared WASI command execution plumbing, but runtime transpile remains defaulted to `deno_ast` unless `PLTS_EXPERIMENTAL_TSGO_TRANSPILE=1` is set.
+- the default-off gate is intentional to keep compile-latency SLOs green while TSGo transpile output/perf parity is finished.
+
 ### 2.6 DB API Surface (unfinished)
 
 - [x] Expose RW db API (`query`/`exec`) from runtime context
@@ -675,6 +679,9 @@ Minimum implementation evidence:
 - [x] Keep strict typing (`strict`, `noImplicitAny`) and reduce permissive `any` stubs.
 - [ ] Add/generated per-function type declarations for function args/context where metadata is available.
 - [x] Defer `@app/*` support in first pass; emit explicit diagnostics for unresolved usage.
+
+Open follow-up detail (iteration 21):
+- [ ] remove the temporary `PLTS_EXPERIMENTAL_TSGO_TRANSPILE` gate after TSGo transpile path meets compile SLO thresholds and output parity in runtime/deploy suites.
 
 Minimum implementation evidence:
 - [x] `stopgap-tsgo-api` now publishes a WASI artifact at `third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm`, and `plts` embeds it via `include_bytes!` (`crates/plts/src/compiler.rs`) with unit coverage for wasm-magic validation.

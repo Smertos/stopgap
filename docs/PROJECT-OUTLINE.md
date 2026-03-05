@@ -706,7 +706,8 @@ Acceptance criteria:
 4) **Deploy compilation location**: **DB compile path** (`plts.compile_ts` / `plts.compile_and_store`).
 4.1) **Type environment**: checker must resolve `@stopgap/runtime` declarations (`.d.ts`) during both `plts` validation and stopgap deploy compile flows.
 4.2) **Compiler backend target**: migrate to in-process TSGo WASM for semantic typecheck + transpile; no subprocesses in DB validator/compile/typecheck paths.
-     - current migration scaffold: `third_party/stopgap-tsgo-api` defines the narrow API contract and CLI surface that `plts` will consume once WASM embedding lands.
+      - current migration scaffold: `third_party/stopgap-tsgo-api` defines the narrow API contract and CLI surface that `plts` will consume once WASM embedding lands.
+      - current transpile bridge status: `plts` can invoke TSGo WASM `transpile`, but default compile flow remains `deno_ast` until TSGo transpile output/performance reaches baseline parity; opt-in gate is `PLTS_EXPERIMENTAL_TSGO_TRANSPILE=1`.
 5) **Function identity**: **forbid overloading** for stopgap-managed functions.
 6) **Regular `plts` args view**: expose **both positional and named/object forms**.
 7) **Entrypoint convention**:
