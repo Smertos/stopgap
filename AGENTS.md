@@ -16,6 +16,7 @@ This file captures how to work effectively in this repository.
   - `packages/runtime`: `@stopgap/runtime` wrappers + `v` schema/type helpers
 - Third-party:
   - `third_party/typescript-go`: pinned `typescript-go` submodule for upcoming in-process TSGo WASM compiler backend migration
+  - `third_party/stopgap-tsgo-api`: Go API shim scaffold for narrow TSGo typecheck/transpile bridge
 - Docs:
   - `docs/ROADMAP.md`: tracked implementation plan and current backlog
   - `docs/PROJECT-OUTLINE.md`: product/architecture source of truth

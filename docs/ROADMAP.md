@@ -670,7 +670,7 @@ Minimum implementation evidence:
 ### 14.7 TSGo WASM compiler backend migration (planned)
 
 - [x] Add mandatory `typescript-go` git submodule and pin a stable commit.
-- [ ] Add `stopgap-tsgo-api` Go wrapper exposing narrow typecheck/transpile APIs for `plts`.
+- [x] Add `stopgap-tsgo-api` Go wrapper exposing narrow typecheck/transpile APIs for `plts`.
 - [ ] Build and embed `stopgap-tsgo-api.wasm` into `plts` for in-process DB-path execution.
 - [ ] Keep strict typing (`strict`, `noImplicitAny`) and reduce permissive `any` stubs.
 - [ ] Add/generated per-function type declarations for function args/context where metadata is available.
@@ -682,3 +682,4 @@ Minimum implementation evidence:
 - [ ] stopgap deploy/diff typecheck enforcement remains unchanged at API boundary (`plts.typecheck_ts`).
 - [x] `typescript-go` submodule added at `third_party/typescript-go` and pinned in git metadata (`.gitmodules` + submodule gitlink).
 - [x] unresolved `@app/*` imports now fail semantic typecheck with explicit unsupported-import diagnostics (`crates/plts/src/compiler.rs`) and unit coverage for rewrite/line-column extraction behavior.
+- [x] initial `stopgap-tsgo-api` scaffold now lives at `third_party/stopgap-tsgo-api` with a narrow JSON request/response API (`typecheck`/`transpile`) and Go tests for unsupported `@app/*` import diagnostics (`third_party/stopgap-tsgo-api/api/service_test.go`).

@@ -77,6 +77,7 @@ stopgap/
     runtime/              # NPM package: TS types + wrappers (`@stopgap/runtime`)
   third_party/
     typescript-go/        # pinned `typescript-go` submodule for TSGo WASM migration
+    stopgap-tsgo-api/     # Go API shim scaffold for narrow typecheck/transpile bridge
   docs/
     ROADMAP.md
     DEVELOPER-QUICKSTART.md
@@ -703,6 +704,7 @@ Acceptance criteria:
 4) **Deploy compilation location**: **DB compile path** (`plts.compile_ts` / `plts.compile_and_store`).
 4.1) **Type environment**: checker must resolve `@stopgap/runtime` declarations (`.d.ts`) during both `plts` validation and stopgap deploy compile flows.
 4.2) **Compiler backend target**: migrate to in-process TSGo WASM for semantic typecheck + transpile; no subprocesses in DB validator/compile/typecheck paths.
+     - current migration scaffold: `third_party/stopgap-tsgo-api` defines the narrow API contract and CLI surface that `plts` will consume once WASM embedding lands.
 5) **Function identity**: **forbid overloading** for stopgap-managed functions.
 6) **Regular `plts` args view**: expose **both positional and named/object forms**.
 7) **Entrypoint convention**:
