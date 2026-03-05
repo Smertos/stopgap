@@ -18,6 +18,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const CARGO_LOCK_CONTENT: &str = include_str!("../../../Cargo.lock");
 const RUNTIME_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/runtime");
+const STOPGAP_TSGO_API_WASM: &[u8] =
+    include_bytes!("../../../third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm");
 const RUNTIME_TYPECHECK_D_TS: &str = r#"export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [k: string]: JsonValue };
 
@@ -171,9 +173,17 @@ pub(crate) fn compiler_fingerprint() -> &'static str {
         .get_or_init(|| {
             let deno_ast = dependency_version_from_lock("deno_ast").unwrap_or("unknown");
             let deno_core = dependency_version_from_lock("deno_core").unwrap_or("disabled");
-            format!("deno_ast@{};deno_core@{}", deno_ast, deno_core)
+            let tsgo_api_wasm_hash = hex::encode(Sha256::digest(tsgo_api_wasm_bytes()));
+            format!(
+                "deno_ast@{};deno_core@{};tsgo_api_wasm_sha256@{}",
+                deno_ast, deno_core, tsgo_api_wasm_hash
+            )
         })
         .as_str()
+}
+
+pub(crate) fn tsgo_api_wasm_bytes() -> &'static [u8] {
+    STOPGAP_TSGO_API_WASM
 }
 
 pub(crate) fn dependency_version_from_lock(crate_name: &str) -> Option<&'static str> {
@@ -432,7 +442,7 @@ fn extract_tsc_line_column(message: &str) -> Option<(u32, u32)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_tsc_diagnostic_line, rewrite_tsc_diagnostic_message};
+    use super::{parse_tsc_diagnostic_line, rewrite_tsc_diagnostic_message, tsgo_api_wasm_bytes};
 
     #[test]
     fn rewrites_unresolved_app_import_diagnostic() {
@@ -451,6 +461,13 @@ mod tests {
         assert_eq!(parsed.get("message").and_then(|value| value.as_str()), Some(line));
         assert_eq!(parsed.get("line").and_then(|value| value.as_u64()), Some(3));
         assert_eq!(parsed.get("column").and_then(|value| value.as_u64()), Some(11));
+    }
+
+    #[test]
+    fn embeds_tsgo_wasm_artifact() {
+        let wasm = tsgo_api_wasm_bytes();
+        assert!(wasm.len() > 8, "embedded tsgo wasm must not be empty");
+        assert_eq!(&wasm[0..4], b"\0asm", "embedded tsgo payload must be wasm");
     }
 }
 

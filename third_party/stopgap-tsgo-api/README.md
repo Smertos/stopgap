@@ -7,11 +7,11 @@ Current scope:
 - defines a narrow JSON API shape for `typecheck` and `transpile` operations
 - provides a small CLI (`cmd/stopgap-tsgo-api`) that reads a JSON request from stdin and writes a JSON response to stdout
 - preserves the explicit unsupported-import diagnostic behavior for `@app/*` imports used by `plts` semantic checks
+- ships a built WASI artifact at `dist/stopgap-tsgo-api.wasm` for embedding in `plts`
 
 Not yet implemented:
 
 - direct integration with `typescript-go`
-- WASM build/embed wiring into `crates/plts`
 - replacement of subprocess-based checks in `plts`
 
 ## Commands
