@@ -8,8 +8,14 @@ type Diagnostic struct {
 	Column   *int   `json:"column,omitempty"`
 }
 
+type VirtualDeclaration struct {
+	FileName string `json:"file_name"`
+	Content  string `json:"content"`
+}
+
 type TypecheckRequest struct {
-	SourceTS string `json:"source_ts"`
+	SourceTS     string               `json:"source_ts"`
+	Declarations []VirtualDeclaration `json:"declarations,omitempty"`
 }
 
 type TypecheckResponse struct {
@@ -17,7 +23,9 @@ type TypecheckResponse struct {
 }
 
 type TranspileRequest struct {
-	SourceTS string `json:"source_ts"`
+	SourceTS     string               `json:"source_ts"`
+	SourceMap    bool                 `json:"source_map,omitempty"`
+	Declarations []VirtualDeclaration `json:"declarations,omitempty"`
 }
 
 type TranspileResponse struct {

@@ -26,12 +26,22 @@ static TSGO_TRANSPILE_ENABLED: OnceLock<bool> = OnceLock::new();
 #[derive(serde::Serialize)]
 struct TsgoTypecheckRequest<'a> {
     source_ts: &'a str,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    declarations: Vec<TsgoVirtualDeclaration>,
 }
 
 #[derive(serde::Serialize)]
 struct TsgoTranspileRequest<'a> {
     source_ts: &'a str,
     source_map: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    declarations: Vec<TsgoVirtualDeclaration>,
+}
+
+#[derive(serde::Serialize)]
+struct TsgoVirtualDeclaration {
+    file_name: String,
+    content: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -186,8 +196,10 @@ fn transpile_typescript_via_tsgo_wasm(
     compiler_opts: &Value,
 ) -> Result<(String, Value), String> {
     let source_map = compiler_opts.get("source_map").and_then(Value::as_bool).unwrap_or(false);
-    let request_json = serde_json::to_vec(&TsgoTranspileRequest { source_ts, source_map })
-        .map_err(|err| format!("failed to encode tsgo transpile request: {err}"))?;
+    let declarations = tsgo_virtual_declarations(compiler_opts);
+    let request_json =
+        serde_json::to_vec(&TsgoTranspileRequest { source_ts, source_map, declarations })
+            .map_err(|err| format!("failed to encode tsgo transpile request: {err}"))?;
 
     let stdout_bytes = execute_tsgo_wasm_command("transpile", request_json)?;
     let decoded: TsgoTranspileResponse = serde_json::from_slice(&stdout_bytes)
@@ -199,8 +211,8 @@ fn transpile_typescript_via_tsgo_wasm(
     Ok((decoded.compiled_js, Value::Array(diagnostics)))
 }
 
-pub(crate) fn semantic_typecheck_typescript(source_ts: &str) -> Value {
-    semantic_typecheck_typescript_via_tsgo_wasm(source_ts).unwrap_or_else(|err| {
+pub(crate) fn semantic_typecheck_typescript(source_ts: &str, compiler_opts: &Value) -> Value {
+    semantic_typecheck_typescript_via_tsgo_wasm(source_ts, compiler_opts).unwrap_or_else(|err| {
         json!([diagnostic_from_message(
             "error",
             &format!("failed to execute TypeScript checker: {err}"),
@@ -208,8 +220,12 @@ pub(crate) fn semantic_typecheck_typescript(source_ts: &str) -> Value {
     })
 }
 
-fn semantic_typecheck_typescript_via_tsgo_wasm(source_ts: &str) -> Result<Value, String> {
-    let request_json = serde_json::to_vec(&TsgoTypecheckRequest { source_ts })
+fn semantic_typecheck_typescript_via_tsgo_wasm(
+    source_ts: &str,
+    compiler_opts: &Value,
+) -> Result<Value, String> {
+    let declarations = tsgo_virtual_declarations(compiler_opts);
+    let request_json = serde_json::to_vec(&TsgoTypecheckRequest { source_ts, declarations })
         .map_err(|err| format!("failed to encode tsgo typecheck request: {err}"))?;
 
     let stdout_bytes = execute_tsgo_wasm_command("typecheck", request_json)?;
@@ -292,6 +308,46 @@ fn tsgo_wasm_runtime() -> Result<&'static TsgoWasmRuntime, String> {
     }
 }
 
+fn tsgo_virtual_declarations(compiler_opts: &Value) -> Vec<TsgoVirtualDeclaration> {
+    let Some(meta) = compiler_opts.get("stopgap_function").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+
+    let function_path = meta.get("function_path").and_then(Value::as_str).unwrap_or("");
+    let module_path = meta.get("module_path").and_then(Value::as_str).unwrap_or("");
+    let export_name = meta.get("export_name").and_then(Value::as_str).unwrap_or("");
+    let kind = meta.get("kind").and_then(Value::as_str).unwrap_or("mutation");
+
+    if function_path.is_empty() || module_path.is_empty() || export_name.is_empty() {
+        return Vec::new();
+    }
+
+    let function_path_literal =
+        serde_json::to_string(function_path).unwrap_or_else(|_| "\"\"".to_string());
+    let module_path_literal =
+        serde_json::to_string(module_path).unwrap_or_else(|_| "\"\"".to_string());
+    let export_name_literal =
+        serde_json::to_string(export_name).unwrap_or_else(|_| "\"\"".to_string());
+    let kind_literal = serde_json::to_string(kind).unwrap_or_else(|_| "\"mutation\"".to_string());
+
+    let content = format!(
+        "declare namespace StopgapGenerated {{\n  interface FunctionMetadata {{\n    readonly functionPath: {function_path_literal};\n    readonly modulePath: {module_path_literal};\n    readonly exportName: {export_name_literal};\n    readonly kind: {kind_literal};\n    readonly args: unknown;\n    readonly ctx: import(\"@stopgap/runtime\").StopgapContext<unknown>;\n  }}\n}}\n"
+    );
+
+    let mut sanitized = function_path
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        sanitized.push_str("function");
+    }
+
+    vec![TsgoVirtualDeclaration {
+        file_name: format!("/stopgap/generated/{sanitized}.d.ts"),
+        content,
+    }]
+}
+
 fn tsgo_transpile_enabled() -> bool {
     *TSGO_TRANSPILE_ENABLED.get_or_init(|| {
         std::env::var("PLTS_EXPERIMENTAL_TSGO_TRANSPILE")
@@ -339,7 +395,11 @@ fn extract_line_column(message: &str) -> Option<(u32, u32)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{semantic_typecheck_typescript_via_tsgo_wasm, tsgo_api_wasm_bytes};
+    use super::{
+        contains_error_diagnostics, semantic_typecheck_typescript_via_tsgo_wasm,
+        transpile_typescript_via_tsgo_wasm, tsgo_api_wasm_bytes, tsgo_virtual_declarations,
+    };
+    use serde_json::json;
 
     #[test]
     fn embeds_tsgo_wasm_artifact() {
@@ -352,6 +412,7 @@ mod tests {
     fn tsgo_wasm_typecheck_reports_app_import_diagnostic() {
         let diagnostics = semantic_typecheck_typescript_via_tsgo_wasm(
             "import { base } from '@app/math';\nexport default () => base;",
+            &json!({}),
         )
         .expect("tsgo wasm typecheck call should succeed");
 
@@ -361,6 +422,52 @@ mod tests {
         let message =
             first.get("message").and_then(|value| value.as_str()).expect("message string");
         assert!(message.contains("unsupported bare module import `@app/math`"));
+    }
+
+    #[test]
+    fn builds_stopgap_function_declaration_from_compiler_opts() {
+        let declarations = tsgo_virtual_declarations(&json!({
+            "stopgap_function": {
+                "function_path": "api.admin.users.list",
+                "module_path": "admin/users.ts",
+                "export_name": "list",
+                "kind": "query"
+            }
+        }));
+        assert_eq!(declarations.len(), 1);
+        let declaration = &declarations[0];
+        assert!(declaration.file_name.contains("api_admin_users_list"));
+        assert!(declaration.content.contains("functionPath: \"api.admin.users.list\""));
+        assert!(declaration.content.contains("kind: \"query\""));
+        assert!(declaration.content.contains("StopgapContext<unknown>"));
+    }
+
+    #[test]
+    fn tsgo_wasm_transpile_emits_javascript() {
+        let (compiled, diagnostics) =
+            transpile_typescript_via_tsgo_wasm("export const value: number = 1;", &json!({}))
+                .expect("tsgo wasm transpile call should succeed");
+
+        assert!(
+            !contains_error_diagnostics(&diagnostics),
+            "transpile diagnostics should not contain errors: {diagnostics}"
+        );
+        assert_eq!(compiled, "export const value = 1;\n");
+    }
+
+    #[test]
+    fn tsgo_wasm_transpile_can_emit_inline_source_map() {
+        let (compiled, diagnostics) = transpile_typescript_via_tsgo_wasm(
+            "export const value: number = 1;",
+            &json!({ "source_map": true }),
+        )
+        .expect("tsgo wasm transpile source_map call should succeed");
+
+        assert!(
+            !contains_error_diagnostics(&diagnostics),
+            "transpile diagnostics should not contain errors: {diagnostics}"
+        );
+        assert!(compiled.contains("//# sourceMappingURL=data:application/json;base64,"));
     }
 }
 

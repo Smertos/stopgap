@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/Smertos/stopgap/third_party/stopgap-tsgo-api/api"
+	"github.com/microsoft/typescript-go/stopgap-tsgo-api/api"
 )
 
 func main() {

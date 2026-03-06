@@ -52,6 +52,8 @@ This file captures how to work effectively in this repository.
 - Runtime pointer metadata supports explicit entrypoint selection (`{"export":"<named_export>"}`) with `default` fallback, so stopgap path routing can target named exports once deployment metadata emits non-default export pointers.
 - TSGo migration first pass currently defers `@app/*` semantic-typecheck support; unresolved `@app/*` imports should emit explicit unsupported-import diagnostics.
 - TSGo migration checkpoint: semantic typecheck now invokes embedded `stopgap-tsgo-api.wasm` in-process for TSGo diagnostics with no legacy `tsc` fallback in DB validator/compile/typecheck paths.
+- Stopgap deploy now forwards per-function route metadata to `plts` through `compiler_opts.stopgap_function`, and `plts` emits generated virtual `.d.ts` declarations in TSGo typecheck/transpile requests when that metadata is present.
+- TSGo transpile now uses real `typescript-go` emit inside `third_party/stopgap-tsgo-api`; semantic typecheck still has a tracked follow-up to replace scaffold heuristics with a compiler-native TSGo program/host path.
 - TSGo transpile bridge is present but remains behind `PLTS_EXPERIMENTAL_TSGO_TRANSPILE=1`; default compile flow stays `deno_ast` until transpile output/performance parity is verified against runtime/deploy suites.
 - Semantic typecheck workspace stubs for `@stopgap/runtime` should remain strict and typed (avoid permissive `any` fallbacks so `strict`/`noImplicitAny` catches wrapper-arg misuse).
 - Stopgap-managed overloading is forbidden.

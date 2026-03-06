@@ -42,8 +42,8 @@ mod plts {
     }
 
     #[pg_extern]
-    fn typecheck_ts(source_ts: &str) -> JsonB {
-        JsonB(semantic_typecheck_typescript(source_ts))
+    fn typecheck_ts(source_ts: &str, compiler_opts: default!(JsonB, "'{}'::jsonb")) -> JsonB {
+        JsonB(semantic_typecheck_typescript(source_ts, &compiler_opts.0))
     }
 
     #[pg_extern]

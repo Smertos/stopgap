@@ -1,6 +1,9 @@
 package api
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestTypecheckReportsUnsupportedAppImport(t *testing.T) {
 	source := "import { add } from '@app/math'\nexport default add(1, 2);\n"
@@ -59,15 +62,44 @@ func TestTypecheckReportsWrapperArgMethodMismatch(t *testing.T) {
 	}
 }
 
-func TestTranspileReturnsScaffoldDiagnostic(t *testing.T) {
+func TestTranspileEmitsJavaScript(t *testing.T) {
 	result := Transpile(TranspileRequest{SourceTS: "export const value: number = 1;"})
-	if result.Backend != "tsgo-api-scaffold" {
+	if result.Backend != "typescript-go" {
 		t.Fatalf("unexpected backend: %s", result.Backend)
 	}
-	if len(result.Diagnostics) != 1 {
-		t.Fatalf("expected 1 diagnostic, got %d", len(result.Diagnostics))
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("expected 0 diagnostics, got %d", len(result.Diagnostics))
 	}
-	if result.Diagnostics[0].Phase != "transpile" {
-		t.Fatalf("unexpected phase: %s", result.Diagnostics[0].Phase)
+	if result.CompiledJS == "" {
+		t.Fatalf("expected emitted JavaScript")
+	}
+	if result.CompiledJS == "export const value: number = 1;" {
+		t.Fatalf("expected TypeScript syntax to be stripped from output: %s", result.CompiledJS)
+	}
+	if result.CompiledJS != "export const value = 1;\n" {
+		t.Fatalf("unexpected JS output: %q", result.CompiledJS)
+	}
+}
+
+func TestTranspileSupportsInlineSourceMaps(t *testing.T) {
+	result := Transpile(TranspileRequest{
+		SourceTS:  "export const value: number = 1;",
+		SourceMap: true,
+	})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %+v", result.Diagnostics)
+	}
+	if !strings.Contains(result.CompiledJS, "//# sourceMappingURL=data:application/json;base64,") {
+		t.Fatalf("expected inline source map, got %q", result.CompiledJS)
+	}
+}
+
+func TestTranspilePreservesBareImportsWithoutResolutionErrors(t *testing.T) {
+	result := Transpile(TranspileRequest{SourceTS: "import { query } from '@stopgap/runtime';\nexport default query(async () => null);\n"})
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %+v", result.Diagnostics)
+	}
+	if !strings.Contains(result.CompiledJS, "from '@stopgap/runtime'") {
+		t.Fatalf("expected bare import to be preserved, got %q", result.CompiledJS)
 	}
 }

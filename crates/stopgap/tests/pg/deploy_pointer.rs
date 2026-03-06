@@ -160,6 +160,40 @@ fn test_deploy_uses_cli_export_metadata_for_pointer() {
     let pointer_json: serde_json::Value =
         serde_json::from_str(pointer.as_str()).expect("live pointer should be valid json");
     assert_eq!(pointer_json.get("export").and_then(|value| value.as_str()), Some("hello"));
+
+    let compiler_opts = Spi::get_one_with_args::<JsonB>(
+        "
+        SELECT compiler_opts
+        FROM plts.artifact
+        WHERE artifact_hash = (
+            SELECT artifact_hash
+            FROM stopgap.fn_version
+            WHERE deployment_id = $1
+              AND fn_name = 'hello'
+            LIMIT 1
+        )
+        ",
+        &[deployment_id.into()],
+    )
+    .expect("artifact compiler_opts lookup should succeed")
+    .expect("artifact compiler_opts row should exist");
+
+    assert_eq!(
+        compiler_opts
+            .0
+            .get("stopgap_function")
+            .and_then(|value| value.get("function_path"))
+            .and_then(|value| value.as_str()),
+        Some("api.admin.users.hello")
+    );
+    assert_eq!(
+        compiler_opts
+            .0
+            .get("stopgap_function")
+            .and_then(|value| value.get("kind"))
+            .and_then(|value| value.as_str()),
+        Some("query")
+    );
 }
 
 #[pg_test]

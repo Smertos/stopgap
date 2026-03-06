@@ -147,7 +147,7 @@ pub unsafe extern "C-unwind" fn plts_validator(fcinfo: pg_sys::FunctionCallInfo)
         return pg_sys::Datum::from(0);
     }
 
-    let diagnostics = semantic_typecheck_typescript(&prosrc);
+    let diagnostics = semantic_typecheck_typescript(&prosrc, &serde_json::json!({}));
     if contains_error_diagnostics(&diagnostics) {
         error!(
             "plts validator rejected function oid={} due to TypeScript diagnostics: {}",

@@ -39,7 +39,7 @@ fn ensure_mock_plts_runtime() {
         END;
         $$;
 
-        CREATE OR REPLACE FUNCTION plts.typecheck_ts(source_ts text)
+        CREATE OR REPLACE FUNCTION plts.typecheck_ts(source_ts text, compiler_opts jsonb DEFAULT '{}'::jsonb)
         RETURNS jsonb
         LANGUAGE sql
         AS $$

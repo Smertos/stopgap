@@ -122,11 +122,11 @@ The sections below remain useful implementation history; active net-new product 
 - [x] Enforce `LANGUAGE plts` DDL validation via semantic TypeScript checks on CREATE/REPLACE
 - [x] Provide `@stopgap/runtime` declaration files (`.d.ts`) to checker resolution during compile/validation
 - [x] Replace subprocess-based semantic checker with in-process TSGo WASM backend
-- [ ] Route `plts.compile_ts` transpilation through TSGo WASM backend
+- [x] Route `plts.compile_ts` transpilation through TSGo WASM backend
 - [x] Remove DB-path checker subprocess execution (`pnpm exec tsc`) from validator/compile/typecheck flows
 
 Progress note (iteration 21):
-- `plts` now includes a TSGo WASM transpile command bridge (`transpile`) and shared WASI command execution plumbing, but runtime transpile remains defaulted to `deno_ast` unless `PLTS_EXPERIMENTAL_TSGO_TRANSPILE=1` is set.
+- `plts` now includes a real TSGo WASM transpile path backed by `third_party/stopgap-tsgo-api` and shared WASI command execution plumbing, but runtime transpile remains defaulted to `deno_ast` unless `PLTS_EXPERIMENTAL_TSGO_TRANSPILE=1` is set.
 - the default-off gate is intentional to keep compile-latency SLOs green while TSGo transpile output/perf parity is finished.
 
 ### 2.6 DB API Surface (unfinished)
@@ -677,11 +677,13 @@ Minimum implementation evidence:
 - [x] Add `stopgap-tsgo-api` Go wrapper exposing narrow typecheck/transpile APIs for `plts`.
 - [x] Build and embed `stopgap-tsgo-api.wasm` into `plts` for in-process DB-path execution.
 - [x] Keep strict typing (`strict`, `noImplicitAny`) and reduce permissive `any` stubs.
-- [ ] Add/generated per-function type declarations for function args/context where metadata is available.
+- [x] Add/generated per-function type declarations for function args/context where metadata is available.
 - [x] Defer `@app/*` support in first pass; emit explicit diagnostics for unresolved usage.
 
 Open follow-up detail (iteration 21):
 - [ ] remove the temporary `PLTS_EXPERIMENTAL_TSGO_TRANSPILE` gate after TSGo transpile path meets compile SLO thresholds and output parity in runtime/deploy suites.
+- [ ] replace the temporary scaffold-style semantic checker in `third_party/stopgap-tsgo-api` with a real TSGo program/host pipeline so `plts.typecheck_ts` stops depending on handwritten diagnostics.
+- [ ] inject `@stopgap/runtime` and generated virtual declarations into that real TSGo semantic program so strict wrapper typing is enforced by compiler-native resolution instead of adapter heuristics.
 
 Minimum implementation evidence:
 - [x] `stopgap-tsgo-api` now publishes a WASI artifact at `third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm`, and `plts` embeds it via `include_bytes!` (`crates/plts/src/compiler.rs`) with unit coverage for wasm-magic validation.
@@ -693,4 +695,6 @@ Minimum implementation evidence:
 - [x] unresolved `@app/*` imports now fail semantic typecheck with explicit unsupported-import diagnostics (`crates/plts/src/compiler.rs`) and unit coverage for rewrite/line-column extraction behavior.
 - [x] initial `stopgap-tsgo-api` scaffold now lives at `third_party/stopgap-tsgo-api` with a narrow JSON request/response API (`typecheck`/`transpile`) and Go tests for unsupported `@app/*` import diagnostics (`third_party/stopgap-tsgo-api/api/service_test.go`).
 - [x] TSGo semantic diagnostics now include strict wrapper-arg misuse coverage for common `v` schema inference failures (`args.id.toUpperCase()` against `v.int()`), and DB-backed coverage asserts the failure contract in `crates/plts/tests/pg/runtime_module_imports.rs`.
+- [x] stopgap deploy now forwards per-function route metadata as compile/typecheck options (`stopgap_function`) so TSGo request payloads include generated virtual `.d.ts` declarations for function path/kind args-context metadata (`crates/stopgap/src/api_ops.rs`, `crates/plts/src/compiler.rs`, `crates/stopgap/tests/pg/deploy_pointer.rs`).
+- [x] `third_party/stopgap-tsgo-api` now uses real TSGo emit for `transpile`, including inline source-map support and direct Go/Rust coverage for emitted JS (`third_party/stopgap-tsgo-api/api/service.go`, `crates/plts/src/compiler.rs`).
 - [x] local iteration 20 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
