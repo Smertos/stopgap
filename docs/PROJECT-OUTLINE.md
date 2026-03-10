@@ -604,9 +604,9 @@ Current progress snapshot:
 - async default-export handler execution is now supported in the V8 runtime path
 - runtime now evaluates ES modules via the module loader (including `data:` imports, `plts+artifact:<hash>` imports resolved from `plts.artifact`, a built-in bare `@stopgap/runtime` module, and additional bare-specifier imports mapped via inline `plts-import-map` comments)
 - `plts.compile_ts` now performs TS transpilation with structured diagnostics
-- semantic typechecking is currently exposed via `plts.typecheck_ts` and validator enforcement; the checker now invokes embedded `stopgap-tsgo-api.wasm` in-process for TSGo diagnostics with no legacy `tsc` fallback, but the adapter still needs a follow-up upgrade from scaffold heuristics to a real TSGo semantic program/host pipeline.
+- semantic typechecking is exposed via `plts.typecheck_ts` and validator enforcement; the checker now invokes embedded `stopgap-tsgo-api.wasm` in-process through a real TSGo program/host pipeline with no legacy `tsc` fallback.
 - `plts` now embeds a built `stopgap-tsgo-api` WASI artifact (`third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm`) and DB-path validator/compile/typecheck flows execute without subprocess checker calls.
-- TSGo semantic diagnostics now include strict wrapper-arg misuse coverage for common `v` schema inference failures (for example `args.id.toUpperCase()` when `id` is defined as `v.int()`).
+- TSGo semantic diagnostics now include strict wrapper-arg misuse coverage for common `v` schema inference failures (for example `args.id.toUpperCase()` or `args['id'].toUpperCase()` when `id` is defined as `v.int()`).
 - stopgap deploy now passes per-function route metadata (`function_path`, `module_path`, `export_name`, `kind`) through `compiler_opts` so TSGo request payloads can include generated virtual declaration stubs for args/context metadata during typecheck/transpile.
 - `plts` compiler fingerprinting now derives from real dependency versions (`deno_ast`/`deno_core`) from workspace lock metadata
 - optional source-map persistence is now supported in `plts.artifact` when `compiler_opts.source_map=true`
@@ -706,9 +706,9 @@ Acceptance criteria:
 3) **Schema format**: runtime wrapper validation is `v` (zod/mini-style) with compatibility fallback for the legacy JSON Schema subset and preserved error-shape semantics.
 4) **Deploy compilation location**: **DB compile path** (`plts.compile_ts` / `plts.compile_and_store`).
 4.1) **Type environment**: checker must resolve `@stopgap/runtime` declarations (`.d.ts`) during both `plts` validation and stopgap deploy compile flows.
-4.2) **Compiler backend target**: migrate to in-process TSGo WASM for semantic typecheck + transpile; no subprocesses in DB validator/compile/typecheck paths.
-- current adapter status: `third_party/stopgap-tsgo-api` already ships the embedded WASI bridge used by `plts`; `transpile` now runs through real TSGo emit, while semantic typecheck still needs full TSGo program-host parity work tracked in `docs/ROADMAP.md`.
-- current transpile bridge status: `plts` can invoke TSGo WASM `transpile`, but default compile flow remains `deno_ast` until TSGo transpile output/performance reaches baseline parity; opt-in gate is `PLTS_EXPERIMENTAL_TSGO_TRANSPILE=1`.
+4.2) **Compiler backend target**: use in-process TSGo WASM for semantic typecheck + transpile with no subprocesses in DB validator/compile/typecheck paths.
+- current adapter status: `third_party/stopgap-tsgo-api` ships the embedded WASI bridge used by `plts`, and both `typecheck` and `transpile` now run through real TSGo program/emit paths.
+- current transpile status: `plts.typecheck_ts`, `plts.compile_ts`, and `plts.compile_and_store` now route through embedded TSGo WASM by default. `deno_ast` remains only as an internal fallback if TSGo transpile invocation fails unexpectedly.
 5) **Function identity**: **forbid overloading** for stopgap-managed functions.
 6) **Regular `plts` args view**: expose **both positional and named/object forms**.
 7) **Entrypoint convention**:

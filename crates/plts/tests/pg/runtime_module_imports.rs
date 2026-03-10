@@ -359,6 +359,45 @@ fn test_runtime_typecheck_infers_wrapper_args_from_v_schema() {
 }
 
 #[pg_test]
+fn test_runtime_typecheck_infers_wrapper_args_for_bracket_access() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_module_type_infer_bracket_it CASCADE;
+        CREATE SCHEMA plts_runtime_module_type_infer_bracket_it;
+        "#,
+    )
+    .expect("bracket-access type inference schema setup should succeed");
+
+    Spi::run(
+        r#"
+        DO $outer$
+        BEGIN
+            CREATE OR REPLACE FUNCTION plts_runtime_module_type_infer_bracket_it.imported(args jsonb)
+            RETURNS jsonb
+            LANGUAGE plts
+            AS $fn$
+            import { query, v } from "@stopgap/runtime";
+            export default query(v.object({ id: v.int() }), async (args, _ctx) => {
+                return { bad: args['id'].toUpperCase() };
+            });
+            $fn$;
+            RAISE EXCEPTION 'expected bracket-access wrapper arg typecheck failure';
+        EXCEPTION
+            WHEN OTHERS THEN
+                IF POSITION('Property ''toUpperCase'' does not exist on type ''number''' IN SQLERRM) = 0 THEN
+                    RAISE;
+                END IF;
+        END;
+        $outer$;
+        "#,
+    )
+    .expect("wrapper schema inference should enforce typed args through bracket access");
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_module_type_infer_bracket_it CASCADE;")
+        .expect("bracket-access type inference schema teardown should succeed");
+}
+
+#[pg_test]
 fn test_runtime_rejects_unknown_artifact_module_specifier() {
     Spi::run(
         r#"

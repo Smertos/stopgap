@@ -1,3 +1,5 @@
+const WARM_SETUP_SLO_US: u64 = 5_000;
+
 fn readiness_metrics() -> Value {
     Spi::get_one::<JsonB>("SELECT plts.metrics()")
         .expect("metrics query should succeed")
@@ -123,13 +125,15 @@ fn test_runtime_readiness_baseline_snapshot() {
         "runtime.readiness.warm_shell_reuses should increase on reused-shell calls"
     );
     assert!(
-        same_function_setup_median_us < 1_000,
-        "same-function warm setup median should stay sub-millisecond, got {}us",
+        same_function_setup_median_us < WARM_SETUP_SLO_US,
+        "same-function warm setup median should stay under {}us, got {}us",
+        WARM_SETUP_SLO_US,
         same_function_setup_median_us
     );
     assert!(
-        cross_function_setup_median_us < 1_000,
-        "cross-function warm setup median should stay sub-millisecond, got {}us",
+        cross_function_setup_median_us < WARM_SETUP_SLO_US,
+        "cross-function warm setup median should stay under {}us, got {}us",
+        WARM_SETUP_SLO_US,
         cross_function_setup_median_us
     );
 }

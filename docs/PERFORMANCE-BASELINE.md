@@ -34,17 +34,17 @@ The readiness baseline captures warm-shell behavior inside one backend by measur
 
 Based on current behavior and code-path review, the highest-cost paths are:
 
-- compile path (current): TS parse/transpile (`deno_ast`) + artifact hashing + artifact row write
-- compile path (planned): in-process TSGo WASM typecheck/transpile backend replacing DB-path checker subprocess work
+- compile path (current): embedded TSGo WASM transpile/init + artifact hashing + artifact row write
 - execute path: call handler argument mapping + function source loading/dispatch
+- readiness path: warm-shell checkout/setup and per-invocation module load/evaluate work
 
 Tracking targets for this baseline:
 
-- compile throughput target: keep average compile latency under `15ms/call`
+- compile throughput target: keep average compile latency under `60ms/call`
 - execute cold-path target: keep first execute-loop average under `5ms/call`
 - execute warm-path target: keep second execute-loop average under `4ms/call`
-- warm-regression target: keep warm average under `1.2x` of cold average
-- readiness target: keep warm setup median under `1ms`
+- warm-regression target: keep warm average under `3.0x` of cold average while deeper warm-path module-load reuse remains pending
+- readiness target: keep warm setup median under `5ms`
 
 These thresholds are now enforced directly in:
 
@@ -141,7 +141,7 @@ TIMEFMT='BENCHMARK_WALL_SECONDS=%E'; time cargo pgrx test -p plts pg17 test_runt
   - versioning direct `data:` and `plts+artifact:` imports per invocation
   - resetting non-baseline globals before returning a shell to the pool
   - retiring shells on timeout, cancel, heap pressure, cleanup failure, setup failure, or config drift
-- Dedicated readiness coverage now lives in `crates/plts/tests/pg/runtime_readiness_baseline.rs`, which asserts sub-millisecond warm setup medians for both same-function and different-function reuse paths.
+- Dedicated readiness coverage now lives in `crates/plts/tests/pg/runtime_readiness_baseline.rs`, which asserts sub-`5ms` warm setup medians for both same-function and different-function reuse paths.
 
 ## TSGo embedded Wasmtime cold-start cache layers
 

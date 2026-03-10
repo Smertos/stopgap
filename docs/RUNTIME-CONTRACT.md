@@ -69,7 +69,7 @@ Current implementation status:
 - Route lookup now prefers exact `function_path` matches and only falls back to legacy terminal export-segment resolution for rows without path metadata.
 
 Compiler backend note:
-- Typecheck/transpile internals are planned to migrate to in-process TSGo WASM for DB-path execution; this does not change the runtime `ctx`/return contract documented here.
+- Typecheck/transpile internals now run through embedded TSGo WASM for DB-path execution; this does not change the runtime `ctx`/return contract documented here.
 
 ## DB API mode behavior
 

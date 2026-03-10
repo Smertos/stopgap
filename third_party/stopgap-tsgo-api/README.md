@@ -6,14 +6,11 @@ Current scope:
 
 - defines a narrow JSON API shape for `typecheck` and `transpile` operations
 - provides a small CLI (`cmd/stopgap-tsgo-api`) that reads a JSON request from stdin and writes a JSON response to stdout
+- routes `typecheck` through a real `typescript-go` program/host pipeline for config, syntactic, and semantic diagnostics
 - routes `transpile` through real `typescript-go` emit for single-file TS->JS output
 - preserves the current explicit unsupported-import diagnostic behavior for `@app/*` imports used by `plts` semantic checks
+- consumes compiler-provided virtual declarations for `@stopgap/runtime` and generated stopgap metadata
 - ships a built WASI artifact at `dist/stopgap-tsgo-api.wasm` for embedding in `plts`
-
-Still pending:
-
-- replacement of scaffold-style semantic checker logic with a real TSGo semantic program/host pipeline
-- full `@stopgap/runtime` virtual declaration environment for compiler-native semantic parity
 
 Module-path note:
 

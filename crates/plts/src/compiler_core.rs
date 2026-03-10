@@ -14,6 +14,7 @@ use wasmtime::{
 const CARGO_LOCK_CONTENT: &str = include_str!("../../../Cargo.lock");
 const STOPGAP_TSGO_API_WASM: &[u8] =
     include_bytes!("../../../third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm");
+const STOPGAP_TSGO_RUNTIME_DECLARATIONS: &str = include_str!("tsgo_runtime.d.ts");
 
 static TS_COMPILER_FINGERPRINT: OnceLock<String> = OnceLock::new();
 static TSGO_WASM_TEMPFILE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -359,8 +360,13 @@ pub(crate) fn extract_inline_source_map(compiled_js: &str) -> Option<String> {
 }
 
 pub(crate) fn tsgo_virtual_declarations(compiler_opts: &Value) -> Vec<TsgoVirtualDeclaration> {
+    let mut declarations = vec![TsgoVirtualDeclaration {
+        file_name: "/stopgap/runtime/index.d.ts".to_string(),
+        content: STOPGAP_TSGO_RUNTIME_DECLARATIONS.to_string(),
+    }];
+
     let Some(meta) = compiler_opts.get("stopgap_function").and_then(Value::as_object) else {
-        return Vec::new();
+        return declarations;
     };
 
     let function_path = meta.get("function_path").and_then(Value::as_str).unwrap_or("");
@@ -369,7 +375,7 @@ pub(crate) fn tsgo_virtual_declarations(compiler_opts: &Value) -> Vec<TsgoVirtua
     let kind = meta.get("kind").and_then(Value::as_str).unwrap_or("mutation");
 
     if function_path.is_empty() || module_path.is_empty() || export_name.is_empty() {
-        return Vec::new();
+        return declarations;
     }
 
     let function_path_literal =
@@ -392,10 +398,12 @@ pub(crate) fn tsgo_virtual_declarations(compiler_opts: &Value) -> Vec<TsgoVirtua
         sanitized.push_str("function");
     }
 
-    vec![TsgoVirtualDeclaration {
+    declarations.push(TsgoVirtualDeclaration {
         file_name: format!("/stopgap/generated/{sanitized}.d.ts"),
         content,
-    }]
+    });
+
+    declarations
 }
 
 fn apply_tsgo_wasm_engine_profile(config: &mut WasmtimeConfig, _profile: &TsgoWasmEngineProfile) {
@@ -900,12 +908,25 @@ mod tests {
                 "kind": "query"
             }
         }));
-        assert_eq!(declarations.len(), 1);
-        let declaration = &declarations[0];
-        assert!(declaration.file_name.contains("api_admin_users_list"));
+        assert_eq!(declarations.len(), 2);
+        assert!(declarations.iter().any(|declaration| {
+            declaration.content.contains("declare module \"@stopgap/runtime\"")
+        }));
+        let declaration = declarations
+            .iter()
+            .find(|declaration| declaration.file_name.contains("api_admin_users_list"))
+            .expect("generated function declaration should be present");
         assert!(declaration.content.contains("functionPath: \"api.admin.users.list\""));
         assert!(declaration.content.contains("kind: \"query\""));
         assert!(declaration.content.contains("StopgapContext<unknown>"));
+    }
+
+    #[test]
+    fn tsgo_virtual_declarations_include_runtime_module_without_metadata() {
+        let declarations = tsgo_virtual_declarations(&json!({}));
+        assert_eq!(declarations.len(), 1);
+        assert_eq!(declarations[0].file_name, "/stopgap/runtime/index.d.ts");
+        assert!(declarations[0].content.contains("declare module \"@stopgap/runtime\""));
     }
 
     #[test]

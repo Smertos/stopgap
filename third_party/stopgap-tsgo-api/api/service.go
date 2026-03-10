@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -19,91 +18,36 @@ import (
 	"github.com/microsoft/typescript-go/internal/vfs/vfstest"
 )
 
-var appImportPattern = regexp.MustCompile(`(?m)^\s*import(?:\s+type)?(?:[\s\S]*?)from\s+['"](@app/[^'"]+)['"]|^\s*import\s+['"](@app/[^'"]+)['"]`)
-var intSchemaFieldPattern = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*:\s*v\.int\(\s*\)`)
-
 const (
 	transpileEntryFile = "/workspace/main.ts"
 	transpileOutDir    = "/workspace/out"
 	transpileRootDir   = "/workspace"
 )
 
+type unsupportedAppImport struct {
+	specifier string
+	line      int
+	column    int
+}
+
 func Typecheck(req TypecheckRequest) TypecheckResponse {
 	if strings.TrimSpace(req.SourceTS) == "" {
 		return TypecheckResponse{Diagnostics: []Diagnostic{}}
 	}
 
-	return TypecheckResponse{Diagnostics: append(wrapperArgDiagnostics(req.SourceTS), appImportDiagnostics(req.SourceTS)...)}
-}
-
-func appImportDiagnostics(source string) []Diagnostic {
-	matches := appImportPattern.FindAllStringSubmatchIndex(source, -1)
-	diagnostics := make([]Diagnostic, 0, len(matches))
-	for _, match := range matches {
-		specifier := ""
-		specifierStart := -1
-		if len(match) >= 4 && match[2] >= 0 && match[3] >= 0 {
-			specifier = source[match[2]:match[3]]
-			specifierStart = match[2]
-		} else if len(match) >= 6 && match[4] >= 0 && match[5] >= 0 {
-			specifier = source[match[4]:match[5]]
-			specifierStart = match[4]
-		}
-
-		line, column := lineColumnForOffset(source, specifierStart)
-		lineCopy := line
-		columnCopy := column
-		diagnostics = append(diagnostics, Diagnostic{
-			Severity: "error",
-			Phase:    "semantic",
-			Message: fmt.Sprintf(
-				"unsupported bare module import `%s`: `@app/*` imports are not supported yet during plts typecheck",
-				specifier,
-			),
-			Line:   &lineCopy,
-			Column: &columnCopy,
-		})
-	}
-	return diagnostics
-}
-
-func wrapperArgDiagnostics(source string) []Diagnostic {
-	if !strings.Contains(source, "v.object") || !strings.Contains(source, "args.") {
-		return []Diagnostic{}
-	}
-
-	fields := map[string]struct{}{}
-	for _, match := range intSchemaFieldPattern.FindAllStringSubmatch(source, -1) {
-		if len(match) >= 2 {
-			fields[match[1]] = struct{}{}
+	program, entryFile, buildErr := buildTypecheckProgram(req)
+	if buildErr != nil {
+		return TypecheckResponse{
+			Diagnostics: []Diagnostic{{
+				Severity: "error",
+				Phase:    "semantic",
+				Message:  buildErr.Error(),
+			}},
 		}
 	}
 
-	if len(fields) == 0 {
-		return []Diagnostic{}
-	}
-
-	diagnostics := []Diagnostic{}
-	for field := range fields {
-		needle := "args." + field + ".toUpperCase("
-		offset := strings.Index(source, needle)
-		if offset < 0 {
-			continue
-		}
-
-		line, column := lineColumnForOffset(source, offset)
-		lineCopy := line
-		columnCopy := column
-		diagnostics = append(diagnostics, Diagnostic{
-			Severity: "error",
-			Phase:    "semantic",
-			Message:  "Property 'toUpperCase' does not exist on type 'number'",
-			Line:     &lineCopy,
-			Column:   &columnCopy,
-		})
-	}
-
-	return diagnostics
+	ctx := context.Background()
+	return TypecheckResponse{Diagnostics: collectTypecheckDiagnostics(ctx, program, entryFile)}
 }
 
 func Transpile(req TranspileRequest) TranspileResponse {
@@ -145,19 +89,11 @@ func Transpile(req TranspileRequest) TranspileResponse {
 	}
 }
 
-func buildTranspileProgram(req TranspileRequest) (*compiler.Program, *ast.SourceFile, error) {
-	files := map[string]string{transpileEntryFile: req.SourceTS}
-	rootNames := []string{transpileEntryFile}
-	for _, declaration := range req.Declarations {
-		fileName := normalizeVirtualFileName(declaration.FileName)
-		if fileName == "" {
-			continue
-		}
-		files[fileName] = declaration.Content
-		rootNames = append(rootNames, fileName)
-	}
-	sort.Strings(rootNames[1:])
+func buildTypecheckProgram(req TypecheckRequest) (*compiler.Program, *ast.SourceFile, error) {
+	return buildProgram(req.SourceTS, req.Declarations, typecheckCompilerOptions())
+}
 
+func buildTranspileProgram(req TranspileRequest) (*compiler.Program, *ast.SourceFile, error) {
 	compilerOptions := &core.CompilerOptions{
 		Target:           core.ScriptTargetESNext,
 		Module:           core.ModuleKindESNext,
@@ -174,6 +110,26 @@ func buildTranspileProgram(req TranspileRequest) (*compiler.Program, *ast.Source
 		compilerOptions.InlineSourceMap = core.TSTrue
 		compilerOptions.InlineSources = core.TSTrue
 	}
+
+	return buildProgram(req.SourceTS, req.Declarations, compilerOptions)
+}
+
+func buildProgram(
+	sourceTS string,
+	declarations []VirtualDeclaration,
+	compilerOptions *core.CompilerOptions,
+) (*compiler.Program, *ast.SourceFile, error) {
+	files := map[string]string{transpileEntryFile: sourceTS}
+	rootNames := []string{transpileEntryFile}
+	for _, declaration := range declarations {
+		fileName := normalizeVirtualFileName(declaration.FileName)
+		if fileName == "" {
+			continue
+		}
+		files[fileName] = declaration.Content
+		rootNames = append(rootNames, fileName)
+	}
+	sort.Strings(rootNames[1:])
 
 	host := compiler.NewCompilerHost(
 		transpileRootDir,
@@ -194,9 +150,24 @@ func buildTranspileProgram(req TranspileRequest) (*compiler.Program, *ast.Source
 	})
 	entryFile := program.GetSourceFile(transpileEntryFile)
 	if entryFile == nil {
-		return nil, nil, fmt.Errorf("failed to load TSGo transpile entry file %s", transpileEntryFile)
+		return nil, nil, fmt.Errorf("failed to load TSGo entry file %s", transpileEntryFile)
 	}
 	return program, entryFile, nil
+}
+
+func typecheckCompilerOptions() *core.CompilerOptions {
+	return &core.CompilerOptions{
+		Target:                           core.ScriptTargetESNext,
+		Module:                           core.ModuleKindESNext,
+		ModuleResolution:                 core.ModuleResolutionKindBundler,
+		Strict:                           core.TSTrue,
+		NoImplicitAny:                    core.TSTrue,
+		ForceConsistentCasingInFileNames: core.TSTrue,
+		NoEmit:                           core.TSTrue,
+		NoLib:                            core.TSFalse,
+		SkipLibCheck:                     core.TSTrue,
+		RootDir:                          transpileRootDir,
+	}
 }
 
 func collectTranspileDiagnostics(
@@ -207,6 +178,168 @@ func collectTranspileDiagnostics(
 	diags := append([]*ast.Diagnostic{}, program.GetConfigFileParsingDiagnostics()...)
 	diags = append(diags, program.GetSyntacticDiagnostics(ctx, entryFile)...)
 	return compiler.SortAndDeduplicateDiagnostics(diags)
+}
+
+func collectTypecheckDiagnostics(
+	ctx context.Context,
+	program *compiler.Program,
+	entryFile *ast.SourceFile,
+) []Diagnostic {
+	configDiagnostics := compiler.SortAndDeduplicateDiagnostics(
+		append([]*ast.Diagnostic{}, program.GetConfigFileParsingDiagnostics()...),
+	)
+	syntacticDiagnostics :=
+		compiler.SortAndDeduplicateDiagnostics(program.GetSyntacticDiagnostics(ctx, entryFile))
+	semanticDiagnostics :=
+		compiler.SortAndDeduplicateDiagnostics(program.GetSemanticDiagnostics(ctx, entryFile))
+
+	importSpecifiers := collectRuntimeResolvedImportSpecifiers(entryFile)
+	semanticDiagnostics = filterRuntimeImportResolutionDiagnostics(semanticDiagnostics, importSpecifiers)
+
+	appImports := collectUnsupportedAppImports(entryFile)
+
+	diagnostics := make([]Diagnostic, 0, len(configDiagnostics)+len(syntacticDiagnostics)+len(semanticDiagnostics)+len(appImports))
+	diagnostics = append(diagnostics, encodeDiagnostics(configDiagnostics, "config")...)
+	diagnostics = append(diagnostics, encodeDiagnostics(syntacticDiagnostics, "syntactic")...)
+	diagnostics = append(diagnostics, encodeDiagnostics(semanticDiagnostics, "semantic")...)
+	diagnostics = append(diagnostics, explicitUnsupportedAppImportDiagnostics(appImports)...)
+	return dedupeDiagnostics(diagnostics)
+}
+
+func collectUnsupportedAppImports(entryFile *ast.SourceFile) []unsupportedAppImport {
+	imports := entryFile.Imports()
+	if len(imports) == 0 {
+		return nil
+	}
+
+	out := make([]unsupportedAppImport, 0, len(imports))
+	for _, importNode := range imports {
+		specifier := importNode.Text()
+		if !strings.HasPrefix(specifier, "@app/") {
+			continue
+		}
+
+		line, column := scanner.GetECMALineAndUTF16CharacterOfPosition(entryFile, importNode.Pos())
+		out = append(out, unsupportedAppImport{
+			specifier: specifier,
+			line:      line + 1,
+			column:    int(column) + 1,
+		})
+	}
+
+	return out
+}
+
+func collectRuntimeResolvedImportSpecifiers(entryFile *ast.SourceFile) []string {
+	imports := entryFile.Imports()
+	if len(imports) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(imports))
+	for _, importNode := range imports {
+		specifier := importNode.Text()
+		if !isRuntimeResolvedImportSpecifier(specifier) {
+			continue
+		}
+		out = append(out, specifier)
+	}
+
+	return out
+}
+
+func isRuntimeResolvedImportSpecifier(specifier string) bool {
+	if strings.HasPrefix(specifier, "data:") || strings.HasPrefix(specifier, "plts+artifact:") {
+		return true
+	}
+
+	if strings.HasPrefix(specifier, "@app/") {
+		return true
+	}
+
+	return !strings.HasPrefix(specifier, "./") &&
+		!strings.HasPrefix(specifier, "../") &&
+		!strings.HasPrefix(specifier, "/") &&
+		!strings.Contains(specifier, "://")
+}
+
+func filterRuntimeImportResolutionDiagnostics(
+	diagnostics []*ast.Diagnostic,
+	importSpecifiers []string,
+) []*ast.Diagnostic {
+	if len(importSpecifiers) == 0 {
+		return diagnostics
+	}
+
+	filtered := make([]*ast.Diagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		message := strings.ToLower(diagnostic.Localize(locale.Default))
+		if strings.Contains(message, "cannot find module") ||
+			strings.Contains(message, "corresponding type declarations") ||
+			strings.Contains(message, "declaration file for module") {
+			skip := false
+			for _, specifier := range importSpecifiers {
+				if strings.Contains(message, strings.ToLower(specifier)) {
+					skip = true
+					break
+				}
+			}
+			if skip {
+				continue
+			}
+		}
+		filtered = append(filtered, diagnostic)
+	}
+
+	return filtered
+}
+
+func explicitUnsupportedAppImportDiagnostics(appImports []unsupportedAppImport) []Diagnostic {
+	diagnostics := make([]Diagnostic, 0, len(appImports))
+	for _, appImport := range appImports {
+		line := appImport.line
+		column := appImport.column
+		diagnostics = append(diagnostics, Diagnostic{
+			Severity: "error",
+			Phase:    "semantic",
+			Message: fmt.Sprintf(
+				"unsupported bare module import `%s`: `@app/*` imports are not supported yet during plts typecheck",
+				appImport.specifier,
+			),
+			Line:   &line,
+			Column: &column,
+		})
+	}
+	return diagnostics
+}
+
+func dedupeDiagnostics(diagnostics []Diagnostic) []Diagnostic {
+	seen := map[string]struct{}{}
+	deduped := make([]Diagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		line := 0
+		column := 0
+		if diagnostic.Line != nil {
+			line = *diagnostic.Line
+		}
+		if diagnostic.Column != nil {
+			column = *diagnostic.Column
+		}
+		key := fmt.Sprintf(
+			"%s|%s|%s|%d|%d",
+			diagnostic.Severity,
+			diagnostic.Phase,
+			diagnostic.Message,
+			line,
+			column,
+		)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		deduped = append(deduped, diagnostic)
+	}
+	return deduped
 }
 
 func encodeDiagnostics(diags []*ast.Diagnostic, phase string) []Diagnostic {
@@ -249,26 +382,4 @@ func normalizeVirtualFileName(fileName string) string {
 		return path.Clean(trimmed)
 	}
 	return path.Clean(path.Join(transpileRootDir, trimmed))
-}
-
-func lineColumnForOffset(source string, offset int) (int, int) {
-	if offset < 0 || offset > len(source) {
-		return 1, 1
-	}
-
-	line := 1
-	column := 1
-	for idx, r := range source {
-		if idx >= offset {
-			break
-		}
-		if r == '\n' {
-			line++
-			column = 1
-			continue
-		}
-		column++
-	}
-
-	return line, column
 }

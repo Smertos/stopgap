@@ -182,3 +182,42 @@ fn test_metrics_include_tsgo_wasm_init_and_cache_fields() {
 
     let _ = fs::remove_dir_all(&cache_dir);
 }
+
+#[pg_test]
+fn test_metrics_compile_uses_tsgo_wasm_by_default() {
+    let before = Spi::get_one::<JsonB>("SELECT plts.metrics()")
+        .expect("metrics query should succeed")
+        .expect("metrics row should exist");
+    let before_init_calls = before
+        .0
+        .get("tsgo_wasm")
+        .and_then(|value| value.get("init"))
+        .and_then(|value| value.get("calls"))
+        .and_then(Value::as_u64)
+        .expect("tsgo_wasm.init.calls should be present");
+
+    let compiled = Spi::get_one_with_args::<String>(
+        "SELECT compiled_js FROM plts.compile_ts($1::text, '{}'::jsonb)",
+        &[String::from("export const value: number = 1;").into()],
+    )
+    .expect("compile_ts query should succeed")
+    .expect("compile_ts should return compiled javascript");
+    assert_eq!(compiled, "export const value = 1;\n");
+
+    let after = Spi::get_one::<JsonB>("SELECT plts.metrics()")
+        .expect("metrics query should succeed")
+        .expect("metrics row should exist");
+    let after_init_calls = after
+        .0
+        .get("tsgo_wasm")
+        .and_then(|value| value.get("init"))
+        .and_then(|value| value.get("calls"))
+        .and_then(Value::as_u64)
+        .expect("tsgo_wasm.init.calls should be present");
+
+    assert_eq!(
+        after_init_calls,
+        before_init_calls + 1,
+        "compile_ts should initialize the tsgo wasm runtime when TSGo transpile is the default backend"
+    );
+}

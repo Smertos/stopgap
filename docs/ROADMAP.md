@@ -16,7 +16,7 @@ Primary product direction is now being course-corrected to a Convex-style TypeSc
 - deployed function identity is path-based (`api.<module_path>.<export_name>`)
 - DB invocation entrypoint is `stopgap.call_fn(path, args)`
 - `stopgap deploy` deploys TS modules directly (no user-authored SQL wrappers)
-- compiler backend direction is moving toward in-process TSGo WASM for both typecheck and transpile (no DB-path subprocesses)
+- compiler backend direction is now in-process TSGo WASM for both typecheck and default transpile (no DB-path subprocesses)
 
 The sections below remain useful implementation history; active net-new product work is tracked in section 14.
 
@@ -126,7 +126,7 @@ The sections below remain useful implementation history; active net-new product 
 - [x] Remove DB-path checker subprocess execution (`pnpm exec tsc`) from validator/compile/typecheck flows
 
 Progress note (iteration 22):
-- `plts` now includes a real TSGo WASM transpile path backed by `third_party/stopgap-tsgo-api` and shared WASI command execution plumbing, but runtime transpile remains defaulted to `deno_ast` unless `PLTS_EXPERIMENTAL_TSGO_TRANSPILE=1` is set.
+- `plts` now includes a real TSGo WASM transpile path backed by `third_party/stopgap-tsgo-api` and shared WASI command execution plumbing, and default compile flow now routes through TSGo transpile with `deno_ast` retained only as an internal failure fallback.
 - transpile-mode TSGo now skips default lib loading plus non-syntactic diagnostics collection to cut avoidable compile overhead while the default-off gate remains in place.
 
 ### 2.6 DB API Surface (unfinished)
@@ -683,10 +683,10 @@ Minimum implementation evidence:
 - [x] Add/generated per-function type declarations for function args/context where metadata is available.
 - [x] Defer `@app/*` support in first pass; emit explicit diagnostics for unresolved usage.
 
-Open follow-up detail (iteration 21):
-- [ ] remove the temporary `PLTS_EXPERIMENTAL_TSGO_TRANSPILE` gate after TSGo transpile path meets compile SLO thresholds and output parity in runtime/deploy suites.
-- [ ] replace the temporary scaffold-style semantic checker in `third_party/stopgap-tsgo-api` with a real TSGo program/host pipeline so `plts.typecheck_ts` stops depending on handwritten diagnostics.
-- [ ] inject `@stopgap/runtime` and generated virtual declarations into that real TSGo semantic program so strict wrapper typing is enforced by compiler-native resolution instead of adapter heuristics.
+Open follow-up detail (iteration 22):
+- [x] remove the temporary `PLTS_EXPERIMENTAL_TSGO_TRANSPILE` gate after TSGo transpile path meets compile SLO thresholds and output parity in runtime/deploy suites.
+- [x] replace the temporary scaffold-style semantic checker in `third_party/stopgap-tsgo-api` with a real TSGo program/host pipeline so `plts.typecheck_ts` stops depending on handwritten diagnostics.
+- [x] inject `@stopgap/runtime` and generated virtual declarations into that real TSGo semantic program so strict wrapper typing is enforced by compiler-native resolution instead of adapter heuristics.
 
 Minimum implementation evidence:
 - [x] `stopgap-tsgo-api` now publishes a WASI artifact at `third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm`, and `plts` embeds it via `include_bytes!` (`crates/plts/src/compiler.rs`) with unit coverage for wasm-magic validation.
@@ -700,5 +700,7 @@ Minimum implementation evidence:
 - [x] TSGo semantic diagnostics now include strict wrapper-arg misuse coverage for common `v` schema inference failures (`args.id.toUpperCase()` against `v.int()`), and DB-backed coverage asserts the failure contract in `crates/plts/tests/pg/runtime_module_imports.rs`.
 - [x] stopgap deploy now forwards per-function route metadata as compile/typecheck options (`stopgap_function`) so TSGo request payloads include generated virtual `.d.ts` declarations for function path/kind args-context metadata (`crates/stopgap/src/api_ops.rs`, `crates/plts/src/compiler.rs`, `crates/stopgap/tests/pg/deploy_pointer.rs`).
 - [x] `third_party/stopgap-tsgo-api` now uses real TSGo emit for `transpile`, including inline source-map support and direct Go/Rust coverage for emitted JS (`third_party/stopgap-tsgo-api/api/service.go`, `crates/plts/src/compiler.rs`).
+- [x] semantic typecheck now also uses a real TSGo program/host pipeline, with explicit `@app/*` unsupported-import diagnostics layered on top of compiler-native diagnostics rather than handwritten source regexes (`third_party/stopgap-tsgo-api/api/service.go`, `third_party/stopgap-tsgo-api/api/service_test.go`).
+- [x] `plts` now injects compiler-native ambient `@stopgap/runtime` declarations into both TSGo typecheck and transpile requests, and `compile_ts`/`compile_and_store` default to TSGo transpile with DB-backed metrics coverage proving the default backend (`crates/plts/src/compiler.rs`, `crates/plts/tests/pg/metrics.rs`).
 - [x] local iteration 20 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
 - [x] TSGo transpile now avoids default-lib loading and non-syntactic diagnostic collection during `transpile`, reducing avoidable compile overhead while preserving emitted JS and source-map coverage (`third_party/stopgap-tsgo-api/api/service.go`, `third_party/stopgap-tsgo-api/api/service_test.go`).

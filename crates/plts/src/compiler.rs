@@ -26,9 +26,9 @@ use wasmtime_wasi::preview1::{self, WasiP1Ctx};
 const CARGO_LOCK_CONTENT: &str = include_str!("../../../Cargo.lock");
 const STOPGAP_TSGO_API_WASM: &[u8] =
     include_bytes!("../../../third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm");
+const STOPGAP_TSGO_RUNTIME_DECLARATIONS: &str = include_str!("tsgo_runtime.d.ts");
 static TS_COMPILER_FINGERPRINT: OnceLock<String> = OnceLock::new();
 static TSGO_WASM_RUNTIME: OnceLock<Result<TsgoWasmRuntime, String>> = OnceLock::new();
-static TSGO_TRANSPILE_ENABLED: OnceLock<bool> = OnceLock::new();
 static TSGO_WASM_TEMPFILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(serde::Serialize)]
@@ -593,14 +593,10 @@ pub(crate) fn compile_source_ts(source_ts: &str, compiler_opts: &Value) -> Compi
 }
 
 pub(crate) fn transpile_typescript(source_ts: &str, compiler_opts: &Value) -> (String, Value) {
-    if tsgo_transpile_enabled() {
-        if let Ok((compiled_js, diagnostics)) =
-            transpile_typescript_via_tsgo_wasm(source_ts, compiler_opts)
-        {
-            if !contains_error_diagnostics(&diagnostics) && !compiled_js.is_empty() {
-                return (compiled_js, diagnostics);
-            }
-        }
+    if let Ok((compiled_js, diagnostics)) =
+        transpile_typescript_via_tsgo_wasm(source_ts, compiler_opts)
+    {
+        return (compiled_js, diagnostics);
     }
 
     transpile_typescript_via_deno_ast(source_ts, compiler_opts)
@@ -910,8 +906,13 @@ fn record_tsgo_wasm_init_outcome(
 }
 
 fn tsgo_virtual_declarations(compiler_opts: &Value) -> Vec<TsgoVirtualDeclaration> {
+    let mut declarations = vec![TsgoVirtualDeclaration {
+        file_name: "/stopgap/runtime/index.d.ts".to_string(),
+        content: STOPGAP_TSGO_RUNTIME_DECLARATIONS.to_string(),
+    }];
+
     let Some(meta) = compiler_opts.get("stopgap_function").and_then(Value::as_object) else {
-        return Vec::new();
+        return declarations;
     };
 
     let function_path = meta.get("function_path").and_then(Value::as_str).unwrap_or("");
@@ -920,7 +921,7 @@ fn tsgo_virtual_declarations(compiler_opts: &Value) -> Vec<TsgoVirtualDeclaratio
     let kind = meta.get("kind").and_then(Value::as_str).unwrap_or("mutation");
 
     if function_path.is_empty() || module_path.is_empty() || export_name.is_empty() {
-        return Vec::new();
+        return declarations;
     }
 
     let function_path_literal =
@@ -943,18 +944,12 @@ fn tsgo_virtual_declarations(compiler_opts: &Value) -> Vec<TsgoVirtualDeclaratio
         sanitized.push_str("function");
     }
 
-    vec![TsgoVirtualDeclaration {
+    declarations.push(TsgoVirtualDeclaration {
         file_name: format!("/stopgap/generated/{sanitized}.d.ts"),
         content,
-    }]
-}
+    });
 
-fn tsgo_transpile_enabled() -> bool {
-    *TSGO_TRANSPILE_ENABLED.get_or_init(|| {
-        std::env::var("PLTS_EXPERIMENTAL_TSGO_TRANSPILE")
-            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-    })
+    declarations
 }
 
 pub(crate) fn contains_error_diagnostics(diagnostics: &Value) -> bool {
