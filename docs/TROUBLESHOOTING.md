@@ -46,6 +46,37 @@ cargo check
 - Use `SELECT plts.typecheck_ts($$...$$);` to inspect diagnostics directly before deploy.
 - Roadmap direction is to move checker/transpile internals to in-process TSGo WASM; until that lands, checker failures can still reflect local toolchain/runtime-package issues.
 
+## TSGo Wasmtime cache bootstrap warnings or permission errors
+
+- Inspect `SELECT plts.metrics();` and check `tsgo_wasm.cache.config_errors` / `tsgo_wasm.cache.deserialize_errors`.
+- If you need to override the cache root, set:
+
+```sql
+SELECT set_config('plts.tsgo_wasm_cache_dir', '/absolute/path/for/plts-tsgo-cache', false);
+```
+
+- To bypass persistent cache while debugging, set:
+
+```sql
+SELECT set_config('plts.tsgo_wasm_cache_mode', 'off', false);
+```
+
+- Available modes:
+  - `auto`: built-in Wasmtime cache, then manual serialized cache, then direct compile
+  - `manual-only`: skip built-in cache and use manual serialized cache first
+  - `off`: disable persistent cache
+- Ensure the PostgreSQL server user can create and rename files under the selected cache root. When auto resolution is used, `plts` first tries the user cache dir from `directories_next`, then falls back to `std::env::temp_dir()/stopgap/plts/tsgo-wasm`.
+
+## Clear the TSGo Wasmtime cache
+
+- Remove the resolved cache root on disk and rerun the TSGo path you want to profile or validate.
+- Layout under the cache root:
+  - `wasmtime-config.toml`
+  - `wasmtime-cache/`
+  - `manual/`
+  - `quarantine/`
+- Clearing those directories only affects TSGo Wasmtime cold-start reuse; it does not remove `plts.artifact` rows.
+
 ## CLI failures
 
 - Ensure `--db` or `STOPGAP_DB` is provided.

@@ -125,9 +125,9 @@ The sections below remain useful implementation history; active net-new product 
 - [x] Route `plts.compile_ts` transpilation through TSGo WASM backend
 - [x] Remove DB-path checker subprocess execution (`pnpm exec tsc`) from validator/compile/typecheck flows
 
-Progress note (iteration 21):
+Progress note (iteration 22):
 - `plts` now includes a real TSGo WASM transpile path backed by `third_party/stopgap-tsgo-api` and shared WASI command execution plumbing, but runtime transpile remains defaulted to `deno_ast` unless `PLTS_EXPERIMENTAL_TSGO_TRANSPILE=1` is set.
-- the default-off gate is intentional to keep compile-latency SLOs green while TSGo transpile output/perf parity is finished.
+- transpile-mode TSGo now skips default lib loading plus non-syntactic diagnostics collection to cut avoidable compile overhead while the default-off gate remains in place.
 
 ### 2.6 DB API Surface (unfinished)
 
@@ -698,3 +698,4 @@ Minimum implementation evidence:
 - [x] stopgap deploy now forwards per-function route metadata as compile/typecheck options (`stopgap_function`) so TSGo request payloads include generated virtual `.d.ts` declarations for function path/kind args-context metadata (`crates/stopgap/src/api_ops.rs`, `crates/plts/src/compiler.rs`, `crates/stopgap/tests/pg/deploy_pointer.rs`).
 - [x] `third_party/stopgap-tsgo-api` now uses real TSGo emit for `transpile`, including inline source-map support and direct Go/Rust coverage for emitted JS (`third_party/stopgap-tsgo-api/api/service.go`, `crates/plts/src/compiler.rs`).
 - [x] local iteration 20 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
+- [x] TSGo transpile now avoids default-lib loading and non-syntactic diagnostic collection during `transpile`, reducing avoidable compile overhead while preserving emitted JS and source-map coverage (`third_party/stopgap-tsgo-api/api/service.go`, `third_party/stopgap-tsgo-api/api/service_test.go`).

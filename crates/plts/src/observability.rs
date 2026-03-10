@@ -23,6 +23,16 @@ static EXECUTE_ERROR_CANCEL: AtomicU64 = AtomicU64::new(0);
 static EXECUTE_ERROR_JS_EXCEPTION: AtomicU64 = AtomicU64::new(0);
 static EXECUTE_ERROR_SQL: AtomicU64 = AtomicU64::new(0);
 static EXECUTE_ERROR_UNKNOWN: AtomicU64 = AtomicU64::new(0);
+static TSGO_WASM_INIT_CALLS: AtomicU64 = AtomicU64::new(0);
+static TSGO_WASM_INIT_LATENCY_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+static TSGO_WASM_INIT_LATENCY_LAST_MS: AtomicU64 = AtomicU64::new(0);
+static TSGO_WASM_INIT_LATENCY_MAX_MS: AtomicU64 = AtomicU64::new(0);
+static TSGO_WASM_CACHE_BUILT_IN_CONFIGURED: AtomicU64 = AtomicU64::new(0);
+static TSGO_WASM_CACHE_MANUAL_HITS: AtomicU64 = AtomicU64::new(0);
+static TSGO_WASM_CACHE_MANUAL_MISSES: AtomicU64 = AtomicU64::new(0);
+static TSGO_WASM_CACHE_FALLBACK_COMPILES: AtomicU64 = AtomicU64::new(0);
+static TSGO_WASM_CACHE_CONFIG_ERRORS: AtomicU64 = AtomicU64::new(0);
+static TSGO_WASM_CACHE_DESERIALIZE_ERRORS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum LogLevel {
@@ -106,6 +116,44 @@ pub(crate) fn record_execute_error(started_at: Instant, class: &str) {
     record_execute_success(started_at);
 }
 
+pub(crate) fn record_tsgo_wasm_init_start() -> Instant {
+    TSGO_WASM_INIT_CALLS.fetch_add(1, Ordering::Relaxed);
+    Instant::now()
+}
+
+pub(crate) fn record_tsgo_wasm_init_success(started_at: Instant) {
+    record_latency(
+        started_at,
+        &TSGO_WASM_INIT_LATENCY_TOTAL_MS,
+        &TSGO_WASM_INIT_LATENCY_LAST_MS,
+        &TSGO_WASM_INIT_LATENCY_MAX_MS,
+    );
+}
+
+pub(crate) fn record_tsgo_wasm_cache_event(event: &str) {
+    match event {
+        "built_in_configured" => {
+            TSGO_WASM_CACHE_BUILT_IN_CONFIGURED.fetch_add(1, Ordering::Relaxed);
+        }
+        "manual_hit" => {
+            TSGO_WASM_CACHE_MANUAL_HITS.fetch_add(1, Ordering::Relaxed);
+        }
+        "manual_miss" => {
+            TSGO_WASM_CACHE_MANUAL_MISSES.fetch_add(1, Ordering::Relaxed);
+        }
+        "fallback_compile" => {
+            TSGO_WASM_CACHE_FALLBACK_COMPILES.fetch_add(1, Ordering::Relaxed);
+        }
+        "config_error" => {
+            TSGO_WASM_CACHE_CONFIG_ERRORS.fetch_add(1, Ordering::Relaxed);
+        }
+        "deserialize_error" => {
+            TSGO_WASM_CACHE_DESERIALIZE_ERRORS.fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {}
+    }
+}
+
 pub(crate) fn classify_compile_error(message: &str) -> &'static str {
     let lowered = message.to_ascii_lowercase();
     if lowered.contains("diagnostic") || lowered.contains("typescript") {
@@ -165,6 +213,24 @@ pub(crate) fn metrics_json() -> Value {
                 "js_exception": EXECUTE_ERROR_JS_EXCEPTION.load(Ordering::Relaxed),
                 "sql": EXECUTE_ERROR_SQL.load(Ordering::Relaxed),
                 "unknown": EXECUTE_ERROR_UNKNOWN.load(Ordering::Relaxed)
+            }
+        },
+        "tsgo_wasm": {
+            "init": {
+                "calls": TSGO_WASM_INIT_CALLS.load(Ordering::Relaxed),
+                "latency_ms": {
+                    "total": TSGO_WASM_INIT_LATENCY_TOTAL_MS.load(Ordering::Relaxed),
+                    "last": TSGO_WASM_INIT_LATENCY_LAST_MS.load(Ordering::Relaxed),
+                    "max": TSGO_WASM_INIT_LATENCY_MAX_MS.load(Ordering::Relaxed)
+                }
+            },
+            "cache": {
+                "built_in_configured": TSGO_WASM_CACHE_BUILT_IN_CONFIGURED.load(Ordering::Relaxed),
+                "manual_hits": TSGO_WASM_CACHE_MANUAL_HITS.load(Ordering::Relaxed),
+                "manual_misses": TSGO_WASM_CACHE_MANUAL_MISSES.load(Ordering::Relaxed),
+                "fallback_compiles": TSGO_WASM_CACHE_FALLBACK_COMPILES.load(Ordering::Relaxed),
+                "config_errors": TSGO_WASM_CACHE_CONFIG_ERRORS.load(Ordering::Relaxed),
+                "deserialize_errors": TSGO_WASM_CACHE_DESERIALIZE_ERRORS.load(Ordering::Relaxed)
             }
         }
     })
@@ -230,7 +296,7 @@ fn update_max(max_metric: &AtomicU64, candidate: u64) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "pg_test")))]
 mod tests {
     use serde_json::Value;
 
@@ -256,11 +322,19 @@ mod tests {
             metric_u64(&before, &["compile", "error_classes", "diagnostics"]);
         let before_execute_errors = metric_u64(&before, &["execute", "errors"]);
         let before_execute_js = metric_u64(&before, &["execute", "error_classes", "js_exception"]);
+        let before_tsgo_init_calls = metric_u64(&before, &["tsgo_wasm", "init", "calls"]);
+        let before_tsgo_manual_hits = metric_u64(&before, &["tsgo_wasm", "cache", "manual_hits"]);
+        let before_tsgo_fallback =
+            metric_u64(&before, &["tsgo_wasm", "cache", "fallback_compiles"]);
 
         let compile_start = super::record_compile_start();
         super::record_compile_error(compile_start, "diagnostics");
         let execute_start = super::record_execute_start();
         super::record_execute_error(execute_start, "js_exception");
+        let tsgo_init_start = super::record_tsgo_wasm_init_start();
+        super::record_tsgo_wasm_cache_event("manual_hit");
+        super::record_tsgo_wasm_cache_event("fallback_compile");
+        super::record_tsgo_wasm_init_success(tsgo_init_start);
 
         let after = super::metrics_json();
         assert!(metric_u64(&after, &["compile", "errors"]) > before_compile_errors);
@@ -272,8 +346,16 @@ mod tests {
         assert!(
             metric_u64(&after, &["execute", "error_classes", "js_exception"]) > before_execute_js
         );
+        assert!(metric_u64(&after, &["tsgo_wasm", "init", "calls"]) > before_tsgo_init_calls);
+        assert!(
+            metric_u64(&after, &["tsgo_wasm", "cache", "manual_hits"]) > before_tsgo_manual_hits
+        );
+        assert!(
+            metric_u64(&after, &["tsgo_wasm", "cache", "fallback_compiles"]) > before_tsgo_fallback
+        );
         let _ = metric_u64(&after, &["compile", "latency_ms", "last"]);
         let _ = metric_u64(&after, &["execute", "latency_ms", "last"]);
+        let _ = metric_u64(&after, &["tsgo_wasm", "init", "latency_ms", "last"]);
     }
 
     fn metric_u64(root: &Value, path: &[&str]) -> u64 {

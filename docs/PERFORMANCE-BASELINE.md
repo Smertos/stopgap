@@ -107,3 +107,22 @@ TIMEFMT='BENCHMARK_WALL_SECONDS=%E'; time cargo pgrx test -p plts pg17 test_runt
   - enforce SLO thresholds for compile/cold/warm per-call latencies;
   - enforce an explicit warm-vs-cold regression delta (`warm <= 1.2x cold`).
 - This converts phase-3 performance guardrails from documentation-only targets into executable test assertions.
+
+## TSGo embedded Wasmtime cold-start cache layers
+
+- `plts` now keeps the embedded `stopgap-tsgo-api.wasm` Wasmtime module behind three init layers in `crates/plts/src/compiler.rs`:
+  - backend-local `OnceLock` for repeated calls inside one backend;
+  - Wasmtime filesystem cache rooted under a `plts`-owned cache directory when `plts.tsgo_wasm_cache_mode=auto`;
+  - manual serialized-module reuse under `<cache_root>/manual/<fingerprint>.cwasm` when built-in cache setup is skipped or fails.
+- Default cache root resolution:
+  - `directories_next::ProjectDirs("", "Stopgap", "plts").cache_dir()/tsgo-wasm`
+  - fallback: `std::env::temp_dir()/stopgap/plts/tsgo-wasm`
+- Manual cache artifacts are content-addressed across:
+  - embedded wasm SHA-256
+  - Wasmtime crate version
+  - `OptLevel::None`
+  - `RegallocAlgorithm::SinglePass`
+  - `parallel_compilation=true`
+  - compile-target identity (`arch`, `os`, `env`)
+- Invalid manual artifacts are quarantined under `<cache_root>/quarantine/` and runtime init falls back to direct compile instead of surfacing cache corruption to `plts.typecheck_ts` / TSGo transpile callers.
+- `plts.metrics()` now includes `tsgo_wasm.init` latency/call counters plus `tsgo_wasm.cache` counters so cold-start behavior can be inspected from SQL without extra profiling tooling.

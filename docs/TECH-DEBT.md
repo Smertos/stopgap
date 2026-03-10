@@ -22,6 +22,7 @@ Current technical debt and follow-up notes for near-term work.
 - `plts` runtime now applies a V8 watchdog per call using the stricter of `statement_timeout` and optional `plts.max_runtime_ms`, and routes pending Postgres cancel/die interrupt flags into the same V8 termination path.
 - `plts` runtime now optionally enforces `plts.max_heap_mb` per call by setting V8 heap limits and terminating execution on near-heap-limit callbacks.
 - `plts.compile_ts` currently transpiles TS->JS via `deno_ast` and reports structured diagnostics; semantic checks are enforced through `plts.typecheck_ts`/validator, and both paths are planned to migrate to an in-process TSGo WASM backend.
+- TSGo embedded Wasmtime init now has persistent built-in/manual cache layers and SQL-visible cache counters, but OTEL / ClickStack export is still deferred; if deeper cold-start profiling is needed, exporter integration remains a follow-up rather than part of the current cache rollout.
 - `plts` now caches artifact-pointer compiled JS per backend process to avoid repeat `plts.artifact` lookups during live pointer execution.
 - `plts` now also caches non-pointer function program metadata and regular-call argument type OID lookups per backend process to reduce repeated `pg_proc` catalog SPI work on hot execute paths.
 - DB-backed `plts` integration tests cover `compile_and_store` / `get_artifact` round-trips, regular arg conversion (`text`, `int4`, `bool`, `jsonb`), runtime null normalization, artifact-pointer execution, and async default-export execution under `v8_runtime`.

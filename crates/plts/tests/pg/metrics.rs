@@ -1,3 +1,6 @@
+use std::fs;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 #[pg_test]
 fn test_metrics_compile_calls_increase_after_compile_and_store() {
     let before = Spi::get_one::<JsonB>("SELECT plts.metrics()")
@@ -49,4 +52,101 @@ fn test_metrics_compile_calls_increase_after_compile_and_store() {
         .expect("execute.error_classes should be an object");
 
     assert!(after_calls > before_calls, "compile.calls should increase after compile_and_store");
+}
+
+#[pg_test]
+fn test_metrics_include_tsgo_wasm_init_and_cache_fields() {
+    let cache_dir = std::env::temp_dir().join(format!(
+        "plts-tsgo-pg-metrics-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&cache_dir).expect("cache dir should be creatable");
+
+    let cache_dir_sql = cache_dir.display().to_string().replace('\'', "''");
+    Spi::run(&format!(
+        "SELECT set_config('plts.tsgo_wasm_cache_mode', 'manual-only', true), set_config('plts.tsgo_wasm_cache_dir', '{}', true)",
+        cache_dir_sql
+    ))
+    .expect("cache settings should be configurable");
+
+    let before = Spi::get_one::<JsonB>("SELECT plts.metrics()")
+        .expect("metrics query should succeed")
+        .expect("metrics row should exist");
+    let before_init_calls = before
+        .0
+        .get("tsgo_wasm")
+        .and_then(|value| value.get("init"))
+        .and_then(|value| value.get("calls"))
+        .and_then(Value::as_u64)
+        .expect("tsgo_wasm.init.calls should be present");
+
+    let _ = Spi::get_one_with_args::<JsonB>(
+        "SELECT plts.typecheck_ts($1::text, '{}'::jsonb)",
+        &[String::from("export const value: number = 1;").into()],
+    )
+    .expect("typecheck_ts query should succeed")
+    .expect("typecheck_ts should return diagnostics json");
+
+    let after_first = Spi::get_one::<JsonB>("SELECT plts.metrics()")
+        .expect("metrics query should succeed")
+        .expect("metrics row should exist");
+    let after_first_init_calls = after_first
+        .0
+        .get("tsgo_wasm")
+        .and_then(|value| value.get("init"))
+        .and_then(|value| value.get("calls"))
+        .and_then(Value::as_u64)
+        .expect("tsgo_wasm.init.calls should be present");
+    assert_eq!(
+        after_first_init_calls,
+        before_init_calls + 1,
+        "first typecheck should initialize the tsgo wasm runtime once"
+    );
+
+    let _ = Spi::get_one_with_args::<JsonB>(
+        "SELECT plts.typecheck_ts($1::text, '{}'::jsonb)",
+        &[String::from("export const again: number = 2;").into()],
+    )
+    .expect("second typecheck_ts query should succeed")
+    .expect("second typecheck_ts should return diagnostics json");
+
+    let after_second = Spi::get_one::<JsonB>("SELECT plts.metrics()")
+        .expect("metrics query should succeed")
+        .expect("metrics row should exist");
+    let after_second_init_calls = after_second
+        .0
+        .get("tsgo_wasm")
+        .and_then(|value| value.get("init"))
+        .and_then(|value| value.get("calls"))
+        .and_then(Value::as_u64)
+        .expect("tsgo_wasm.init.calls should be present");
+    assert_eq!(
+        after_second_init_calls, after_first_init_calls,
+        "second typecheck in the same backend should reuse the initialized runtime"
+    );
+
+    let cache = after_second
+        .0
+        .get("tsgo_wasm")
+        .and_then(|value| value.get("cache"))
+        .and_then(Value::as_object)
+        .expect("tsgo_wasm.cache should be an object");
+    for field in [
+        "built_in_configured",
+        "manual_hits",
+        "manual_misses",
+        "fallback_compiles",
+        "config_errors",
+        "deserialize_errors",
+    ] {
+        assert!(
+            cache.get(field).and_then(Value::as_u64).is_some(),
+            "tsgo_wasm.cache.{field} should be numeric"
+        );
+    }
+
+    let _ = fs::remove_dir_all(&cache_dir);
 }

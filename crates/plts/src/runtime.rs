@@ -898,7 +898,7 @@ fn format_js_error(stage: &'static str, details: &str) -> RuntimeExecError {
     RuntimeExecError::with_stack(stage, message, stack)
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "pg_test")))]
 mod tests {
     use super::{
         build_dynamic_context_setup_script, parse_inline_import_map, static_bootstrap_scripts,

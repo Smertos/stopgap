@@ -58,7 +58,7 @@ extension_sql!(
     name = "plts_sql_bootstrap"
 );
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "pg_test")))]
 mod unit_tests {
     #[test]
     fn test_hash_prefix() {

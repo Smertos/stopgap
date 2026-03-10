@@ -169,7 +169,7 @@ impl Default for FunctionProgramCache {
 }
 
 impl FunctionProgramCache {
-    #[cfg(test)]
+    #[cfg(all(test, not(feature = "pg_test")))]
     fn with_limits(max_entries: usize, max_source_bytes: usize, ttl: Duration) -> Self {
         Self {
             by_oid: HashMap::new(),
@@ -298,7 +298,7 @@ impl ArtifactSourceCache {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "pg_test")))]
 pub(crate) fn artifact_source_cache_capacity() -> usize {
     ARTIFACT_SOURCE_CACHE_CAPACITY
 }
@@ -342,7 +342,7 @@ pub(crate) fn parse_artifact_ptr(prosrc: &str) -> Option<ArtifactPtr> {
     Some(ArtifactPtr { artifact_hash, export_name, import_map })
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "pg_test")))]
 mod tests {
     use super::{ArtifactSourceCache, FunctionProgram, FunctionProgramCache};
     use pgrx::pg_sys;

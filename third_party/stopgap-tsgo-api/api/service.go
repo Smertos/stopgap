@@ -164,6 +164,7 @@ func buildTranspileProgram(req TranspileRequest) (*compiler.Program, *ast.Source
 		ModuleResolution: core.ModuleResolutionKindBundler,
 		IsolatedModules:  core.TSTrue,
 		NoCheck:          core.TSTrue,
+		NoLib:            core.TSTrue,
 		NoEmitOnError:    core.TSFalse,
 		NoResolve:        core.TSTrue,
 		OutDir:           transpileOutDir,
@@ -205,8 +206,6 @@ func collectTranspileDiagnostics(
 ) []*ast.Diagnostic {
 	diags := append([]*ast.Diagnostic{}, program.GetConfigFileParsingDiagnostics()...)
 	diags = append(diags, program.GetSyntacticDiagnostics(ctx, entryFile)...)
-	diags = append(diags, program.GetProgramDiagnostics()...)
-	diags = append(diags, program.GetOptionsDiagnostics(ctx)...)
 	return compiler.SortAndDeduplicateDiagnostics(diags)
 }
 

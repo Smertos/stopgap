@@ -30,7 +30,7 @@ pub unsafe extern "C-unwind" fn plts_call_handler(
 
     let fn_oid = unsafe { (*flinfo).fn_oid };
     let args_payload = unsafe { build_args_payload(fcinfo, fn_oid) };
-    let is_jsonb_single_arg = is_single_jsonb_arg_function(fn_oid);
+    let is_jsonb_single_arg = is_single_jsonb_arg_function(fcinfo, fn_oid);
 
     let runtime_args_payload = if is_jsonb_single_arg && unsafe { (*fcinfo).nargs == 1 } {
         let arg0 = unsafe { (*fcinfo).args.as_ptr() };

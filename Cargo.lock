@@ -2492,6 +2492,7 @@ dependencies = [
  "deno_ast",
  "deno_core",
  "deno_error 0.5.7",
+ "directories-next",
  "hex",
  "pgrx",
  "pgrx-tests",

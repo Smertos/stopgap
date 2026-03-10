@@ -267,7 +267,7 @@ pub fn create_default_isolate_pool() -> IsolatePool {
     IsolatePool::new(IsolatePoolConfig::default(), Arc::new(IsolatePoolMetrics::default()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "pg_test")))]
 mod tests {
     use super::*;
 
