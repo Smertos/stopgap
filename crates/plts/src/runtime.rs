@@ -5,8 +5,10 @@ use crate::function_program::load_compiled_artifact_source;
 use crate::isolate_pool::{CheckedOut, IsolatePool, IsolatePoolConfig, RetireReason, ShellHealth};
 #[cfg(feature = "v8_runtime")]
 use crate::observability::{
-    record_runtime_checkout_hit, record_runtime_checkout_miss, record_runtime_cold_shell_create,
-    record_runtime_retire, record_runtime_setup_realm, record_runtime_warm_shell_reuse,
+    record_runtime_checkout_hit, record_runtime_checkout_miss, record_runtime_cleanup,
+    record_runtime_cold_shell_create, record_runtime_context_setup, record_runtime_module_evaluate,
+    record_runtime_module_load, record_runtime_retire, record_runtime_setup_realm,
+    record_runtime_warm_shell_reuse,
 };
 #[cfg(feature = "v8_runtime")]
 use crate::runtime_spi::{exec_sql_with_params, query_json_rows_with_params};
@@ -768,6 +770,11 @@ fn record_retire_reason(reason: RetireReason) {
 }
 
 #[cfg(feature = "v8_runtime")]
+fn elapsed_us(started_at: Instant) -> u64 {
+    started_at.elapsed().as_micros().min(u128::from(u64::MAX)) as u64
+}
+
+#[cfg(feature = "v8_runtime")]
 fn checkout_runtime_shell() -> Result<RuntimeShellGuard, RuntimeExecError> {
     let config = current_runtime_pool_config();
     let started_at = Instant::now();
@@ -780,8 +787,7 @@ fn checkout_runtime_shell() -> Result<RuntimeShellGuard, RuntimeExecError> {
         }
 
         if let Some(checked_out) = checkout.checked_out {
-            let elapsed_us = started_at.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-            record_runtime_checkout_hit(elapsed_us);
+            record_runtime_checkout_hit(elapsed_us(started_at));
             if checked_out.was_warm() {
                 record_runtime_warm_shell_reuse();
             }
@@ -797,8 +803,7 @@ fn checkout_runtime_shell() -> Result<RuntimeShellGuard, RuntimeExecError> {
         }
 
         if checkout.was_miss {
-            let elapsed_us = started_at.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-            record_runtime_checkout_miss(elapsed_us);
+            record_runtime_checkout_miss(elapsed_us(started_at));
         }
 
         record_runtime_cold_shell_create();
@@ -1143,17 +1148,23 @@ pub(crate) fn execute_program(
                 })?;
         let versioned_source = version_source_module_literals(source, invocation_nonce);
 
-        let module_id = deno_core::futures::executor::block_on(
+        let module_load_started_at = Instant::now();
+        let module_id_result = deno_core::futures::executor::block_on(
             runtime.load_side_es_module_from_code(&main_specifier, versioned_source),
-        )
-        .map_err(|e| map_runtime_error("module load", &e.to_string()))?;
+        );
+        record_runtime_module_load(elapsed_us(module_load_started_at));
+        let module_id =
+            module_id_result.map_err(|e| map_runtime_error("module load", &e.to_string()))?;
 
+        let module_evaluate_started_at = Instant::now();
         let module_result = runtime.mod_evaluate(module_id);
-        deno_core::futures::executor::block_on(async {
+        let module_evaluate_result = deno_core::futures::executor::block_on(async {
             runtime.run_event_loop(PollEventLoopOptions::default()).await?;
             module_result.await
-        })
-        .map_err(|e| map_runtime_error("module evaluation", &e.to_string()))?;
+        });
+        record_runtime_module_evaluate(elapsed_us(module_evaluate_started_at));
+        module_evaluate_result
+            .map_err(|e| map_runtime_error("module evaluation", &e.to_string()))?;
 
         {
             let namespace = runtime
@@ -1219,25 +1230,30 @@ pub(crate) fn execute_program(
             }
         };
 
-        let context_json = serde_json::to_string(context).map_err(|e| {
-            RuntimeExecError::new(
-                "context serialize",
-                format!("failed to serialize runtime context: {e}"),
-            )
-        })?;
+        let context_setup_started_at = Instant::now();
+        let context_setup_result = (|| {
+            let context_json = serde_json::to_string(context).map_err(|e| {
+                RuntimeExecError::new(
+                    "context serialize",
+                    format!("failed to serialize runtime context: {e}"),
+                )
+            })?;
 
-        let set_ctx_script = build_dynamic_context_setup_script(
-            &context_json,
-            db_mode.as_js_mode(),
-            db_mode.is_read_only(),
-        )?;
+            let set_ctx_script = build_dynamic_context_setup_script(
+                &context_json,
+                db_mode.as_js_mode(),
+                db_mode.is_read_only(),
+            )?;
 
-        runtime
-            .execute_script("plts_ctx.js", set_ctx_script)
-            .map_err(|e| map_runtime_error("context setup", &e.to_string()))?;
-        let setup_elapsed_us =
-            setup_started_at.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
-        record_runtime_setup_realm(setup_elapsed_us);
+            runtime
+                .execute_script("plts_ctx.js", set_ctx_script)
+                .map_err(|e| map_runtime_error("context setup", &e.to_string()))?;
+
+            Ok::<(), RuntimeExecError>(())
+        })();
+        record_runtime_context_setup(elapsed_us(context_setup_started_at));
+        record_runtime_setup_realm(elapsed_us(setup_started_at));
+        context_setup_result?;
 
         let invoke_script = r#"
             if (typeof globalThis.__plts_entrypoint !== "function") {
@@ -1277,7 +1293,10 @@ pub(crate) fn execute_program(
     }
 
     if !shell_guard.health().terminated && !shell_guard.health().heap_pressure {
-        if let Err(_err) = reset_runtime_shell(shell_guard.shell_mut()) {
+        let cleanup_started_at = Instant::now();
+        let cleanup_result = reset_runtime_shell(shell_guard.shell_mut());
+        record_runtime_cleanup(elapsed_us(cleanup_started_at));
+        if let Err(_err) = cleanup_result {
             shell_guard.set_cleanup_failed();
         }
     }

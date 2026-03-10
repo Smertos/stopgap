@@ -324,7 +324,8 @@ This snapshot is baseline implementation status for the pre-pivot architecture. 
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
 - **Runtime evolution note:** runtime execution now uses backend-local pooled V8 runtime shells with configurable reuse limits (`plts.isolate_reuse`, `plts.isolate_pool_size`, `plts.isolate_max_age_s`, `plts.isolate_max_invocations`), invocation-local context rewiring, per-invocation module identity versioning, and shell retirement on cleanup/setup failure or termination-class faults.
 - **Performance note:** iteration 10 benchmark-backed optimizations are now in place for hot execute paths via backend-local non-pointer function program caching and argument-type caching for regular invocation payload mapping; iteration 12 hardens function-program caching with explicit LRU keying (`fn_oid`), TTL invalidation, and source-byte memory bounds.
-- **Readiness note:** `plts.metrics()` now exposes `runtime.readiness.*`, and `crates/plts/tests/pg/runtime_readiness_baseline.rs` enforces sub-millisecond warm setup medians for same-function and cross-function reuse paths.
+- **Readiness note:** `plts.metrics()` now exposes `runtime.readiness.*`, and `crates/plts/tests/pg/runtime_readiness_baseline.rs` enforces sub-`5ms` warm setup medians for same-function and cross-function reuse paths.
+- **Attribution note:** `plts.metrics()` now also exposes `runtime.readiness.phases.*` for context setup, module load, module evaluate, and cleanup/reset timing so the next warm-path optimization can be chosen from live measurements.
 - **Runtime contract note:** `docs/RUNTIME-CONTRACT.md` is now aligned to current runtime behavior and is guarded by dedicated DB-backed tests in `crates/plts/tests/pg/runtime_contract.rs` plus existing runtime contract suites.
 - **CLI note:** `crates/stopgap-cli` now ships the `stopgap` binary and provides `init`, `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
 - **Runtime package note:** `packages/runtime` now uses Vitest coverage for wrapper metadata/validation/API parity checks and ships with direct `zod/mini` usage for `v` schemas.
@@ -581,6 +582,17 @@ Minimum implementation evidence:
 - [x] runtime baseline execution loop now runs `generate_series(1, 1000)` with `execute_iterations = 1_000` and bounded measurement retries to avoid zero-elapsed measurements on coarse CI clocks while preserving per-call SLO and warm-vs-cold checks.
 - [x] targeted regression command passed: `cargo pgrx test pg17 -p plts --no-default-features --features pg17 test_runtime_performance_baseline_snapshot`
 - [x] local iteration 19 verification passed: `cargo check`, `cargo test`, `cargo pgrx test -p plts`, `cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`, `cargo pgrx test -p stopgap`, `cargo pgrx regress -p stopgap`
+
+#### S. Runtime phase attribution and post-cutover validation hardening
+- [x] Add phase-attributed warm-path metrics for context setup, module load, module evaluate, and cleanup/reset.
+- [x] Extend readiness coverage to report same-function, cross-function, and import-heavy warm reuse behavior.
+- [x] Re-run the full runtime-heavy local V8 lane after the TSGo cutover/runtime-attribution change set.
+
+Minimum implementation evidence:
+- [x] `runtime.readiness.phases.*` metrics are emitted from `crates/plts/src/runtime.rs` and exposed via `plts.metrics()` in `crates/plts/src/observability.rs`.
+- [x] `crates/plts/tests/pg/runtime_readiness_baseline.rs` now prints phase medians for same-function, cross-function, and import-heavy warm reuse (`data:` and `plts+artifact:` paths).
+- [x] `crates/plts/tests/pg/runtime_performance_baseline.rs` now prints cross-function warm loop data plus the latest phase timings.
+- [x] local iteration 24 runtime-heavy verification passed with serialized execution: `RUST_TEST_THREADS=1 cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`
 
 ---
 

@@ -29,6 +29,12 @@ The readiness baseline captures warm-shell behavior inside one backend by measur
 2. same-function warm calls
 3. different-function warm calls on the same pooled shell
 4. `runtime.readiness.setup_realm_last_us` after each warm call
+5. phase-attributed warm-path timings from `runtime.readiness.phases.*`:
+   - `context_setup_*`
+   - `module_load_*`
+   - `module_evaluate_*`
+   - `cleanup_*`
+6. import-heavy warm reuse through both `data:` and `plts+artifact:` module graphs
 
 ## Bottlenecks and threshold targets
 
@@ -37,6 +43,7 @@ Based on current behavior and code-path review, the highest-cost paths are:
 - compile path (current): embedded TSGo WASM transpile/init + artifact hashing + artifact row write
 - execute path: call handler argument mapping + function source loading/dispatch
 - readiness path: warm-shell checkout/setup and per-invocation module load/evaluate work
+- readiness attribution path: separate context setup, module load/evaluate, and cleanup timings on the warm path
 
 Tracking targets for this baseline:
 
@@ -50,12 +57,13 @@ These thresholds are now enforced directly in:
 
 - `test_runtime_performance_baseline_snapshot`
 - `test_runtime_readiness_baseline_snapshot`
+- `test_runtime_readiness_import_paths_are_observable`
 
-## Optimization candidates selected for next step
+## Optimization candidates selected for the next measured step
 
 1. Reuse pre-bootstrapped V8 runtime shells per backend so warm calls avoid fresh `JsRuntime` construction.
 2. Keep invocation isolation through per-call context wiring, per-invocation module identity versioning, and shell reset/retire policy.
-3. Re-evaluate deeper module-graph or bytecode caching only after readiness data justifies it.
+3. Re-evaluate deeper module-graph or bytecode caching only after the new phase-attribution data justifies it.
 
 These candidates are intentionally selected before any optimization implementation so changes can stay benchmark-backed.
 
@@ -142,6 +150,27 @@ TIMEFMT='BENCHMARK_WALL_SECONDS=%E'; time cargo pgrx test -p plts pg17 test_runt
   - resetting non-baseline globals before returning a shell to the pool
   - retiring shells on timeout, cancel, heap pressure, cleanup failure, setup failure, or config drift
 - Dedicated readiness coverage now lives in `crates/plts/tests/pg/runtime_readiness_baseline.rs`, which asserts sub-`5ms` warm setup medians for both same-function and different-function reuse paths.
+
+## Iteration 24 warm-path attribution and validation hardening update
+
+- `plts.metrics()` now also exposes `runtime.readiness.phases.*` for:
+  - context setup
+  - module load
+  - module evaluate
+  - cleanup/reset
+- `crates/plts/src/runtime.rs` records those phase timings directly in the live pooled-shell execution path.
+- `crates/plts/tests/pg/runtime_readiness_baseline.rs` now prints phase medians for:
+  - same-function warm reuse
+  - cross-function warm reuse
+  - import-heavy warm reuse through `data:` and `plts+artifact:` imports
+- `crates/plts/tests/pg/runtime_performance_baseline.rs` now also captures a cross-function warm execute loop and prints the latest phase timings alongside the compile/cold/warm totals.
+- Local runtime-heavy verification was re-run successfully with:
+  - `RUST_TEST_THREADS=1 cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"`
+
+Interpretation:
+
+- The next runtime optimization should be chosen from measured phase data, not guessed.
+- If further work is justified, the first candidate remains per-shell module-graph reuse for stable `data:` / `plts+artifact:` imports, followed by same-function compiled-module reuse.
 
 ## TSGo embedded Wasmtime cold-start cache layers
 

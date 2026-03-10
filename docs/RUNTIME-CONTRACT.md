@@ -132,6 +132,7 @@ The runtime now executes through backend-local pooled runtime shells with explic
   - recycle triggers: max age, max invocations, termination history, heap pressure, config drift, cleanup/setup failure
 - **Metrics**:
   - `plts.metrics().runtime.readiness` exposes checkout hit/miss timing, setup timing, cold-shell creates, warm-shell reuses, retirements, and retire reasons
+  - `plts.metrics().runtime.readiness.phases` exposes additive warm-path attribution for `context_setup`, `module_load`, `module_evaluate`, and `cleanup`
 - **Benchmark guardrails**:
   - full invoke SLOs remain enforced in `crates/plts/tests/pg/runtime_performance_baseline.rs`
   - warm readiness setup median is guarded in `crates/plts/tests/pg/runtime_readiness_baseline.rs`

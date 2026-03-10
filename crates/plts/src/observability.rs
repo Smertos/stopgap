@@ -30,6 +30,14 @@ static RUNTIME_READINESS_CHECKOUT_LAST_US: AtomicU64 = AtomicU64::new(0);
 static RUNTIME_READINESS_CHECKOUT_MAX_US: AtomicU64 = AtomicU64::new(0);
 static RUNTIME_READINESS_SETUP_REALM_LAST_US: AtomicU64 = AtomicU64::new(0);
 static RUNTIME_READINESS_SETUP_REALM_MAX_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_CONTEXT_SETUP_LAST_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_CONTEXT_SETUP_MAX_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_MODULE_LOAD_LAST_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_MODULE_LOAD_MAX_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_MODULE_EVALUATE_LAST_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_MODULE_EVALUATE_MAX_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_CLEANUP_LAST_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_CLEANUP_MAX_US: AtomicU64 = AtomicU64::new(0);
 static RUNTIME_READINESS_COLD_SHELL_CREATES: AtomicU64 = AtomicU64::new(0);
 static RUNTIME_READINESS_WARM_SHELL_REUSES: AtomicU64 = AtomicU64::new(0);
 static RUNTIME_READINESS_RETIRED: AtomicU64 = AtomicU64::new(0);
@@ -159,6 +167,26 @@ pub(crate) fn record_runtime_checkout_miss(elapsed_us: u64) {
 pub(crate) fn record_runtime_setup_realm(elapsed_us: u64) {
     RUNTIME_READINESS_SETUP_REALM_LAST_US.store(elapsed_us, Ordering::Relaxed);
     update_max(&RUNTIME_READINESS_SETUP_REALM_MAX_US, elapsed_us);
+}
+
+pub(crate) fn record_runtime_context_setup(elapsed_us: u64) {
+    RUNTIME_READINESS_CONTEXT_SETUP_LAST_US.store(elapsed_us, Ordering::Relaxed);
+    update_max(&RUNTIME_READINESS_CONTEXT_SETUP_MAX_US, elapsed_us);
+}
+
+pub(crate) fn record_runtime_module_load(elapsed_us: u64) {
+    RUNTIME_READINESS_MODULE_LOAD_LAST_US.store(elapsed_us, Ordering::Relaxed);
+    update_max(&RUNTIME_READINESS_MODULE_LOAD_MAX_US, elapsed_us);
+}
+
+pub(crate) fn record_runtime_module_evaluate(elapsed_us: u64) {
+    RUNTIME_READINESS_MODULE_EVALUATE_LAST_US.store(elapsed_us, Ordering::Relaxed);
+    update_max(&RUNTIME_READINESS_MODULE_EVALUATE_MAX_US, elapsed_us);
+}
+
+pub(crate) fn record_runtime_cleanup(elapsed_us: u64) {
+    RUNTIME_READINESS_CLEANUP_LAST_US.store(elapsed_us, Ordering::Relaxed);
+    update_max(&RUNTIME_READINESS_CLEANUP_MAX_US, elapsed_us);
 }
 
 pub(crate) fn record_runtime_cold_shell_create() {
@@ -297,6 +325,16 @@ pub(crate) fn metrics_json() -> Value {
                 "checkout_max_us": RUNTIME_READINESS_CHECKOUT_MAX_US.load(Ordering::Relaxed),
                 "setup_realm_last_us": RUNTIME_READINESS_SETUP_REALM_LAST_US.load(Ordering::Relaxed),
                 "setup_realm_max_us": RUNTIME_READINESS_SETUP_REALM_MAX_US.load(Ordering::Relaxed),
+                "phases": {
+                    "context_setup_last_us": RUNTIME_READINESS_CONTEXT_SETUP_LAST_US.load(Ordering::Relaxed),
+                    "context_setup_max_us": RUNTIME_READINESS_CONTEXT_SETUP_MAX_US.load(Ordering::Relaxed),
+                    "module_load_last_us": RUNTIME_READINESS_MODULE_LOAD_LAST_US.load(Ordering::Relaxed),
+                    "module_load_max_us": RUNTIME_READINESS_MODULE_LOAD_MAX_US.load(Ordering::Relaxed),
+                    "module_evaluate_last_us": RUNTIME_READINESS_MODULE_EVALUATE_LAST_US.load(Ordering::Relaxed),
+                    "module_evaluate_max_us": RUNTIME_READINESS_MODULE_EVALUATE_MAX_US.load(Ordering::Relaxed),
+                    "cleanup_last_us": RUNTIME_READINESS_CLEANUP_LAST_US.load(Ordering::Relaxed),
+                    "cleanup_max_us": RUNTIME_READINESS_CLEANUP_MAX_US.load(Ordering::Relaxed)
+                },
                 "cold_shell_creates": RUNTIME_READINESS_COLD_SHELL_CREATES.load(Ordering::Relaxed),
                 "warm_shell_reuses": RUNTIME_READINESS_WARM_SHELL_REUSES.load(Ordering::Relaxed),
                 "retired": RUNTIME_READINESS_RETIRED.load(Ordering::Relaxed),
@@ -430,6 +468,10 @@ mod tests {
         super::record_execute_error(execute_start, "js_exception");
         super::record_runtime_checkout_hit(17);
         super::record_runtime_setup_realm(9);
+        super::record_runtime_context_setup(7);
+        super::record_runtime_module_load(13);
+        super::record_runtime_module_evaluate(15);
+        super::record_runtime_cleanup(5);
         super::record_runtime_cold_shell_create();
         super::record_runtime_warm_shell_reuse();
         super::record_runtime_retire("termination");
@@ -463,6 +505,10 @@ mod tests {
         let _ = metric_u64(&after, &["compile", "latency_ms", "last"]);
         let _ = metric_u64(&after, &["execute", "latency_ms", "last"]);
         let _ = metric_u64(&after, &["runtime", "readiness", "checkout_last_us"]);
+        let _ = metric_u64(&after, &["runtime", "readiness", "phases", "context_setup_last_us"]);
+        let _ = metric_u64(&after, &["runtime", "readiness", "phases", "module_load_last_us"]);
+        let _ = metric_u64(&after, &["runtime", "readiness", "phases", "module_evaluate_last_us"]);
+        let _ = metric_u64(&after, &["runtime", "readiness", "phases", "cleanup_last_us"]);
         let _ = metric_u64(&after, &["tsgo_wasm", "init", "latency_ms", "last"]);
     }
 

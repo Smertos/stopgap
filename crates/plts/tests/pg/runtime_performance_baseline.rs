@@ -29,12 +29,9 @@ where
     total_ns
 }
 
-fn execute_loop_total_ns() -> u128 {
+fn execute_loop_total_ns(sql: &str) -> u128 {
     measure_total_ns_with_retries("execute loop", || {
-        Spi::run(
-            "SELECT tests_runtime_perf(jsonb_build_object('n', i)) FROM generate_series(1, 1000) AS i",
-        )
-        .expect("runtime baseline execution loop should succeed");
+        Spi::run(sql).expect("runtime baseline execution loop should succeed");
     })
 }
 
@@ -61,13 +58,27 @@ fn execute_slos_met(cold_per_call_ms: f64, warm_per_call_ms: f64) -> bool {
         && warm_per_call_ms <= cold_per_call_ms * EXECUTE_WARM_REGRESSION_FACTOR
 }
 
+fn runtime_phase_last_us(field: &str) -> u64 {
+    Spi::get_one::<JsonB>("SELECT plts.metrics()")
+        .expect("metrics query should succeed")
+        .expect("metrics row should exist")
+        .0
+        .get("runtime")
+        .and_then(|value| value.get("readiness"))
+        .and_then(|value| value.get("phases"))
+        .and_then(|value| value.get(field))
+        .and_then(Value::as_u64)
+        .unwrap_or_else(|| panic!("runtime.readiness.phases.{field} should be present"))
+}
+
 fn measure_execute_baseline_with_retries(execute_iterations: u128) -> (u128, u128) {
     let mut best_cold_total_ns = u128::MAX;
     let mut best_warm_total_ns = u128::MAX;
+    let same_function_sql = "SELECT tests_runtime_perf_a(jsonb_build_object('n', i)) FROM generate_series(1, 1000) AS i";
 
     for _ in 0..EXECUTE_BASELINE_MAX_ATTEMPTS {
-        let cold_total_ns = execute_loop_total_ns();
-        let warm_total_ns = execute_loop_total_ns();
+        let cold_total_ns = execute_loop_total_ns(same_function_sql);
+        let warm_total_ns = execute_loop_total_ns(same_function_sql);
 
         if cold_total_ns < best_cold_total_ns {
             best_cold_total_ns = cold_total_ns;
@@ -117,25 +128,53 @@ fn test_runtime_performance_baseline_snapshot() {
          LANGUAGE plts
          AS $$
          export default () => null;
+         $$;
+
+         CREATE OR REPLACE FUNCTION tests_runtime_perf_a(args jsonb)
+         RETURNS jsonb
+         LANGUAGE plts
+         AS $$
+         export default () => null;
+         $$;
+
+         CREATE OR REPLACE FUNCTION tests_runtime_perf_b(args jsonb)
+         RETURNS jsonb
+         LANGUAGE plts
+         AS $$
+         export default () => null;
          $$",
     )
     .expect("runtime baseline function creation should succeed");
 
     let (execute_cold_total_ns, execute_warm_total_ns) =
         measure_execute_baseline_with_retries(execute_iterations);
+    let execute_cross_total_ns = execute_loop_total_ns(
+        "SELECT CASE WHEN i % 2 = 0 THEN tests_runtime_perf_a(jsonb_build_object('n', i)) ELSE tests_runtime_perf_b(jsonb_build_object('n', i)) END FROM generate_series(1, 1000) AS i",
+    );
 
     let compile_per_call_ms = ns_per_call_ms(compile_total_ns, compile_iterations);
     let execute_cold_per_call_ms = ns_per_call_ms(execute_cold_total_ns, execute_iterations);
     let execute_warm_per_call_ms = ns_per_call_ms(execute_warm_total_ns, execute_iterations);
+    let execute_cross_per_call_ms = ns_per_call_ms(execute_cross_total_ns, execute_iterations);
+    let module_load_last_us = runtime_phase_last_us("module_load_last_us");
+    let module_evaluate_last_us = runtime_phase_last_us("module_evaluate_last_us");
+    let context_setup_last_us = runtime_phase_last_us("context_setup_last_us");
+    let cleanup_last_us = runtime_phase_last_us("cleanup_last_us");
 
     eprintln!(
-        "PERF_BASELINE compile_total_ns={} compile_per_call_ms={:.3} execute_cold_total_ns={} execute_cold_per_call_ms={:.3} execute_warm_total_ns={} execute_warm_per_call_ms={:.3}",
+        "PERF_BASELINE compile_total_ns={} compile_per_call_ms={:.3} execute_cold_total_ns={} execute_cold_per_call_ms={:.3} execute_warm_total_ns={} execute_warm_per_call_ms={:.3} execute_cross_total_ns={} execute_cross_per_call_ms={:.3} phase_context_setup_last_us={} phase_module_load_last_us={} phase_module_evaluate_last_us={} phase_cleanup_last_us={}",
         compile_total_ns,
         compile_per_call_ms,
         execute_cold_total_ns,
         execute_cold_per_call_ms,
         execute_warm_total_ns,
-        execute_warm_per_call_ms
+        execute_warm_per_call_ms,
+        execute_cross_total_ns,
+        execute_cross_per_call_ms,
+        context_setup_last_us,
+        module_load_last_us,
+        module_evaluate_last_us,
+        cleanup_last_us
     );
 
     assert!(

@@ -72,6 +72,25 @@ fn test_metrics_compile_calls_increase_after_compile_and_store() {
             "runtime.readiness.{field} should be numeric"
         );
     }
+    let phases = readiness
+        .get("phases")
+        .and_then(Value::as_object)
+        .expect("runtime.readiness.phases should be an object");
+    for field in [
+        "context_setup_last_us",
+        "context_setup_max_us",
+        "module_load_last_us",
+        "module_load_max_us",
+        "module_evaluate_last_us",
+        "module_evaluate_max_us",
+        "cleanup_last_us",
+        "cleanup_max_us",
+    ] {
+        assert!(
+            phases.get(field).and_then(Value::as_u64).is_some(),
+            "runtime.readiness.phases.{field} should be numeric"
+        );
+    }
     let retire_reasons = readiness
         .get("retire_reasons")
         .and_then(Value::as_object)
