@@ -1,4 +1,7 @@
+use pgrx::GucSetting;
 use pgrx::prelude::*;
+#[cfg(not(test))]
+use pgrx::{GucContext, GucFlags, GucRegistry};
 
 mod api;
 mod arg_mapping;
@@ -18,11 +21,70 @@ mod runtime_spi;
 
 ::pgrx::pg_module_magic!(name, version);
 
+pub(crate) static ISOLATE_REUSE_GUC: GucSetting<bool> = GucSetting::<bool>::new(true);
+pub(crate) static ISOLATE_POOL_SIZE_GUC: GucSetting<i32> = GucSetting::<i32>::new(2);
+pub(crate) static ISOLATE_MAX_AGE_S_GUC: GucSetting<i32> = GucSetting::<i32>::new(120);
+pub(crate) static ISOLATE_MAX_INVOCATIONS_GUC: GucSetting<i32> = GucSetting::<i32>::new(250);
+
 #[cfg(not(test))]
 #[allow(non_snake_case)]
 #[pg_guard]
 pub extern "C-unwind" fn _PG_init() {
+    GucRegistry::define_bool_guc(
+        c"plts.isolate_reuse",
+        c"Enable backend-local pooled runtime reuse for the V8 runtime.",
+        c"Controls whether plts keeps warm runtime shells ready for subsequent invocations.",
+        &ISOLATE_REUSE_GUC,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
+        c"plts.isolate_pool_size",
+        c"Maximum number of warm runtime shells kept ready per backend.",
+        c"Controls how many pre-bootstrapped V8 runtime shells plts retains in a backend-local pool.",
+        &ISOLATE_POOL_SIZE_GUC,
+        0,
+        32,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
+        c"plts.isolate_max_age_s",
+        c"Maximum lifetime in seconds for a pooled runtime shell.",
+        c"Older pooled runtime shells are retired before reuse to keep isolate state bounded.",
+        &ISOLATE_MAX_AGE_S_GUC,
+        0,
+        86_400,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+    GucRegistry::define_int_guc(
+        c"plts.isolate_max_invocations",
+        c"Maximum number of invocations allowed on a pooled runtime shell.",
+        c"Pooled runtime shells are retired after this many invocations to cap retained module graph growth.",
+        &ISOLATE_MAX_INVOCATIONS_GUC,
+        1,
+        100_000,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
     runtime::bootstrap_v8_isolate();
+}
+
+pub(crate) fn isolate_reuse_enabled() -> bool {
+    ISOLATE_REUSE_GUC.get()
+}
+
+pub(crate) fn isolate_pool_size() -> usize {
+    ISOLATE_POOL_SIZE_GUC.get().max(0) as usize
+}
+
+pub(crate) fn isolate_max_age_seconds() -> u64 {
+    ISOLATE_MAX_AGE_S_GUC.get().max(0) as u64
+}
+
+pub(crate) fn isolate_max_invocations() -> u64 {
+    ISOLATE_MAX_INVOCATIONS_GUC.get().max(1) as u64
 }
 
 extension_sql!(

@@ -50,6 +50,38 @@ fn test_metrics_compile_calls_increase_after_compile_and_store() {
         .and_then(|value| value.get("error_classes"))
         .and_then(Value::as_object)
         .expect("execute.error_classes should be an object");
+    let readiness = after
+        .0
+        .get("runtime")
+        .and_then(|value| value.get("readiness"))
+        .and_then(Value::as_object)
+        .expect("runtime.readiness should be an object");
+    for field in [
+        "checkout_hits",
+        "checkout_misses",
+        "checkout_last_us",
+        "checkout_max_us",
+        "setup_realm_last_us",
+        "setup_realm_max_us",
+        "cold_shell_creates",
+        "warm_shell_reuses",
+        "retired",
+    ] {
+        assert!(
+            readiness.get(field).and_then(Value::as_u64).is_some(),
+            "runtime.readiness.{field} should be numeric"
+        );
+    }
+    let retire_reasons = readiness
+        .get("retire_reasons")
+        .and_then(Value::as_object)
+        .expect("runtime.readiness.retire_reasons should be an object");
+    for field in ["max_age", "max_invocations", "termination", "heap_pressure", "other"] {
+        assert!(
+            retire_reasons.get(field).and_then(Value::as_u64).is_some(),
+            "runtime.readiness.retire_reasons.{field} should be numeric"
+        );
+    }
 
     assert!(after_calls > before_calls, "compile.calls should increase after compile_and_store");
 }

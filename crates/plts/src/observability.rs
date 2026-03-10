@@ -24,6 +24,20 @@ static EXECUTE_ERROR_CANCEL: AtomicU64 = AtomicU64::new(0);
 static EXECUTE_ERROR_JS_EXCEPTION: AtomicU64 = AtomicU64::new(0);
 static EXECUTE_ERROR_SQL: AtomicU64 = AtomicU64::new(0);
 static EXECUTE_ERROR_UNKNOWN: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_CHECKOUT_HITS: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_CHECKOUT_MISSES: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_CHECKOUT_LAST_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_CHECKOUT_MAX_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_SETUP_REALM_LAST_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_SETUP_REALM_MAX_US: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_COLD_SHELL_CREATES: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_WARM_SHELL_REUSES: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_RETIRED: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_RETIRE_MAX_AGE: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_RETIRE_MAX_INVOCATIONS: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_RETIRE_TERMINATION: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_RETIRE_HEAP_PRESSURE: AtomicU64 = AtomicU64::new(0);
+static RUNTIME_READINESS_RETIRE_OTHER: AtomicU64 = AtomicU64::new(0);
 static TSGO_WASM_INIT_CALLS: AtomicU64 = AtomicU64::new(0);
 static TSGO_WASM_INIT_LATENCY_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
 static TSGO_WASM_INIT_LATENCY_LAST_MS: AtomicU64 = AtomicU64::new(0);
@@ -130,6 +144,52 @@ pub(crate) fn record_execute_error(started_at: Instant, class: &str) {
     record_execute_success(started_at);
 }
 
+pub(crate) fn record_runtime_checkout_hit(elapsed_us: u64) {
+    RUNTIME_READINESS_CHECKOUT_HITS.fetch_add(1, Ordering::Relaxed);
+    RUNTIME_READINESS_CHECKOUT_LAST_US.store(elapsed_us, Ordering::Relaxed);
+    update_max(&RUNTIME_READINESS_CHECKOUT_MAX_US, elapsed_us);
+}
+
+pub(crate) fn record_runtime_checkout_miss(elapsed_us: u64) {
+    RUNTIME_READINESS_CHECKOUT_MISSES.fetch_add(1, Ordering::Relaxed);
+    RUNTIME_READINESS_CHECKOUT_LAST_US.store(elapsed_us, Ordering::Relaxed);
+    update_max(&RUNTIME_READINESS_CHECKOUT_MAX_US, elapsed_us);
+}
+
+pub(crate) fn record_runtime_setup_realm(elapsed_us: u64) {
+    RUNTIME_READINESS_SETUP_REALM_LAST_US.store(elapsed_us, Ordering::Relaxed);
+    update_max(&RUNTIME_READINESS_SETUP_REALM_MAX_US, elapsed_us);
+}
+
+pub(crate) fn record_runtime_cold_shell_create() {
+    RUNTIME_READINESS_COLD_SHELL_CREATES.fetch_add(1, Ordering::Relaxed);
+}
+
+pub(crate) fn record_runtime_warm_shell_reuse() {
+    RUNTIME_READINESS_WARM_SHELL_REUSES.fetch_add(1, Ordering::Relaxed);
+}
+
+pub(crate) fn record_runtime_retire(reason: &str) {
+    RUNTIME_READINESS_RETIRED.fetch_add(1, Ordering::Relaxed);
+    match reason {
+        "max_age" => {
+            RUNTIME_READINESS_RETIRE_MAX_AGE.fetch_add(1, Ordering::Relaxed);
+        }
+        "max_invocations" => {
+            RUNTIME_READINESS_RETIRE_MAX_INVOCATIONS.fetch_add(1, Ordering::Relaxed);
+        }
+        "termination" => {
+            RUNTIME_READINESS_RETIRE_TERMINATION.fetch_add(1, Ordering::Relaxed);
+        }
+        "heap_pressure" => {
+            RUNTIME_READINESS_RETIRE_HEAP_PRESSURE.fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {
+            RUNTIME_READINESS_RETIRE_OTHER.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
 pub(crate) fn record_tsgo_wasm_init_start() -> Instant {
     TSGO_WASM_INIT_CALLS.fetch_add(1, Ordering::Relaxed);
     Instant::now()
@@ -227,6 +287,26 @@ pub(crate) fn metrics_json() -> Value {
                 "js_exception": EXECUTE_ERROR_JS_EXCEPTION.load(Ordering::Relaxed),
                 "sql": EXECUTE_ERROR_SQL.load(Ordering::Relaxed),
                 "unknown": EXECUTE_ERROR_UNKNOWN.load(Ordering::Relaxed)
+            }
+        },
+        "runtime": {
+            "readiness": {
+                "checkout_hits": RUNTIME_READINESS_CHECKOUT_HITS.load(Ordering::Relaxed),
+                "checkout_misses": RUNTIME_READINESS_CHECKOUT_MISSES.load(Ordering::Relaxed),
+                "checkout_last_us": RUNTIME_READINESS_CHECKOUT_LAST_US.load(Ordering::Relaxed),
+                "checkout_max_us": RUNTIME_READINESS_CHECKOUT_MAX_US.load(Ordering::Relaxed),
+                "setup_realm_last_us": RUNTIME_READINESS_SETUP_REALM_LAST_US.load(Ordering::Relaxed),
+                "setup_realm_max_us": RUNTIME_READINESS_SETUP_REALM_MAX_US.load(Ordering::Relaxed),
+                "cold_shell_creates": RUNTIME_READINESS_COLD_SHELL_CREATES.load(Ordering::Relaxed),
+                "warm_shell_reuses": RUNTIME_READINESS_WARM_SHELL_REUSES.load(Ordering::Relaxed),
+                "retired": RUNTIME_READINESS_RETIRED.load(Ordering::Relaxed),
+                "retire_reasons": {
+                    "max_age": RUNTIME_READINESS_RETIRE_MAX_AGE.load(Ordering::Relaxed),
+                    "max_invocations": RUNTIME_READINESS_RETIRE_MAX_INVOCATIONS.load(Ordering::Relaxed),
+                    "termination": RUNTIME_READINESS_RETIRE_TERMINATION.load(Ordering::Relaxed),
+                    "heap_pressure": RUNTIME_READINESS_RETIRE_HEAP_PRESSURE.load(Ordering::Relaxed),
+                    "other": RUNTIME_READINESS_RETIRE_OTHER.load(Ordering::Relaxed)
+                }
             }
         },
         "tsgo_wasm": {
@@ -336,6 +416,9 @@ mod tests {
             metric_u64(&before, &["compile", "error_classes", "diagnostics"]);
         let before_execute_errors = metric_u64(&before, &["execute", "errors"]);
         let before_execute_js = metric_u64(&before, &["execute", "error_classes", "js_exception"]);
+        let before_runtime_checkout_hits =
+            metric_u64(&before, &["runtime", "readiness", "checkout_hits"]);
+        let before_runtime_retired = metric_u64(&before, &["runtime", "readiness", "retired"]);
         let before_tsgo_init_calls = metric_u64(&before, &["tsgo_wasm", "init", "calls"]);
         let before_tsgo_manual_hits = metric_u64(&before, &["tsgo_wasm", "cache", "manual_hits"]);
         let before_tsgo_fallback =
@@ -345,6 +428,11 @@ mod tests {
         super::record_compile_error(compile_start, "diagnostics");
         let execute_start = super::record_execute_start();
         super::record_execute_error(execute_start, "js_exception");
+        super::record_runtime_checkout_hit(17);
+        super::record_runtime_setup_realm(9);
+        super::record_runtime_cold_shell_create();
+        super::record_runtime_warm_shell_reuse();
+        super::record_runtime_retire("termination");
         let tsgo_init_start = super::record_tsgo_wasm_init_start();
         super::record_tsgo_wasm_cache_event("manual_hit");
         super::record_tsgo_wasm_cache_event("fallback_compile");
@@ -360,6 +448,11 @@ mod tests {
         assert!(
             metric_u64(&after, &["execute", "error_classes", "js_exception"]) > before_execute_js
         );
+        assert!(
+            metric_u64(&after, &["runtime", "readiness", "checkout_hits"])
+                > before_runtime_checkout_hits
+        );
+        assert!(metric_u64(&after, &["runtime", "readiness", "retired"]) > before_runtime_retired);
         assert!(metric_u64(&after, &["tsgo_wasm", "init", "calls"]) > before_tsgo_init_calls);
         assert!(
             metric_u64(&after, &["tsgo_wasm", "cache", "manual_hits"]) > before_tsgo_manual_hits
@@ -369,6 +462,7 @@ mod tests {
         );
         let _ = metric_u64(&after, &["compile", "latency_ms", "last"]);
         let _ = metric_u64(&after, &["execute", "latency_ms", "last"]);
+        let _ = metric_u64(&after, &["runtime", "readiness", "checkout_last_us"]);
         let _ = metric_u64(&after, &["tsgo_wasm", "init", "latency_ms", "last"]);
     }
 

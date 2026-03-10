@@ -1,20 +1,34 @@
-# Performance Baseline (compile + execute)
+# Performance Baseline (compile + execute + readiness)
 
 This note captures the current profiling baseline for the top unfinished roadmap item (13.2.J).
 
 ## Baseline harness
 
 - Profiling test: `crates/plts/tests/pg/runtime_performance_baseline.rs`
+- Readiness test: `crates/plts/tests/pg/runtime_readiness_baseline.rs`
 - Command:
 
 ```bash
 cargo pgrx test -p plts pg17 test_runtime_performance_baseline_snapshot
 ```
 
-The test captures wall-clock timings around two hotspot loops:
+Readiness-focused command:
+
+```bash
+cargo pgrx test -p plts pg17 test_runtime_readiness_baseline_snapshot --no-default-features --features "pg17,v8_runtime"
+```
+
+The performance baseline captures wall-clock timings around two hotspot loops:
 
 1. compile loop: 25 calls to `plts.compile_and_store(...)`
 2. execute loop: 1,000 calls to a stopgap-signature `LANGUAGE plts` function invocation path
+
+The readiness baseline captures warm-shell behavior inside one backend by measuring:
+
+1. first cold invocation after shell creation
+2. same-function warm calls
+3. different-function warm calls on the same pooled shell
+4. `runtime.readiness.setup_realm_last_us` after each warm call
 
 ## Bottlenecks and threshold targets
 
@@ -30,13 +44,18 @@ Tracking targets for this baseline:
 - execute cold-path target: keep first execute-loop average under `5ms/call`
 - execute warm-path target: keep second execute-loop average under `4ms/call`
 - warm-regression target: keep warm average under `1.2x` of cold average
+- readiness target: keep warm setup median under `1ms`
 
-These thresholds are now enforced directly in `test_runtime_performance_baseline_snapshot`.
+These thresholds are now enforced directly in:
+
+- `test_runtime_performance_baseline_snapshot`
+- `test_runtime_readiness_baseline_snapshot`
 
 ## Optimization candidates selected for next step
 
-1. Cache non-pointer function source metadata per backend process to reduce repeated catalog reads/parsing on hot execute paths.
-2. Reduce allocation pressure in argument mapping and payload construction for regular invocations.
+1. Reuse pre-bootstrapped V8 runtime shells per backend so warm calls avoid fresh `JsRuntime` construction.
+2. Keep invocation isolation through per-call context wiring, per-invocation module identity versioning, and shell reset/retire policy.
+3. Re-evaluate deeper module-graph or bytecode caching only after readiness data justifies it.
 
 These candidates are intentionally selected before any optimization implementation so changes can stay benchmark-backed.
 
@@ -107,6 +126,22 @@ TIMEFMT='BENCHMARK_WALL_SECONDS=%E'; time cargo pgrx test -p plts pg17 test_runt
   - enforce SLO thresholds for compile/cold/warm per-call latencies;
   - enforce an explicit warm-vs-cold regression delta (`warm <= 1.2x cold`).
 - This converts phase-3 performance guardrails from documentation-only targets into executable test assertions.
+
+## Iteration 23 warm-readiness implementation update
+
+- `plts` now executes V8 calls through backend-local pooled runtime shells instead of constructing a fresh `JsRuntime` per invocation.
+- Pool defaults are configurable through:
+  - `plts.isolate_reuse`
+  - `plts.isolate_pool_size`
+  - `plts.isolate_max_age_s`
+  - `plts.isolate_max_invocations`
+- `plts.metrics()` now exposes `runtime.readiness.*` counters/timers for checkout behavior, warm reuse, shell creation, and retire reasons.
+- Warm-call isolation is maintained by:
+  - rebuilding invocation-local `ctx` and DB mode state every call
+  - versioning direct `data:` and `plts+artifact:` imports per invocation
+  - resetting non-baseline globals before returning a shell to the pool
+  - retiring shells on timeout, cancel, heap pressure, cleanup failure, setup failure, or config drift
+- Dedicated readiness coverage now lives in `crates/plts/tests/pg/runtime_readiness_baseline.rs`, which asserts sub-millisecond warm setup medians for both same-function and different-function reuse paths.
 
 ## TSGo embedded Wasmtime cold-start cache layers
 

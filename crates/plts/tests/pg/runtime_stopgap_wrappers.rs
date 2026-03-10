@@ -240,3 +240,69 @@ fn test_stopgap_mutation_wrapper_allows_db_exec() {
     Spi::run("DROP SCHEMA IF EXISTS plts_runtime_stopgap_mutation_it CASCADE;")
         .expect("stopgap mutation teardown SQL should succeed");
 }
+
+#[pg_test]
+fn test_stopgap_wrapper_mode_does_not_leak_between_reused_shells() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_stopgap_mode_reuse_it CASCADE;
+        CREATE SCHEMA plts_runtime_stopgap_mode_reuse_it;
+        CREATE TABLE plts_runtime_stopgap_mode_reuse_it.items(id int4);
+
+        CREATE OR REPLACE FUNCTION plts_runtime_stopgap_mode_reuse_it.readonly_fn(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$
+        import { query } from "@stopgap/runtime";
+
+        export default query({ type: "object" }, async (_args: any, ctx: any) => ({
+            mode: ctx.db.mode
+        }));
+        $$;
+
+        CREATE OR REPLACE FUNCTION plts_runtime_stopgap_mode_reuse_it.mutation_fn(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$
+        import { mutation } from "@stopgap/runtime";
+
+        export default mutation({ type: "object" }, async (_args: any, ctx: any) => {
+            await ctx.db.exec(
+                "INSERT INTO plts_runtime_stopgap_mode_reuse_it.items(id) VALUES ($1)",
+                [1]
+            );
+            const rows = await ctx.db.query(
+                "SELECT id FROM plts_runtime_stopgap_mode_reuse_it.items ORDER BY id",
+                []
+            );
+            return { mode: ctx.db.mode, count: rows.length };
+        });
+        $$;
+        "#,
+    )
+    .expect("wrapper mode reuse setup SQL should succeed");
+
+    let query_payload = Spi::get_one::<JsonB>(
+        "SELECT plts_runtime_stopgap_mode_reuse_it.readonly_fn('{}'::jsonb)",
+    )
+    .expect("query wrapper invocation should succeed")
+    .expect("query wrapper should return jsonb");
+    let mutation_payload = Spi::get_one::<JsonB>(
+        "SELECT plts_runtime_stopgap_mode_reuse_it.mutation_fn('{}'::jsonb)",
+    )
+    .expect("mutation wrapper invocation should succeed")
+    .expect("mutation wrapper should return jsonb");
+    let query_payload_again = Spi::get_one::<JsonB>(
+        "SELECT plts_runtime_stopgap_mode_reuse_it.readonly_fn('{}'::jsonb)",
+    )
+    .expect("second query wrapper invocation should succeed")
+    .expect("second query wrapper should return jsonb");
+
+    assert_eq!(query_payload.0.get("mode").and_then(Value::as_str), Some("ro"));
+    assert_eq!(mutation_payload.0.get("mode").and_then(Value::as_str), Some("rw"));
+    assert_eq!(mutation_payload.0.get("count").and_then(Value::as_i64), Some(1));
+    assert_eq!(query_payload_again.0.get("mode").and_then(Value::as_str), Some("ro"));
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_stopgap_mode_reuse_it CASCADE;")
+        .expect("wrapper mode reuse teardown SQL should succeed");
+}

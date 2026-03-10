@@ -106,17 +106,35 @@ Compiler backend note:
 
 ## Isolate lifecycle and pool management
 
-The runtime supports backend-local isolate reuse through an isolate pool with explicit lifecycle states:
+The runtime now executes through backend-local pooled runtime shells with explicit lifecycle states:
 
 - **States**:
-  - `fresh`: newly created isolate, never used
-  - `warm`: healthy isolate eligible for reuse
-  - `tainted`: isolate observed failure (timeout, cancel, heap limit, or internal error)
-  - `retired`: removed from active pool
+  - `fresh`: newly created shell, never used
+  - `warm`: healthy shell eligible for reuse
+  - `tainted`: shell observed failure (timeout, cancel, heap limit, or internal cleanup/setup error)
+  - `retired`: removed from the active pool
+- **Pool scope**:
+  - reuse is backend-local
+  - implementation is currently backend-thread-local because `deno_core::JsRuntime` is not `Send`/`Sync`
+  - default pool settings: `plts.isolate_reuse=on`, `plts.isolate_pool_size=2`, `plts.isolate_max_age_s=120`, `plts.isolate_max_invocations=250`
+- **Warm-call reuse boundary**:
+  - the V8 shell is reused
+  - invocation-local state is rebuilt every call
+  - `ctx`, DB mode wiring, handler entrypoint selection, and per-call clocks remain dynamic
+- **Current isolation mechanism**:
+  - a shell captures a baseline `globalThis` set at creation time
+  - each invocation uses a unique main-module specifier
+  - direct `data:` and `plts+artifact:` imports are versioned per invocation so module namespace state does not leak
+  - `globalThis.__plts_ctx`, `globalThis.__plts_entrypoint`, and invocation scratch state are removed during shell reset
+  - cleanup failure retires the shell instead of risking reuse
 - **Reuse eligibility**: checked on checkout and check-in
-  - Tainted isolates are never reused
-  - Recycle triggers: max age, max invocations, termination history, heap pressure events
-- **Metrics**: pool hit/miss, active isolates, retired count, recycle reasons, cold/warm invocation split
+  - tainted shells are never reused
+  - recycle triggers: max age, max invocations, termination history, heap pressure, config drift, cleanup/setup failure
+- **Metrics**:
+  - `plts.metrics().runtime.readiness` exposes checkout hit/miss timing, setup timing, cold-shell creates, warm-shell reuses, retirements, and retire reasons
+- **Benchmark guardrails**:
+  - full invoke SLOs remain enforced in `crates/plts/tests/pg/runtime_performance_baseline.rs`
+  - warm readiness setup median is guarded in `crates/plts/tests/pg/runtime_readiness_baseline.rs`
 
 ## Contract verification
 

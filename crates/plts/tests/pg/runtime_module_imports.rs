@@ -205,6 +205,39 @@ fn test_runtime_supports_bare_imports_via_pointer_import_map() {
 }
 
 #[pg_test]
+fn test_runtime_does_not_leak_imported_module_state_across_calls() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_module_state_it CASCADE;
+        CREATE SCHEMA plts_runtime_module_state_it;
+        CREATE OR REPLACE FUNCTION plts_runtime_module_state_it.imported(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$
+        import { bump } from "data:text/javascript;base64,bGV0IGNvdW50ZXIgPSAwOwpleHBvcnQgY29uc3QgYnVtcCA9ICgpID0+IHsKICBjb3VudGVyICs9IDE7CiAgcmV0dXJuIGNvdW50ZXI7Cn07";
+        export default () => ({ counter: bump() });
+        $$;
+        "#,
+    )
+    .expect("module-state isolation setup SQL should succeed");
+
+    let first =
+        Spi::get_one::<JsonB>("SELECT plts_runtime_module_state_it.imported('{}'::jsonb)")
+            .expect("first module-state invocation should succeed")
+            .expect("first module-state invocation should return jsonb");
+    let second =
+        Spi::get_one::<JsonB>("SELECT plts_runtime_module_state_it.imported('{}'::jsonb)")
+            .expect("second module-state invocation should succeed")
+            .expect("second module-state invocation should return jsonb");
+
+    assert_eq!(first.0.get("counter").and_then(Value::as_i64), Some(1));
+    assert_eq!(second.0.get("counter").and_then(Value::as_i64), Some(1));
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_module_state_it CASCADE;")
+        .expect("module-state isolation teardown SQL should succeed");
+}
+
+#[pg_test]
 fn test_runtime_rejects_unmapped_bare_import_with_actionable_error() {
     Spi::run(
         r#"

@@ -322,8 +322,9 @@ This snapshot is baseline implementation status for the pre-pivot architecture. 
 - **Module split note:** both extension entrypoints are now thin (`crates/plts/src/lib.rs` and `crates/stopgap/src/lib.rs`), with `plts` split across `api.rs`, `handler.rs`, `runtime.rs`, `compiler.rs`, `runtime_spi.rs`, `function_program.rs`, and `arg_mapping.rs`.
 - **Wrapper parity note:** in-DB `@stopgap/runtime` is now loaded from the compiled dist artifact at `packages/runtime/dist/embedded_runtime.js`, built from TS-only runtime sources.
 - **Runtime constraints note:** runtime DB bridge calls now enforce deterministic per-call limits for SQL size (`plts.max_sql_bytes`), bound params (`plts.max_params`), and row volume (`plts.max_query_rows`) in addition to timeout and heap caps.
-- **Runtime evolution note:** next work formalizes startup snapshot boundaries, isolate reuse lifecycle, and deterministic failure recovery semantics for backend-local runtime execution.
+- **Runtime evolution note:** runtime execution now uses backend-local pooled V8 runtime shells with configurable reuse limits (`plts.isolate_reuse`, `plts.isolate_pool_size`, `plts.isolate_max_age_s`, `plts.isolate_max_invocations`), invocation-local context rewiring, per-invocation module identity versioning, and shell retirement on cleanup/setup failure or termination-class faults.
 - **Performance note:** iteration 10 benchmark-backed optimizations are now in place for hot execute paths via backend-local non-pointer function program caching and argument-type caching for regular invocation payload mapping; iteration 12 hardens function-program caching with explicit LRU keying (`fn_oid`), TTL invalidation, and source-byte memory bounds.
+- **Readiness note:** `plts.metrics()` now exposes `runtime.readiness.*`, and `crates/plts/tests/pg/runtime_readiness_baseline.rs` enforces sub-millisecond warm setup medians for same-function and cross-function reuse paths.
 - **Runtime contract note:** `docs/RUNTIME-CONTRACT.md` is now aligned to current runtime behavior and is guarded by dedicated DB-backed tests in `crates/plts/tests/pg/runtime_contract.rs` plus existing runtime contract suites.
 - **CLI note:** `crates/stopgap-cli` now ships the `stopgap` binary and provides `init`, `deploy`, `rollback`, `status`, `deployments`, and `diff` commands with `human`/`json` output and explicit CI-friendly non-zero exit codes.
 - **Runtime package note:** `packages/runtime` now uses Vitest coverage for wrapper metadata/validation/API parity checks and ships with direct `zod/mini` usage for `v` schemas.
@@ -526,6 +527,7 @@ Minimum implementation evidence:
 - [x] isolate lifecycle state transitions covered by tests
 - [x] tainted isolates are never reused after watchdog/termination events
 - [x] pool metrics exported (hit/miss, active isolates, retirements)
+- [x] live V8 execution path now checks shells out of the backend-local pool instead of constructing a fresh runtime per invocation
 
 #### O. Safety guardrails and deterministic termination semantics
 - [x] Route timeout, cancel, and heap-limit breaches through a single termination and error-classification path.
@@ -546,6 +548,7 @@ Minimum implementation evidence:
 - [x] updated SLO targets and profiling methodology in `docs/PERFORMANCE-BASELINE.md`
 - [x] metric payload tests cover new runtime dimensions
 - [x] before/after benchmark evidence captured for each lifecycle optimization increment
+- [x] readiness baseline coverage enforces warm setup median thresholds through `crates/plts/tests/pg/runtime_readiness_baseline.rs`
 
 #### Q. Rollout phases, acceptance gates, and regression protections
 - [x] Phase rollout: (1) boundary and instrumentation, (2) conservative reuse defaults, (3) tuning and SLO enforcement.

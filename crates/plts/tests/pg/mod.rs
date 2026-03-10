@@ -21,6 +21,8 @@ include!("runtime_module_imports.rs");
 #[cfg(feature = "v8_runtime")]
 include!("runtime_nulls.rs");
 #[cfg(feature = "v8_runtime")]
+include!("runtime_readiness_baseline.rs");
+#[cfg(feature = "v8_runtime")]
 include!("runtime_stopgap_wrappers.rs");
 #[cfg(feature = "v8_runtime")]
 include!("runtime_surface_lockdown.rs");

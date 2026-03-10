@@ -140,3 +140,51 @@ fn test_runtime_contract_invocation_state_is_isolated() {
     Spi::run("DROP SCHEMA IF EXISTS plts_runtime_contract_isolation_it CASCADE;")
         .expect("runtime contract isolation teardown SQL should succeed");
 }
+
+#[pg_test]
+fn test_runtime_contract_cross_fn_isolation() {
+    Spi::run(
+        r#"
+        DROP SCHEMA IF EXISTS plts_runtime_contract_cross_fn_it CASCADE;
+        CREATE SCHEMA plts_runtime_contract_cross_fn_it;
+        CREATE OR REPLACE FUNCTION plts_runtime_contract_cross_fn_it.first_fn(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$
+        export default () => {
+            (globalThis as any).__plts_cross_fn = "from-first";
+            return { fn: "first" };
+        };
+        $$;
+
+        CREATE OR REPLACE FUNCTION plts_runtime_contract_cross_fn_it.second_fn(args jsonb)
+        RETURNS jsonb
+        LANGUAGE plts
+        AS $$
+        export default () => ({
+            previous: (globalThis as any).__plts_cross_fn ?? null,
+            fn: "second",
+        });
+        $$;
+        "#,
+    )
+    .expect("cross-function isolation setup SQL should succeed");
+
+    let first = Spi::get_one::<JsonB>(
+        "SELECT plts_runtime_contract_cross_fn_it.first_fn('{}'::jsonb)",
+    )
+    .expect("first function invocation should succeed")
+    .expect("first function invocation should return jsonb");
+    let second = Spi::get_one::<JsonB>(
+        "SELECT plts_runtime_contract_cross_fn_it.second_fn('{}'::jsonb)",
+    )
+    .expect("second function invocation should succeed")
+    .expect("second function invocation should return jsonb");
+
+    assert_eq!(first.0.get("fn").and_then(Value::as_str), Some("first"));
+    assert_eq!(second.0.get("fn").and_then(Value::as_str), Some("second"));
+    assert_eq!(second.0.get("previous"), Some(&Value::Null));
+
+    Spi::run("DROP SCHEMA IF EXISTS plts_runtime_contract_cross_fn_it CASCADE;")
+        .expect("cross-function isolation teardown SQL should succeed");
+}
