@@ -4,13 +4,91 @@ on:
   push:
     tags:
       - 'cli-v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch to cut the CLI release from
+        required: true
+        default: main
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: release-cli
+  cancel-in-progress: false
+
 jobs:
+  prepare-release:
+    name: Prepare CLI release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.prepare.outputs.version }}
+      tag_name: ${{ steps.prepare.outputs.tag_name }}
+      release_ref: ${{ steps.prepare.outputs.release_ref }}
+    steps:
+      - if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - if: github.event_name != 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release branch
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          REF="${{ inputs.ref }}"
+          git check-ref-format --branch "${REF}"
+          git fetch --no-tags origin "refs/heads/${REF}:refs/remotes/origin/${REF}"
+          git show-ref --verify --quiet "refs/remotes/origin/${REF}"
+
+      - name: Checkout release branch
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          REF="${{ inputs.ref }}"
+          git checkout -B release-cut "refs/remotes/origin/${REF}"
+
+      - name: Prepare release metadata
+        id: prepare
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            VERSION="$(scripts/release-version.sh next cli)"
+            TAG_NAME="cli-v${VERSION}"
+
+            scripts/release-version.sh apply cli "${VERSION}"
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Cargo.lock crates/stopgap-cli/Cargo.toml
+            if git diff --cached --quiet; then
+              echo "No version changes detected after applying ${VERSION}" >&2
+              exit 1
+            fi
+            git commit -m "release(cli): cut v${VERSION}"
+            git tag -a "${TAG_NAME}" -m "CLI ${TAG_NAME}"
+            git push --atomic origin "HEAD:${{ inputs.ref }}" "${TAG_NAME}"
+            echo "Released ${TAG_NAME} from branch ${{ inputs.ref }}" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            TAG_NAME="${GITHUB_REF_NAME}"
+            VERSION="${TAG_NAME#cli-v}"
+          fi
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag_name=${TAG_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "release_ref=${TAG_NAME}" >> "${GITHUB_OUTPUT}"
+
   build-cli:
     name: Build CLI for ${{ matrix.target }}
+    needs: prepare-release
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -28,20 +106,16 @@ jobs:
             runner: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.release_ref }}
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@1.91.1
         with:
-          toolchain: 1.91.1
           targets: ${{ matrix.target }}
 
       - name: Ensure Rust target is installed
         run: rustup target add ${{ matrix.target }}
-
-      - name: Get version
-        id: version
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/cli-v}" >> $GITHUB_OUTPUT
 
       - name: Install Linux ARM64 cross toolchain
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -58,7 +132,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          VERSION=${{ steps.version.outputs.VERSION }}
+          VERSION=${{ needs.prepare-release.outputs.version }}
           mkdir -p "release/stopgap-${{ matrix.target }}-v${VERSION}"
           cp target/${{ matrix.target }}/release/stopgap "release/stopgap-${{ matrix.target }}-v${VERSION}/stopgap"
           cd release
@@ -68,7 +142,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $version = "${{ steps.version.outputs.VERSION }}"
+          $version = "${{ needs.prepare-release.outputs.version }}"
           $dir = "release/stopgap-${{ matrix.target }}-v$version"
           New-Item -ItemType Directory -Path $dir -Force | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/stopgap.exe" "$dir/stopgap.exe"
@@ -86,7 +160,9 @@ jobs:
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: build-cli
+    needs:
+      - prepare-release
+      - build-cli
     permissions:
       contents: write
     steps:
@@ -113,9 +189,10 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.prepare-release.outputs.tag_name }}
           files: release-files/*
           generate_release_notes: true
-          name: CLI ${{ github.ref_name }}
+          name: CLI ${{ needs.prepare-release.outputs.tag_name }}
           body: |
             ## Installation
             
@@ -128,3 +205,23 @@ jobs:
             Download the appropriate binary for your platform from the assets below.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-crate:
+    name: Publish stopgap-cli crate
+    runs-on: ubuntu-latest
+    needs:
+      - prepare-release
+      - build-cli
+      - create-release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.release_ref }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.91.1
+
+      - name: Publish stopgap-cli to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p stopgap-cli --locked

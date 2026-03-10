@@ -101,3 +101,10 @@ If `./stopgap` is missing, deploy should fail with a clear not-initialized messa
 - A final `release gates (runtime + regress)` job depends on baseline, pgrx matrix, and runtime-heavy lanes so branch protection can require a single aggregated gate.
 - This V8 lane is an evergreen quality gate: failures are fixed at the root cause and not bypassed.
 - Expected runtime for the dedicated runtime lane is typically about 10-15 minutes on GitHub-hosted runners.
+
+## Release workflows
+
+- GitHub Actions now supports manual `workflow_dispatch` release cuts for both `Release CLI` and `Release Extensions`.
+- `Release CLI` bumps `crates/stopgap-cli/Cargo.toml` plus the matching `Cargo.lock` package entry, creates the next `cli-v0.1.x` tag from the latest stable CLI tag, pushes the release commit/tag, builds and publishes the GitHub release assets, then required-publishes `stopgap-cli` to crates.io via `CARGO_REGISTRY_TOKEN`.
+- `Release Extensions` bumps `crates/common/Cargo.toml`, `crates/plts/Cargo.toml`, `crates/stopgap/Cargo.toml`, `packages/runtime/package.json`, plus the matching `Cargo.lock` package entries, creates the next `ext-v0.1.x` tag from the latest stable extensions tag, pushes the release commit/tag, then builds and publishes the extension assets in the same workflow.
+- The manual cut logic ignores non-stable suffix tags such as `*-test1` when selecting the next patch version.
