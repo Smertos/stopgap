@@ -4,6 +4,7 @@ use crate::observability::{
 };
 use base64::Engine as Base64Engine;
 use directories_next::ProjectDirs;
+#[cfg(not(test))]
 use pgrx::prelude::*;
 use serde_json::Value;
 use serde_json::json;
@@ -140,13 +141,9 @@ pub(crate) fn compute_artifact_hash(
 pub(crate) fn compiler_fingerprint() -> &'static str {
     TS_COMPILER_FINGERPRINT
         .get_or_init(|| {
-            let deno_ast = dependency_version_from_lock("deno_ast").unwrap_or("unknown");
             let deno_core = dependency_version_from_lock("deno_core").unwrap_or("disabled");
             let tsgo_api_wasm_hash = hex::encode(Sha256::digest(tsgo_api_wasm_bytes()));
-            format!(
-                "deno_ast@{};deno_core@{};tsgo_api_wasm_sha256@{}",
-                deno_ast, deno_core, tsgo_api_wasm_hash
-            )
+            format!("deno_core@{};tsgo_api_wasm_sha256@{}", deno_core, tsgo_api_wasm_hash)
         })
         .as_str()
 }
@@ -183,6 +180,7 @@ pub(crate) fn dependency_version_from_lock(crate_name: &str) -> Option<&'static 
     None
 }
 
+#[cfg(not(test))]
 fn current_setting_text(name: &str) -> Option<String> {
     let sql = format!("SELECT NULLIF(current_setting('{}', true), '')", name);
     Spi::get_one::<String>(&sql)
@@ -190,6 +188,11 @@ fn current_setting_text(name: &str) -> Option<String> {
         .flatten()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+#[cfg(test)]
+fn current_setting_text(_name: &str) -> Option<String> {
+    None
 }
 
 fn read_tsgo_wasm_cache_mode() -> TsgoWasmCacheMode {
@@ -593,58 +596,15 @@ pub(crate) fn compile_source_ts(source_ts: &str, compiler_opts: &Value) -> Compi
 }
 
 pub(crate) fn transpile_typescript(source_ts: &str, compiler_opts: &Value) -> (String, Value) {
-    if let Ok((compiled_js, diagnostics)) =
-        transpile_typescript_via_tsgo_wasm(source_ts, compiler_opts)
-    {
-        return (compiled_js, diagnostics);
-    }
-
-    transpile_typescript_via_deno_ast(source_ts, compiler_opts)
-}
-
-fn transpile_typescript_via_deno_ast(source_ts: &str, compiler_opts: &Value) -> (String, Value) {
-    let source_map = compiler_opts.get("source_map").and_then(Value::as_bool).unwrap_or(false);
-
-    let specifier = deno_ast::ModuleSpecifier::parse("file:///plts_module.ts")
-        .expect("static module specifier must parse");
-
-    let parsed = deno_ast::parse_module(deno_ast::ParseParams {
-        specifier,
-        text: source_ts.to_string().into(),
-        media_type: deno_ast::MediaType::TypeScript,
-        capture_tokens: false,
-        scope_analysis: false,
-        maybe_syntax: None,
-    });
-
-    let parsed = match parsed {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            let diagnostics = json!([diagnostic_from_message("error", &err.to_string())]);
-            return (String::new(), diagnostics);
-        }
-    };
-
-    let transpiled = parsed.transpile(
-        &deno_ast::TranspileOptions::default(),
-        &deno_ast::TranspileModuleOptions::default(),
-        &deno_ast::EmitOptions {
-            source_map: if source_map {
-                deno_ast::SourceMapOption::Inline
-            } else {
-                deno_ast::SourceMapOption::None
-            },
-            inline_sources: source_map,
-            ..Default::default()
-        },
-    );
-
-    match transpiled {
-        Ok(result) => (result.into_source().text, json!([])),
-        Err(err) => {
-            let diagnostics = json!([diagnostic_from_message("error", &err.to_string())]);
-            (String::new(), diagnostics)
-        }
+    match transpile_typescript_via_tsgo_wasm(source_ts, compiler_opts) {
+        Ok((compiled_js, diagnostics)) => (compiled_js, diagnostics),
+        Err(err) => (
+            String::new(),
+            json!([diagnostic_from_message(
+                "error",
+                &format!("failed to execute TypeScript transpiler: {err}"),
+            )]),
+        ),
     }
 }
 
@@ -973,6 +933,7 @@ fn diagnostic_from_message(severity: &str, message: &str) -> Value {
 
     json!({
         "severity": severity,
+        "phase": Value::Null,
         "message": message,
         "line": line,
         "column": column

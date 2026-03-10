@@ -1,5 +1,5 @@
 use base64::Engine as Base64Engine;
-use serde_json::{Value, json};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::ErrorKind;
@@ -80,13 +80,9 @@ pub(crate) fn compute_artifact_hash(
 pub(crate) fn compiler_fingerprint() -> &'static str {
     TS_COMPILER_FINGERPRINT
         .get_or_init(|| {
-            let deno_ast = dependency_version_from_lock("deno_ast").unwrap_or("unknown");
             let deno_core = dependency_version_from_lock("deno_core").unwrap_or("disabled");
             let tsgo_api_wasm_hash = hex::encode(Sha256::digest(tsgo_api_wasm_bytes()));
-            format!(
-                "deno_ast@{};deno_core@{};tsgo_api_wasm_sha256@{}",
-                deno_ast, deno_core, tsgo_api_wasm_hash
-            )
+            format!("deno_core@{};tsgo_api_wasm_sha256@{}", deno_core, tsgo_api_wasm_hash)
         })
         .as_str()
 }
@@ -276,55 +272,6 @@ pub(crate) fn tsgo_wasm_manual_fingerprint(
     hex::encode(hasher.finalize())
 }
 
-pub(crate) fn transpile_typescript_via_deno_ast(
-    source_ts: &str,
-    compiler_opts: &Value,
-) -> (String, Value) {
-    let source_map = compiler_opts.get("source_map").and_then(Value::as_bool).unwrap_or(false);
-
-    let specifier = deno_ast::ModuleSpecifier::parse("file:///plts_module.ts")
-        .expect("static module specifier must parse");
-
-    let parsed = deno_ast::parse_module(deno_ast::ParseParams {
-        specifier,
-        text: source_ts.to_string().into(),
-        media_type: deno_ast::MediaType::TypeScript,
-        capture_tokens: false,
-        scope_analysis: false,
-        maybe_syntax: None,
-    });
-
-    let parsed = match parsed {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            let diagnostics = json!([diagnostic_from_message("error", &err.to_string())]);
-            return (String::new(), diagnostics);
-        }
-    };
-
-    let transpiled = parsed.transpile(
-        &deno_ast::TranspileOptions::default(),
-        &deno_ast::TranspileModuleOptions::default(),
-        &deno_ast::EmitOptions {
-            source_map: if source_map {
-                deno_ast::SourceMapOption::Inline
-            } else {
-                deno_ast::SourceMapOption::None
-            },
-            inline_sources: source_map,
-            ..Default::default()
-        },
-    );
-
-    match transpiled {
-        Ok(result) => (result.into_source().text, json!([])),
-        Err(err) => {
-            let diagnostics = json!([diagnostic_from_message("error", &err.to_string())]);
-            (String::new(), diagnostics)
-        }
-    }
-}
-
 pub(crate) fn contains_error_diagnostics(diagnostics: &Value) -> bool {
     diagnostics
         .as_array()
@@ -465,32 +412,6 @@ fn load_manual_tsgo_wasm_module(
     }
 }
 
-fn diagnostic_from_message(severity: &str, message: &str) -> Value {
-    let mut line = Value::Null;
-    let mut column = Value::Null;
-    if let Some((parsed_line, parsed_column)) = extract_line_column(message) {
-        line = json!(parsed_line);
-        column = json!(parsed_column);
-    }
-
-    json!({
-        "severity": severity,
-        "message": message,
-        "line": line,
-        "column": column
-    })
-}
-
-fn extract_line_column(message: &str) -> Option<(u32, u32)> {
-    let open = message.rfind('(')?;
-    let close = message[open..].find(')')? + open;
-    let coords = &message[(open + 1)..close];
-    let mut pieces = coords.rsplitn(3, ':');
-    let col = pieces.next()?.parse::<u32>().ok()?;
-    let line = pieces.next()?.parse::<u32>().ok()?;
-    Some((line, col))
-}
-
 fn ensure_directory(path: &Path) -> Result<(), String> {
     fs::create_dir_all(path).map_err(|err| {
         format!("failed to create tsgo cache directory `{}`: {err}", path.display())
@@ -617,8 +538,7 @@ mod tests {
         bootstrap_tsgo_wasm_cache_paths, build_tsgo_wasm_engine, compiler_fingerprint,
         compute_artifact_hash, contains_error_diagnostics, dependency_version_from_lock,
         ensure_wasmtime_cache_config, extract_inline_source_map, load_tsgo_wasm_module_from_bytes,
-        maybe_extract_source_map, parse_tsgo_wasm_cache_mode, resolve_tsgo_wasm_cache_root,
-        toml_string, transpile_typescript_via_deno_ast, tsgo_api_wasm_bytes,
+        parse_tsgo_wasm_cache_mode, resolve_tsgo_wasm_cache_root, toml_string, tsgo_api_wasm_bytes,
         tsgo_virtual_declarations, tsgo_wasm_engine_profile, tsgo_wasm_manual_artifact_path,
         tsgo_wasm_manual_fingerprint,
     };
@@ -829,31 +749,6 @@ mod tests {
     }
 
     #[test]
-    fn transpile_typescript_emits_js() {
-        let source =
-            "export default (ctx: { args: { id: number } }) => ({ id: ctx.args.id as number });";
-        let (compiled, diagnostics) = transpile_typescript_via_deno_ast(source, &json!({}));
-        assert!(diagnostics.as_array().is_some_and(|items| items.is_empty()));
-        assert!(compiled.contains("export default"));
-        assert!(!compiled.contains(": { args:"));
-    }
-
-    #[test]
-    fn transpile_typescript_returns_diagnostic_on_parse_error() {
-        let (compiled, diagnostics) =
-            transpile_typescript_via_deno_ast("export default (ctx => ctx", &json!({}));
-        assert!(compiled.is_empty());
-        assert_eq!(
-            diagnostics
-                .as_array()
-                .and_then(|items| items.first())
-                .and_then(|entry| entry.get("severity"))
-                .and_then(|value| value.as_str()),
-            Some("error")
-        );
-    }
-
-    #[test]
     fn dependency_version_from_lock_finds_known_crate() {
         let version = dependency_version_from_lock("serde_json");
         assert!(version.is_some());
@@ -868,23 +763,10 @@ mod tests {
     }
 
     #[test]
-    fn transpile_typescript_optionally_emits_source_map_payload() {
-        let source =
-            "export default (ctx: { args: { id: number } }) => ({ id: ctx.args.id as number });";
-        let (compiled, diagnostics) =
-            transpile_typescript_via_deno_ast(source, &json!({ "source_map": true }));
-        assert!(diagnostics.as_array().is_some_and(|items| items.is_empty()));
-
-        let source_map = maybe_extract_source_map(&compiled, &json!({ "source_map": true }))
-            .expect("source_map=true should persist an inline source map payload");
-        assert!(source_map.contains("\"version\""));
-    }
-
-    #[test]
     fn compiler_fingerprint_includes_dependency_versions() {
         let fingerprint = compiler_fingerprint();
-        assert!(fingerprint.contains("deno_ast@"));
         assert!(fingerprint.contains("deno_core@"));
+        assert!(fingerprint.contains("tsgo_api_wasm_sha256@"));
     }
 
     #[test]

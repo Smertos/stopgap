@@ -8,6 +8,13 @@ pub(crate) fn ensure_deploy_permissions(
     ensure_required_role_exists(crate::STOPGAP_DEPLOYER_ROLE)?;
     ensure_required_role_exists(crate::APP_RUNTIME_ROLE)?;
 
+    ensure_supported_deploy_workflow_permissions(from_schema)?;
+    ensure_compatibility_bridge_guards(live_schema)?;
+
+    Ok(())
+}
+
+fn ensure_supported_deploy_workflow_permissions(from_schema: &str) -> Result<(), String> {
     ensure_schema_exists(from_schema, "source")?;
 
     let can_use_source = Spi::get_one_with_args::<bool>(
@@ -19,7 +26,7 @@ pub(crate) fn ensure_deploy_permissions(
 
     if !can_use_source {
         return Err(format!(
-            "permission denied for stopgap deploy: current_user lacks USAGE on source schema {}",
+            "permission denied for stopgap deploy: TS-first deploy requires USAGE on source schema {} to read deployable application functions",
             from_schema
         ));
     }
@@ -32,7 +39,7 @@ pub(crate) fn ensure_deploy_permissions(
 
     if !can_execute_compile {
         return Err(
-            "permission denied for stopgap deploy: current_user lacks EXECUTE on plts.compile_and_store(text, jsonb)"
+            "permission denied for stopgap deploy: TS-first deploy requires EXECUTE on plts.compile_and_store(text, jsonb)"
                 .to_string(),
         );
     }
@@ -45,14 +52,16 @@ pub(crate) fn ensure_deploy_permissions(
 
     if !can_execute_typecheck {
         return Err(
-            "permission denied for stopgap deploy: current_user lacks EXECUTE on plts.typecheck_ts(text, jsonb)"
+            "permission denied for stopgap deploy: TS-first deploy requires EXECUTE on plts.typecheck_ts(text, jsonb)"
                 .to_string(),
         );
     }
 
-    ensure_live_schema_is_stopgap_managed(live_schema)?;
-
     Ok(())
+}
+
+fn ensure_compatibility_bridge_guards(live_schema: &str) -> Result<(), String> {
+    ensure_live_schema_is_stopgap_managed(live_schema)
 }
 
 pub(crate) fn ensure_diff_permissions(from_schema: &str) -> Result<(), String> {
@@ -105,7 +114,7 @@ fn ensure_schema_exists(schema_name: &str, schema_kind: &str) -> Result<(), Stri
         Ok(())
     } else {
         Err(format!(
-            "permission denied for stopgap deploy: {} schema {} does not exist",
+            "permission denied for stopgap deploy: TS-first deploy {} schema {} does not exist",
             schema_kind, schema_name
         ))
     }
@@ -129,7 +138,7 @@ fn ensure_live_schema_is_stopgap_managed(live_schema: &str) -> Result<(), String
     if let Some(owner_role) = owner {
         if owner_role != crate::STOPGAP_OWNER_ROLE {
             return Err(format!(
-                "permission denied for stopgap deploy: live schema {} is owned by {} (expected {})",
+                "permission denied for stopgap deploy: compatibility live schema {} is owned by {} (expected {}); extension-managed wrappers must remain stopgap-owned",
                 live_schema,
                 owner_role,
                 crate::STOPGAP_OWNER_ROLE

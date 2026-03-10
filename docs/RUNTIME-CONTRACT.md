@@ -44,6 +44,7 @@ type SqlObjectLike =
 - Stopgap-managed app functions are exported named handlers from `stopgap/**/*.ts` modules.
 - Canonical function path format is `api.<module_path_without_ext>.<named_export>`.
 - Runtime invocation surface is `stopgap.call_fn(path text, args jsonb)`.
+- Any generated live-schema SQL wrappers are compatibility-only; user-authored SQL wrappers are not part of the supported workflow.
 - Wrapper validation is driven by `@stopgap/runtime` (`query`/`mutation`) and `v` schemas.
 - Legacy JSON Schema-subset wrapper inputs remain supported as a compatibility path.
 - Runtime wrapper validation now uses direct `zod/mini` `safeParse` issue surfacing for schema-like inputs while preserving clear path/issue context in thrown errors.

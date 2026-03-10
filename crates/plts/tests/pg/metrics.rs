@@ -240,3 +240,87 @@ fn test_metrics_compile_uses_tsgo_wasm_by_default() {
         "compile_ts should initialize the tsgo wasm runtime when TSGo transpile is the default backend"
     );
 }
+
+#[pg_test]
+fn test_compile_ts_structured_diagnostics() {
+    let diagnostics = Spi::get_one_with_args::<JsonB>(
+        "SELECT diagnostics FROM plts.compile_ts($1::text, '{}'::jsonb)",
+        &[String::from("export default (ctx => ctx").into()],
+    )
+    .expect("compile_ts query should succeed")
+    .expect("compile_ts should return diagnostics");
+
+    let first = diagnostics
+        .0
+        .as_array()
+        .and_then(|items| items.first())
+        .expect("compile_ts should return at least one diagnostic");
+
+    assert_eq!(
+        first.get("severity").and_then(Value::as_str),
+        Some("error"),
+        "compile_ts diagnostics should retain severity"
+    );
+    assert!(
+        first.get("phase").is_some(),
+        "compile_ts diagnostics should retain the phase field even when transpile fails"
+    );
+    assert!(
+        first.get("message").and_then(Value::as_str).is_some_and(|value| !value.is_empty()),
+        "compile_ts diagnostics should retain a non-empty message"
+    );
+    assert!(first.get("line").is_some(), "compile_ts diagnostics should retain the line field");
+    assert!(
+        first.get("column").is_some(),
+        "compile_ts diagnostics should retain the column field"
+    );
+}
+
+#[pg_test]
+fn test_compile_ts_emits_js_without_ts_annotations() {
+    let compiled = Spi::get_one_with_args::<String>(
+        "SELECT compiled_js FROM plts.compile_ts($1::text, '{}'::jsonb)",
+        &[String::from(
+            "export default (ctx: { args: { id: number } }) => ({ id: ctx.args.id as number });",
+        )
+        .into()],
+    )
+    .expect("compile_ts query should succeed")
+    .expect("compile_ts should return compiled javascript");
+
+    assert!(compiled.contains("export default"));
+    assert!(
+        !compiled.contains(": { args:"),
+        "compiled_js should not retain TypeScript parameter annotations"
+    );
+}
+
+#[pg_test]
+fn test_compile_and_store_persists_source_map() {
+    let artifact_hash = Spi::get_one_with_args::<String>(
+        "SELECT plts.compile_and_store($1::text, $2::jsonb)",
+        &[
+            String::from(
+                "export default (ctx: { args: { id: number } }) => ({ id: ctx.args.id as number });",
+            )
+            .into(),
+            JsonB(serde_json::json!({ "source_map": true })).into(),
+        ],
+    )
+    .expect("compile_and_store query should succeed")
+    .expect("compile_and_store should return an artifact hash");
+
+    let artifact = Spi::get_one_with_args::<JsonB>(
+        "SELECT plts.get_artifact($1::text)",
+        &[artifact_hash.into()],
+    )
+    .expect("get_artifact query should succeed")
+    .expect("get_artifact should return artifact metadata");
+
+    let source_map = artifact
+        .0
+        .get("source_map")
+        .and_then(Value::as_str)
+        .expect("stored artifact should include source_map when requested");
+    assert!(source_map.contains("\"version\""));
+}

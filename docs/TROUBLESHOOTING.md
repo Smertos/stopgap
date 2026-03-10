@@ -42,9 +42,41 @@ cargo check
 ## `LANGUAGE plts` create/replace fails with TypeScript diagnostics
 
 - The validator enforces semantic TypeScript checks; fix reported diagnostics first.
-- If errors mention checker execution/tooling, confirm runtime package dependencies are installed (`pnpm --dir packages/runtime install --frozen-lockfile`) and retry.
+- If errors mention checker/transpiler execution, confirm runtime package dependencies are installed (`pnpm --dir packages/runtime install --frozen-lockfile`) and retry.
 - Use `SELECT plts.typecheck_ts($$...$$);` to inspect diagnostics directly before deploy.
-- Roadmap direction is to move checker/transpile internals to in-process TSGo WASM; until that lands, checker failures can still reflect local toolchain/runtime-package issues.
+- Typecheck/transpile internals already run through embedded TSGo WASM; failures here usually mean bad source input, TSGo runtime/cache issues, or local build-tooling setup problems.
+
+## `pnpm` is installed, but Cargo/build.rs still says it is missing
+
+- `crates/plts/build.rs` invokes `pnpm` non-interactively while refreshing the embedded `@stopgap/runtime` artifact.
+- Make sure `pnpm` is on `PATH` for non-interactive shells and build tools, not only in interactive shell startup files.
+- A reliable local check is:
+
+```bash
+zsh -lc 'command -v pnpm'
+```
+
+- If that prints nothing, export your Node toolchain path from a startup file read by non-interactive/login shells as well, or prefix commands explicitly:
+
+```bash
+PATH="$HOME/.n/bin:$PATH" cargo check
+```
+
+## Runtime-heavy V8 lane is flaky or slow locally
+
+- The release/CI gate remains:
+
+```bash
+cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"
+```
+
+- For local troubleshooting on shared machines, serialize Rust test execution to reduce `pgrx` cluster contention:
+
+```bash
+RUST_TEST_THREADS=1 cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"
+```
+
+- Use the serialized form when multiple cold-start pg test backends or repeated install/rebuild cycles are saturating the local `pgrx` test cluster.
 
 ## TSGo Wasmtime cache bootstrap warnings or permission errors
 

@@ -172,6 +172,38 @@ Interpretation:
 - The next runtime optimization should be chosen from measured phase data, not guessed.
 - If further work is justified, the first candidate remains per-shell module-graph reuse for stable `data:` / `plts+artifact:` imports, followed by same-function compiled-module reuse.
 
+## Iteration 25 runtime decision gate
+
+Decision-gate commands:
+
+```bash
+RUST_TEST_THREADS=1 cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime" test_runtime_readiness_baseline_snapshot
+RUST_TEST_THREADS=1 cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime" test_runtime_readiness_import_paths_are_observable
+RUST_TEST_THREADS=1 cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime" test_runtime_performance_baseline_snapshot
+```
+
+Captured warm-path values (`us`):
+
+- `same_fn`: invoke avg `871`, context setup median `50`, module load median `135`, module evaluate median `64`, cleanup median `93`
+- `cross_fn`: invoke avg `6377`, context setup median `54`, module load median `153`, module evaluate median `79`, cleanup median `109`
+- `same_import`: invoke avg `1298`, context setup median `78`, module load median `389`, module evaluate median `90`, cleanup median `123`
+- `cross_import`: invoke avg `7188`, context setup median `73`, module load median `444`, module evaluate median `108`, cleanup median `142`
+
+Cold-path reference:
+
+- cold invoke `14632us`
+
+Gate rule outcome:
+
+- No warm scenario met the required `module_load + module_evaluate > 60% of warm invoke average` threshold.
+- Only `cross_import` exceeded the `500us` combined-load/evaluate floor, but it still fell far short of the 60% threshold.
+- Result: deeper runtime reuse is **not** justified yet.
+
+Branch decision:
+
+- Leave the pooled-shell runtime unchanged for now.
+- Shift the next milestone to stopgap deploy/security reconciliation and compatibility-wrapper messaging instead of adding shell-local module-graph reuse.
+
 ## TSGo embedded Wasmtime cold-start cache layers
 
 - `plts` now keeps the embedded `stopgap-tsgo-api.wasm` Wasmtime module behind three init layers in `crates/plts/src/compiler.rs`:

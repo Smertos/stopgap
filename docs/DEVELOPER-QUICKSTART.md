@@ -5,6 +5,7 @@ This quickstart gets a local Stopgap + PLTS workspace running for day-to-day dev
 Status note (Mar 2026): user-facing product workflow is being course-corrected to a Convex-style TypeScript-first model (`./stopgap` directory with path-based invocation), while this document remains focused on extension/CLI development in this repository.
 
 Compiler backend note: `plts` typecheck and default transpile now run through the embedded TSGo WASM backend. Rust builds still depend on runtime package build tooling because `crates/plts/build.rs` refreshes the embedded `@stopgap/runtime` artifact from `packages/runtime`.
+PATH note: the build script invokes `pnpm` non-interactively, so `pnpm` must be available on `PATH` for non-interactive/build-tool shells as well as your normal interactive terminal.
 
 ## Prerequisites
 
@@ -48,6 +49,12 @@ cargo pgrx test -p plts
 cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"
 cargo pgrx test -p stopgap
 cargo pgrx regress -p stopgap
+```
+
+For local troubleshooting of the runtime-heavy lane on a busy machine, prefer serialized Rust test execution:
+
+```bash
+RUST_TEST_THREADS=1 cargo pgrx test pg17 -p plts --no-default-features --features "pg17,v8_runtime"
 ```
 
 ## CLI development

@@ -26,6 +26,12 @@ Status note (Mar 2026): primary workflow is now Convex-style and TypeScript-firs
 9. Appends activation log.
 
 Users should not author PostgreSQL `CREATE FUNCTION ... LANGUAGE plts` wrappers manually.
+If compatibility wrappers exist in a live schema, they are extension-generated only and are not the supported authoring or deployment surface.
+
+Deploy permission model:
+
+- Supported workflow checks require deployers to have `USAGE` on the source schema plus `EXECUTE` on `plts.typecheck_ts` and `plts.compile_and_store`.
+- Compatibility live-schema wrappers remain extension-managed only; stopgap still guards that bridge by requiring the live schema to stay owned by `stopgap_owner`.
 
 Compiler note: deploy compile/typecheck internals now run through the in-process TSGo WASM backend; deploy lifecycle semantics stay the same (`plts` API boundary remains the integration point).
 

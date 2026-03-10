@@ -13,7 +13,7 @@ use crate::{
     update_deployment_manifest,
 };
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct DeployExportOverride {
     function_path: String,
     module_path: String,
@@ -150,6 +150,24 @@ fn validate_deploy_export_coverage(
     ))
 }
 
+fn compatibility_export_defaults(fn_name: &str) -> DeployExportOverride {
+    DeployExportOverride {
+        function_path: format!("api.legacy.{fn_name}"),
+        module_path: "legacy".to_string(),
+        export_name: "default".to_string(),
+        kind: "mutation".to_string(),
+    }
+}
+
+fn resolve_export_metadata(
+    fn_name: &str,
+    override_meta: Option<&DeployExportOverride>,
+) -> DeployExportOverride {
+    // TS-first CLI deploys should supply explicit route metadata. These defaults only
+    // preserve extension-managed compatibility for legacy SQL-scan deploy paths.
+    override_meta.cloned().unwrap_or_else(|| compatibility_export_defaults(fn_name))
+}
+
 pub(crate) fn run_deploy_flow(
     deployment_id: i64,
     env: &str,
@@ -172,17 +190,7 @@ pub(crate) fn run_deploy_flow(
 
     for item in &fns {
         let override_meta = export_overrides.get(item.fn_name.as_str());
-        let function_path = override_meta
-            .map(|meta| meta.function_path.clone())
-            .unwrap_or_else(|| format!("api.legacy.{}", item.fn_name));
-        let module_path = override_meta
-            .map(|meta| meta.module_path.clone())
-            .unwrap_or_else(|| "legacy".to_string());
-        let export_name = override_meta
-            .map(|meta| meta.export_name.clone())
-            .unwrap_or_else(|| "default".to_string());
-        let kind =
-            override_meta.map(|meta| meta.kind.clone()).unwrap_or_else(|| "mutation".to_string());
+        let export_meta = resolve_export_metadata(item.fn_name.as_str(), override_meta);
         let compiler_opts = compiler_opts_for_export(override_meta);
 
         enforce_typescript_typecheck(item.prosrc.as_str(), item.fn_name.as_str(), &compiler_opts)?;
@@ -222,10 +230,10 @@ pub(crate) fn run_deploy_flow(
                 from_schema.into(),
                 live_schema.into(),
                 item.fn_name.as_str().into(),
-                function_path.as_str().into(),
-                module_path.as_str().into(),
-                export_name.as_str().into(),
-                kind.as_str().into(),
+                export_meta.function_path.as_str().into(),
+                export_meta.module_path.as_str().into(),
+                export_meta.export_name.as_str().into(),
+                export_meta.kind.as_str().into(),
                 artifact_hash.as_str().into(),
             ],
             "failed to insert stopgap.fn_version",
@@ -234,10 +242,10 @@ pub(crate) fn run_deploy_flow(
         deployed_functions.push(DeployedFunction {
             fn_name: item.fn_name.clone(),
             artifact_hash,
-            function_path,
-            module_path,
-            export_name,
-            kind,
+            function_path: export_meta.function_path,
+            module_path: export_meta.module_path,
+            export_name: export_meta.export_name,
+            kind: export_meta.kind,
         });
     }
 

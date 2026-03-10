@@ -608,12 +608,12 @@ Current progress snapshot:
 - `plts` now embeds a built `stopgap-tsgo-api` WASI artifact (`third_party/stopgap-tsgo-api/dist/stopgap-tsgo-api.wasm`) and DB-path validator/compile/typecheck flows execute without subprocess checker calls.
 - TSGo semantic diagnostics now include strict wrapper-arg misuse coverage for common `v` schema inference failures (for example `args.id.toUpperCase()` or `args['id'].toUpperCase()` when `id` is defined as `v.int()`).
 - stopgap deploy now passes per-function route metadata (`function_path`, `module_path`, `export_name`, `kind`) through `compiler_opts` so TSGo request payloads can include generated virtual declaration stubs for args/context metadata during typecheck/transpile.
-- `plts` compiler fingerprinting now derives from real dependency versions (`deno_ast`/`deno_core`) from workspace lock metadata
+- `plts` compiler fingerprinting now derives from active compiler inputs (`deno_core` plus the embedded TSGo WASM artifact identity) from workspace lock/build metadata
 - optional source-map persistence is now supported in `plts.artifact` when `compiler_opts.source_map=true`
 - basic arg conversion work has started
 - stopgap deploy now validates deployment status transitions (`open -> sealed -> active`, with failure paths)
 - stopgap deploy records function-level manifest metadata including artifact hashes and live pointer payloads
-- stopgap deploy now checks caller privileges for source/live schema access and compile API execution
+- stopgap deploy now checks caller privileges in two layers: supported TS-first workflow requirements (source-schema usage plus compile/typecheck API execution) and extension-managed compatibility-bridge ownership guards for live-schema wrappers
 - stopgap deploy/status/deployments SQL paths now bind runtime values with argumentized SPI calls
 - stopgap now exposes `stopgap.status(env)`, `stopgap.deployments(env)`, `stopgap.diff(...)`, and `stopgap.rollback(env, steps, to_id)` APIs; `stopgap.call_fn(path, args)` is the pivot target public invocation surface
 - stopgap now exposes `stopgap.activation_audit` and `stopgap.environment_overview` introspection views
@@ -708,7 +708,7 @@ Acceptance criteria:
 4.1) **Type environment**: checker must resolve `@stopgap/runtime` declarations (`.d.ts`) during both `plts` validation and stopgap deploy compile flows.
 4.2) **Compiler backend target**: use in-process TSGo WASM for semantic typecheck + transpile with no subprocesses in DB validator/compile/typecheck paths.
 - current adapter status: `third_party/stopgap-tsgo-api` ships the embedded WASI bridge used by `plts`, and both `typecheck` and `transpile` now run through real TSGo program/emit paths.
-- current transpile status: `plts.typecheck_ts`, `plts.compile_ts`, and `plts.compile_and_store` now route through embedded TSGo WASM by default. `deno_ast` remains only as an internal fallback if TSGo transpile invocation fails unexpectedly.
+- current transpile status: `plts.typecheck_ts`, `plts.compile_ts`, and `plts.compile_and_store` now route through embedded TSGo WASM with no alternate transpile backend in DB validator/compile/typecheck flows.
 5) **Function identity**: **forbid overloading** for stopgap-managed functions.
 6) **Regular `plts` args view**: expose **both positional and named/object forms**.
 7) **Entrypoint convention**:

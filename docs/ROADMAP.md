@@ -126,8 +126,8 @@ The sections below remain useful implementation history; active net-new product 
 - [x] Remove DB-path checker subprocess execution (`pnpm exec tsc`) from validator/compile/typecheck flows
 
 Progress note (iteration 22):
-- `plts` now includes a real TSGo WASM transpile path backed by `third_party/stopgap-tsgo-api` and shared WASI command execution plumbing, and default compile flow now routes through TSGo transpile with `deno_ast` retained only as an internal failure fallback.
-- transpile-mode TSGo now skips default lib loading plus non-syntactic diagnostics collection to cut avoidable compile overhead while the default-off gate remains in place.
+- `plts` now includes a real TSGo WASM transpile path backed by `third_party/stopgap-tsgo-api` and shared WASI command execution plumbing, and DB-path compile flow now routes through TSGo transpile only.
+- transpile-mode TSGo now skips default lib loading plus non-syntactic diagnostics collection to cut avoidable compile overhead while preserving emitted JS/source-map behavior.
 
 ### 2.6 DB API Surface (unfinished)
 

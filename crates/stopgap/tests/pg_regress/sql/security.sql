@@ -48,7 +48,7 @@ BEGIN
     EXCEPTION
         WHEN OTHERS THEN
             EXECUTE 'RESET SESSION AUTHORIZATION';
-            IF POSITION('lacks USAGE on source schema' IN SQLERRM) = 0 THEN
+            IF POSITION('TS-first deploy requires USAGE on source schema' IN SQLERRM) = 0 THEN
                 RAISE;
             END IF;
     END;
@@ -69,7 +69,7 @@ BEGIN
     EXCEPTION
         WHEN OTHERS THEN
             EXECUTE 'RESET SESSION AUTHORIZATION';
-            IF POSITION('live schema sg_reg_sec_unmanaged_live is owned by' IN SQLERRM) = 0 THEN
+            IF POSITION('compatibility live schema sg_reg_sec_unmanaged_live is owned by' IN SQLERRM) = 0 THEN
                 RAISE;
             END IF;
     END;
