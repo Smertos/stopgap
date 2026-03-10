@@ -72,7 +72,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.91.1
-        with:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -161,7 +160,6 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@1.91.1
-        with:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
