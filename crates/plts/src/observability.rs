@@ -1,6 +1,7 @@
 use pgrx::prelude::*;
 use serde_json::Value;
 use serde_json::json;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -33,6 +34,7 @@ static TSGO_WASM_CACHE_MANUAL_MISSES: AtomicU64 = AtomicU64::new(0);
 static TSGO_WASM_CACHE_FALLBACK_COMPILES: AtomicU64 = AtomicU64::new(0);
 static TSGO_WASM_CACHE_CONFIG_ERRORS: AtomicU64 = AtomicU64::new(0);
 static TSGO_WASM_CACHE_DESERIALIZE_ERRORS: AtomicU64 = AtomicU64::new(0);
+static LOG_LEVEL: OnceLock<LogLevel> = OnceLock::new();
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum LogLevel {
@@ -54,7 +56,7 @@ fn parse_log_level(raw: &str) -> LogLevel {
     }
 }
 
-fn current_log_level() -> LogLevel {
+fn read_log_level_from_spi() -> LogLevel {
     let raw = Spi::get_one::<String>(
         "SELECT COALESCE(current_setting('plts.log_level', true), 'warn')::text",
     )
@@ -64,14 +66,26 @@ fn current_log_level() -> LogLevel {
     parse_log_level(raw.as_str())
 }
 
+fn current_log_level() -> LogLevel {
+    *LOG_LEVEL.get_or_init(read_log_level_from_spi)
+}
+
+pub(crate) fn should_log_info() -> bool {
+    current_log_level() >= LogLevel::Info
+}
+
+pub(crate) fn should_log_warn() -> bool {
+    current_log_level() >= LogLevel::Warn
+}
+
 pub(crate) fn log_info(message: &str) {
-    if current_log_level() >= LogLevel::Info {
+    if should_log_info() {
         info!("{message}");
     }
 }
 
 pub(crate) fn log_warn(message: &str) {
-    if current_log_level() >= LogLevel::Warn {
+    if should_log_warn() {
         warning!("{message}");
     }
 }

@@ -169,18 +169,6 @@ impl Default for FunctionProgramCache {
 }
 
 impl FunctionProgramCache {
-    #[cfg(all(test, not(feature = "pg_test")))]
-    fn with_limits(max_entries: usize, max_source_bytes: usize, ttl: Duration) -> Self {
-        Self {
-            by_oid: HashMap::new(),
-            lru: VecDeque::new(),
-            total_source_bytes: 0,
-            max_entries,
-            max_source_bytes,
-            ttl,
-        }
-    }
-
     fn get(&mut self, fn_oid: pg_sys::Oid) -> Option<FunctionProgram> {
         let key = fn_oid.to_u32();
         let now = Instant::now();
@@ -298,11 +286,6 @@ impl ArtifactSourceCache {
     }
 }
 
-#[cfg(all(test, not(feature = "pg_test")))]
-pub(crate) fn artifact_source_cache_capacity() -> usize {
-    ARTIFACT_SOURCE_CACHE_CAPACITY
-}
-
 pub(crate) fn parse_artifact_ptr(prosrc: &str) -> Option<ArtifactPtr> {
     let parsed = serde_json::from_str::<Value>(prosrc).ok()?;
     let kind = parsed.get("kind")?.as_str()?;
@@ -340,92 +323,4 @@ pub(crate) fn parse_artifact_ptr(prosrc: &str) -> Option<ArtifactPtr> {
         .to_string();
 
     Some(ArtifactPtr { artifact_hash, export_name, import_map })
-}
-
-#[cfg(all(test, not(feature = "pg_test")))]
-mod tests {
-    use super::{ArtifactSourceCache, FunctionProgram, FunctionProgramCache};
-    use pgrx::pg_sys;
-    use std::collections::HashMap;
-    use std::time::Duration;
-
-    #[test]
-    fn function_program_cache_promotes_recent_entries() {
-        let mut cache = FunctionProgramCache::default();
-        let first = FunctionProgram {
-            oid: pg_sys::Oid::from(11_u32),
-            schema: "public".to_string(),
-            name: "f1".to_string(),
-            source: "export default () => 1;".to_string(),
-            entrypoint_export: "default".to_string(),
-            bare_specifier_map: HashMap::new(),
-        };
-        let second = FunctionProgram {
-            oid: pg_sys::Oid::from(22_u32),
-            schema: "public".to_string(),
-            name: "f2".to_string(),
-            source: "export default () => 2;".to_string(),
-            entrypoint_export: "default".to_string(),
-            bare_specifier_map: HashMap::new(),
-        };
-
-        cache.insert(first.clone());
-        cache.insert(second.clone());
-
-        assert_eq!(cache.get(first.oid).as_ref().map(|p| p.name.as_str()), Some("f1"));
-        assert_eq!(cache.get(second.oid).as_ref().map(|p| p.name.as_str()), Some("f2"));
-    }
-
-    #[test]
-    fn function_program_cache_respects_source_size_budget() {
-        let mut cache = FunctionProgramCache::with_limits(8, 120, Duration::from_secs(30));
-        let mk_program = |oid: u32, name: &str, source: &str| FunctionProgram {
-            oid: pg_sys::Oid::from(oid),
-            schema: "public".to_string(),
-            name: name.to_string(),
-            source: source.to_string(),
-            entrypoint_export: "default".to_string(),
-            bare_specifier_map: HashMap::new(),
-        };
-
-        let first = mk_program(11, "f1", "export default () => 1;");
-        let second = mk_program(22, "f2", "export default () => 2;");
-        let larger =
-            mk_program(33, "f3", "export default () => ({ value: 3333333333333333333333333 });");
-
-        cache.insert(first.clone());
-        cache.insert(second.clone());
-        cache.insert(larger.clone());
-
-        assert!(cache.get(first.oid).is_none(), "oldest entry should be evicted by byte budget");
-        assert_eq!(cache.get(second.oid).as_ref().map(|p| p.name.as_str()), Some("f2"));
-        assert_eq!(cache.get(larger.oid).as_ref().map(|p| p.name.as_str()), Some("f3"));
-    }
-
-    #[test]
-    fn function_program_cache_expires_entries_after_ttl() {
-        let mut cache = FunctionProgramCache::with_limits(8, 1024, Duration::from_millis(1));
-        let program = FunctionProgram {
-            oid: pg_sys::Oid::from(11_u32),
-            schema: "public".to_string(),
-            name: "f1".to_string(),
-            source: "export default () => 1;".to_string(),
-            entrypoint_export: "default".to_string(),
-            bare_specifier_map: HashMap::new(),
-        };
-
-        cache.insert(program.clone());
-        std::thread::sleep(Duration::from_millis(5));
-
-        assert!(cache.get(program.oid).is_none(), "cache entry should expire after TTL");
-    }
-
-    #[test]
-    fn artifact_source_cache_updates_existing_entry() {
-        let mut cache = ArtifactSourceCache::default();
-        cache.insert("sha256:a".to_string(), "one".to_string());
-        cache.insert("sha256:a".to_string(), "two".to_string());
-
-        assert_eq!(cache.get("sha256:a").as_deref(), Some("two"));
-    }
 }

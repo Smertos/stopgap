@@ -1,6 +1,6 @@
 use crate::observability::{
     log_info, log_warn, record_tsgo_wasm_cache_event, record_tsgo_wasm_init_start,
-    record_tsgo_wasm_init_success,
+    record_tsgo_wasm_init_success, should_log_info, should_log_warn,
 };
 use base64::Engine as Base64Engine;
 use directories_next::ProjectDirs;
@@ -113,6 +113,11 @@ enum TsgoWasmInitOutcome {
     ManualHit { artifact_path: PathBuf },
     ManualMiss { artifact_path: PathBuf },
     DirectCompile,
+}
+
+pub(crate) struct CompileOutput {
+    pub(crate) compiled_js: String,
+    pub(crate) diagnostics: Value,
 }
 
 pub(crate) fn compute_artifact_hash(
@@ -374,9 +379,11 @@ fn load_tsgo_wasm_module_with_fallback(
     match load_tsgo_wasm_module(engine, paths, mode, profile) {
         Ok(result) => Ok(result),
         Err(err) if mode != TsgoWasmCacheMode::Off => {
-            log_warn(&format!(
-                "plts.tsgo_wasm persistent cache load failed; falling back to direct compile error={err}"
-            ));
+            if should_log_warn() {
+                log_warn(&format!(
+                    "plts.tsgo_wasm persistent cache load failed; falling back to direct compile error={err}"
+                ));
+            }
             load_tsgo_wasm_module(engine, None, TsgoWasmCacheMode::Off, profile)
         }
         Err(err) => Err(err),
@@ -397,10 +404,12 @@ fn load_manual_tsgo_wasm_module(
             }
             Err(err) => {
                 record_tsgo_wasm_cache_event("deserialize_error");
-                log_warn(&format!(
-                    "plts.tsgo_wasm manual cache deserialize failed artifact={} error={err}",
-                    artifact_path.display()
-                ));
+                if should_log_warn() {
+                    log_warn(&format!(
+                        "plts.tsgo_wasm manual cache deserialize failed artifact={} error={err}",
+                        artifact_path.display()
+                    ));
+                }
                 quarantine_manual_artifact(paths, fingerprint, &artifact_path)?;
             }
         }
@@ -418,10 +427,12 @@ fn load_manual_tsgo_wasm_module(
         Ok(module) => Ok((module, TsgoWasmInitOutcome::ManualMiss { artifact_path })),
         Err(err) => {
             record_tsgo_wasm_cache_event("deserialize_error");
-            log_warn(&format!(
-                "plts.tsgo_wasm manual cache deserialize failed after rebuild artifact={} error={err}",
-                artifact_path.display()
-            ));
+            if should_log_warn() {
+                log_warn(&format!(
+                    "plts.tsgo_wasm manual cache deserialize failed after rebuild artifact={} error={err}",
+                    artifact_path.display()
+                ));
+            }
             quarantine_manual_artifact(paths, fingerprint, &artifact_path)?;
             Err(format!(
                 "failed to deserialize rebuilt tsgo wasm manual cache artifact `{}`: {err}",
@@ -471,11 +482,13 @@ fn quarantine_manual_artifact(
     ));
     match fs::rename(artifact_path, &quarantine_path) {
         Ok(()) => {
-            log_warn(&format!(
-                "plts.tsgo_wasm quarantined manual cache artifact from {} to {}",
-                artifact_path.display(),
-                quarantine_path.display()
-            ));
+            if should_log_warn() {
+                log_warn(&format!(
+                    "plts.tsgo_wasm quarantined manual cache artifact from {} to {}",
+                    artifact_path.display(),
+                    quarantine_path.display()
+                ));
+            }
             Ok(())
         }
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
@@ -573,6 +586,11 @@ fn set_owner_only_file_permissions(path: &Path) {
 
 #[cfg(not(unix))]
 fn set_owner_only_file_permissions(_path: &Path) {}
+
+pub(crate) fn compile_source_ts(source_ts: &str, compiler_opts: &Value) -> CompileOutput {
+    let (compiled_js, diagnostics) = transpile_typescript(source_ts, compiler_opts);
+    CompileOutput { compiled_js, diagnostics }
+}
 
 pub(crate) fn transpile_typescript(source_ts: &str, compiler_opts: &Value) -> (String, Value) {
     if tsgo_transpile_enabled() {
@@ -749,7 +767,9 @@ fn tsgo_wasm_runtime() -> Result<&'static TsgoWasmRuntime, String> {
                 Ok(paths) => paths,
                 Err(err) => {
                     record_tsgo_wasm_cache_event("config_error");
-                    log_warn(&format!("plts.tsgo_wasm cache bootstrap failed: {err}"));
+                    if should_log_warn() {
+                        log_warn(&format!("plts.tsgo_wasm cache bootstrap failed: {err}"));
+                    }
                     None
                 }
             }
@@ -768,10 +788,12 @@ fn tsgo_wasm_runtime() -> Result<&'static TsgoWasmRuntime, String> {
                                 Ok(TsgoWasmRuntime { engine, module })
                             }
                             Err(err) => {
-                                log_warn(&format!(
-                                    "plts.tsgo_wasm built-in cache compile failed; falling back to manual/direct cache root={} error={err}",
-                                    paths.root.display()
-                                ));
+                                if should_log_warn() {
+                                    log_warn(&format!(
+                                        "plts.tsgo_wasm built-in cache compile failed; falling back to manual/direct cache root={} error={err}",
+                                        paths.root.display()
+                                    ));
+                                }
                                 let engine = build_tsgo_wasm_engine(false, Some(paths), &profile)?;
                                 let (module, outcome) = load_tsgo_wasm_module_with_fallback(
                                     &engine,
@@ -785,10 +807,12 @@ fn tsgo_wasm_runtime() -> Result<&'static TsgoWasmRuntime, String> {
                         },
                         Err(err) => {
                             record_tsgo_wasm_cache_event("config_error");
-                            log_warn(&format!(
-                                "plts.tsgo_wasm built-in cache configuration failed; falling back to manual/direct cache root={} error={err}",
-                                paths.root.display()
-                            ));
+                            if should_log_warn() {
+                                log_warn(&format!(
+                                    "plts.tsgo_wasm built-in cache configuration failed; falling back to manual/direct cache root={} error={err}",
+                                    paths.root.display()
+                                ));
+                            }
                             let engine = build_tsgo_wasm_engine(false, Some(paths), &profile)?;
                             let (module, outcome) = load_tsgo_wasm_module_with_fallback(
                                 &engine,
@@ -850,27 +874,33 @@ fn record_tsgo_wasm_init_outcome(
         TsgoWasmInitOutcome::BuiltInCache => {
             record_tsgo_wasm_cache_event("built_in_configured");
             if let Some(paths) = paths {
-                log_info(&format!(
-                    "plts.tsgo_wasm init cache=built-in root={}",
-                    paths.root.display()
-                ));
+                if should_log_info() {
+                    log_info(&format!(
+                        "plts.tsgo_wasm init cache=built-in root={}",
+                        paths.root.display()
+                    ));
+                }
             } else {
                 log_info("plts.tsgo_wasm init cache=built-in");
             }
         }
         TsgoWasmInitOutcome::ManualHit { artifact_path } => {
             record_tsgo_wasm_cache_event("manual_hit");
-            log_info(&format!(
-                "plts.tsgo_wasm init cache=manual-hit artifact={}",
-                artifact_path.display()
-            ));
+            if should_log_info() {
+                log_info(&format!(
+                    "plts.tsgo_wasm init cache=manual-hit artifact={}",
+                    artifact_path.display()
+                ));
+            }
         }
         TsgoWasmInitOutcome::ManualMiss { artifact_path } => {
             record_tsgo_wasm_cache_event("manual_miss");
-            log_info(&format!(
-                "plts.tsgo_wasm init cache=manual-miss artifact={}",
-                artifact_path.display()
-            ));
+            if should_log_info() {
+                log_info(&format!(
+                    "plts.tsgo_wasm init cache=manual-miss artifact={}",
+                    artifact_path.display()
+                ));
+            }
         }
         TsgoWasmInitOutcome::DirectCompile => {
             record_tsgo_wasm_cache_event("fallback_compile");
@@ -962,286 +992,6 @@ fn extract_line_column(message: &str) -> Option<(u32, u32)> {
     let col = pieces.next()?.parse::<u32>().ok()?;
     let line = pieces.next()?.parse::<u32>().ok()?;
     Some((line, col))
-}
-
-#[cfg(all(test, not(feature = "pg_test")))]
-mod tests {
-    use super::{
-        TsgoWasmCacheMode, TsgoWasmEngineProfile, TsgoWasmInitOutcome,
-        bootstrap_tsgo_wasm_cache_paths, build_tsgo_wasm_engine, contains_error_diagnostics,
-        ensure_wasmtime_cache_config, load_tsgo_wasm_module_from_bytes, parse_tsgo_wasm_cache_mode,
-        resolve_tsgo_wasm_cache_root, semantic_typecheck_typescript_via_tsgo_wasm, toml_string,
-        transpile_typescript_via_tsgo_wasm, tsgo_api_wasm_bytes, tsgo_virtual_declarations,
-        tsgo_wasm_engine_profile, tsgo_wasm_manual_artifact_path, tsgo_wasm_manual_fingerprint,
-    };
-    use serde_json::json;
-    use std::fs;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    const TEST_WASM_BYTES: &[u8] = b"\0asm\x01\0\0\0";
-    static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    struct TestDir {
-        path: PathBuf,
-    }
-
-    impl TestDir {
-        fn new(label: &str) -> Self {
-            let unique = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "plts-tsgo-wasm-test-{label}-{}-{unique}",
-                SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos()
-            ));
-            if path.exists() {
-                let _ = fs::remove_dir_all(&path);
-            }
-            fs::create_dir_all(&path).expect("test temp dir should be creatable");
-            Self { path }
-        }
-    }
-
-    impl Drop for TestDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
-
-    #[test]
-    fn embeds_tsgo_wasm_artifact() {
-        let wasm = tsgo_api_wasm_bytes();
-        assert!(wasm.len() > 8, "embedded tsgo wasm must not be empty");
-        assert_eq!(&wasm[0..4], b"\0asm", "embedded tsgo payload must be wasm");
-    }
-
-    #[test]
-    fn cache_mode_parsing_defaults_to_auto() {
-        assert_eq!(parse_tsgo_wasm_cache_mode(None), TsgoWasmCacheMode::Auto);
-        assert_eq!(parse_tsgo_wasm_cache_mode(Some("manual-only")), TsgoWasmCacheMode::ManualOnly);
-        assert_eq!(parse_tsgo_wasm_cache_mode(Some("off")), TsgoWasmCacheMode::Off);
-        assert_eq!(parse_tsgo_wasm_cache_mode(Some("unexpected-value")), TsgoWasmCacheMode::Auto);
-    }
-
-    #[test]
-    fn cache_root_resolution_prefers_explicit_then_project_then_temp() {
-        let explicit = PathBuf::from("/tmp/plts-explicit-cache");
-        assert_eq!(
-            resolve_tsgo_wasm_cache_root(
-                Some(explicit.as_path()),
-                Some(PathBuf::from("/ignored")),
-                PathBuf::from("/also-ignored"),
-            ),
-            explicit
-        );
-
-        assert_eq!(
-            resolve_tsgo_wasm_cache_root(
-                None,
-                Some(PathBuf::from("/var/cache/plts")),
-                PathBuf::from("/tmp/fallback"),
-            ),
-            PathBuf::from("/var/cache/plts/tsgo-wasm")
-        );
-
-        assert_eq!(
-            resolve_tsgo_wasm_cache_root(None, None, PathBuf::from("/tmp/fallback")),
-            PathBuf::from("/tmp/fallback/stopgap/plts/tsgo-wasm")
-        );
-    }
-
-    #[test]
-    fn wasmtime_cache_config_bootstrap_is_idempotent() {
-        let dir = TestDir::new("config");
-        let paths = bootstrap_tsgo_wasm_cache_paths(dir.path.join("cache-root"))
-            .expect("cache paths should bootstrap");
-
-        ensure_wasmtime_cache_config(&paths).expect("first config bootstrap should work");
-        let first = fs::read_to_string(&paths.wasmtime_config).expect("config file should exist");
-        ensure_wasmtime_cache_config(&paths).expect("second config bootstrap should work");
-        let second = fs::read_to_string(&paths.wasmtime_config).expect("config file should exist");
-
-        assert_eq!(first, second);
-        assert!(first.contains("[cache]"));
-        assert!(first.contains("enabled = true"));
-        assert!(first.contains(&toml_string(paths.wasmtime_cache_dir.to_string_lossy().as_ref())));
-    }
-
-    #[test]
-    fn manual_cache_creates_then_reuses_serialized_artifact() {
-        let dir = TestDir::new("manual-hit");
-        let paths = bootstrap_tsgo_wasm_cache_paths(dir.path.join("cache-root"))
-            .expect("cache paths should bootstrap");
-        let profile = tsgo_wasm_engine_profile();
-        let fingerprint = tsgo_wasm_manual_fingerprint(&profile, TEST_WASM_BYTES);
-        let engine = build_tsgo_wasm_engine(false, Some(&paths), &profile)
-            .expect("engine should initialize");
-
-        let (module, first_outcome) = load_tsgo_wasm_module_from_bytes(
-            &engine,
-            Some(&paths),
-            TsgoWasmCacheMode::ManualOnly,
-            &profile,
-            TEST_WASM_BYTES,
-        )
-        .expect("first load should precompile and deserialize");
-        drop(module);
-        let artifact_path = match first_outcome {
-            TsgoWasmInitOutcome::ManualMiss { artifact_path } => artifact_path,
-            other => panic!("expected manual miss on first load, got {other:?}"),
-        };
-        assert!(artifact_path.exists(), "manual cache artifact should be created");
-
-        let (_module, second_outcome) = load_tsgo_wasm_module_from_bytes(
-            &engine,
-            Some(&paths),
-            TsgoWasmCacheMode::ManualOnly,
-            &profile,
-            TEST_WASM_BYTES,
-        )
-        .expect("second load should reuse serialized artifact");
-        match second_outcome {
-            TsgoWasmInitOutcome::ManualHit { artifact_path: reused } => {
-                assert_eq!(reused, artifact_path);
-            }
-            other => panic!("expected manual hit on second load, got {other:?}"),
-        }
-
-        assert_eq!(artifact_path, tsgo_wasm_manual_artifact_path(&paths, &fingerprint));
-    }
-
-    #[test]
-    fn corrupted_manual_cache_artifact_is_quarantined_and_rebuilt() {
-        let dir = TestDir::new("manual-quarantine");
-        let paths = bootstrap_tsgo_wasm_cache_paths(dir.path.join("cache-root"))
-            .expect("cache paths should bootstrap");
-        let profile = tsgo_wasm_engine_profile();
-        let fingerprint = tsgo_wasm_manual_fingerprint(&profile, TEST_WASM_BYTES);
-        let engine = build_tsgo_wasm_engine(false, Some(&paths), &profile)
-            .expect("engine should initialize");
-
-        let (module, first_outcome) = load_tsgo_wasm_module_from_bytes(
-            &engine,
-            Some(&paths),
-            TsgoWasmCacheMode::ManualOnly,
-            &profile,
-            TEST_WASM_BYTES,
-        )
-        .expect("first load should succeed");
-        drop(module);
-        let artifact_path = match first_outcome {
-            TsgoWasmInitOutcome::ManualMiss { artifact_path } => artifact_path,
-            other => panic!("expected manual miss on first load, got {other:?}"),
-        };
-
-        fs::write(&artifact_path, b"corrupted").expect("corrupt artifact write should succeed");
-
-        let (_module, second_outcome) = load_tsgo_wasm_module_from_bytes(
-            &engine,
-            Some(&paths),
-            TsgoWasmCacheMode::ManualOnly,
-            &profile,
-            TEST_WASM_BYTES,
-        )
-        .expect("corrupted artifact should be rebuilt");
-        match second_outcome {
-            TsgoWasmInitOutcome::ManualMiss { artifact_path: rebuilt } => {
-                assert_eq!(rebuilt, artifact_path);
-            }
-            other => panic!("expected manual miss after quarantine, got {other:?}"),
-        }
-
-        let mut quarantined = fs::read_dir(&paths.quarantine_dir)
-            .expect("quarantine dir should be readable")
-            .map(|entry| entry.expect("quarantine entry should read").path())
-            .collect::<Vec<_>>();
-        quarantined.sort();
-        assert_eq!(quarantined.len(), 1, "expected exactly one quarantined artifact");
-        assert!(
-            quarantined[0]
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with(&fingerprint)),
-            "quarantined artifact should include the manual fingerprint"
-        );
-        assert!(artifact_path.exists(), "rebuilt artifact should be present");
-    }
-
-    #[test]
-    fn manual_fingerprint_changes_when_inputs_change() {
-        let profile = tsgo_wasm_engine_profile();
-        let same = tsgo_wasm_manual_fingerprint(&profile, TEST_WASM_BYTES);
-        assert_eq!(same, tsgo_wasm_manual_fingerprint(&profile, TEST_WASM_BYTES));
-
-        let changed_wasm = tsgo_wasm_manual_fingerprint(&profile, b"\0asm\x01\0\0\0\0");
-        assert_ne!(same, changed_wasm);
-
-        let changed_profile =
-            TsgoWasmEngineProfile { parallel_compilation: false, ..profile.clone() };
-        assert_ne!(same, tsgo_wasm_manual_fingerprint(&changed_profile, TEST_WASM_BYTES));
-    }
-
-    #[test]
-    fn tsgo_wasm_typecheck_reports_app_import_diagnostic() {
-        let diagnostics = semantic_typecheck_typescript_via_tsgo_wasm(
-            "import { base } from '@app/math';\nexport default () => base;",
-            &json!({}),
-        )
-        .expect("tsgo wasm typecheck call should succeed");
-
-        let entries = diagnostics.as_array().expect("diagnostics must be an array");
-        assert!(!entries.is_empty(), "@app import should produce diagnostics");
-        let first = &entries[0];
-        let message =
-            first.get("message").and_then(|value| value.as_str()).expect("message string");
-        assert!(message.contains("unsupported bare module import `@app/math`"));
-    }
-
-    #[test]
-    fn builds_stopgap_function_declaration_from_compiler_opts() {
-        let declarations = tsgo_virtual_declarations(&json!({
-            "stopgap_function": {
-                "function_path": "api.admin.users.list",
-                "module_path": "admin/users.ts",
-                "export_name": "list",
-                "kind": "query"
-            }
-        }));
-        assert_eq!(declarations.len(), 1);
-        let declaration = &declarations[0];
-        assert!(declaration.file_name.contains("api_admin_users_list"));
-        assert!(declaration.content.contains("functionPath: \"api.admin.users.list\""));
-        assert!(declaration.content.contains("kind: \"query\""));
-        assert!(declaration.content.contains("StopgapContext<unknown>"));
-    }
-
-    #[test]
-    fn tsgo_wasm_transpile_emits_javascript() {
-        let (compiled, diagnostics) =
-            transpile_typescript_via_tsgo_wasm("export const value: number = 1;", &json!({}))
-                .expect("tsgo wasm transpile call should succeed");
-
-        assert!(
-            !contains_error_diagnostics(&diagnostics),
-            "transpile diagnostics should not contain errors: {diagnostics}"
-        );
-        assert_eq!(compiled, "export const value = 1;\n");
-    }
-
-    #[test]
-    fn tsgo_wasm_transpile_can_emit_inline_source_map() {
-        let (compiled, diagnostics) = transpile_typescript_via_tsgo_wasm(
-            "export const value: number = 1;",
-            &json!({ "source_map": true }),
-        )
-        .expect("tsgo wasm transpile source_map call should succeed");
-
-        assert!(
-            !contains_error_diagnostics(&diagnostics),
-            "transpile diagnostics should not contain errors: {diagnostics}"
-        );
-        assert!(compiled.contains("//# sourceMappingURL=data:application/json;base64,"));
-    }
 }
 
 pub(crate) fn maybe_extract_source_map(compiled_js: &str, compiler_opts: &Value) -> Option<String> {

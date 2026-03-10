@@ -1,10 +1,10 @@
 use crate::compiler::{
-    compiler_fingerprint, compute_artifact_hash, contains_error_diagnostics,
-    maybe_extract_source_map, semantic_typecheck_typescript, transpile_typescript,
+    compile_source_ts, compiler_fingerprint, compute_artifact_hash, contains_error_diagnostics,
+    maybe_extract_source_map, semantic_typecheck_typescript,
 };
 use crate::observability::{
     classify_compile_error, log_info, log_warn, metrics_json, record_compile_error,
-    record_compile_start, record_compile_success,
+    record_compile_start, record_compile_success, should_log_info,
 };
 use common::sql::quote_literal;
 use pgrx::JsonB;
@@ -37,8 +37,12 @@ mod plts {
             name!(compiler_fingerprint, String),
         ),
     > {
-        let (compiled_js, diagnostics) = transpile_typescript(source_ts, &compiler_opts.0);
-        TableIterator::once((compiled_js, JsonB(diagnostics), compiler_fingerprint().to_string()))
+        let compiled = compile_source_ts(source_ts, &compiler_opts.0);
+        TableIterator::once((
+            compiled.compiled_js,
+            JsonB(compiled.diagnostics),
+            compiler_fingerprint().to_string(),
+        ))
     }
 
     #[pg_extern]
@@ -95,23 +99,23 @@ mod plts {
         let started_at = record_compile_start();
         log_info("plts.compile_and_store start");
         let opts = compiler_opts.0;
-        let mut rows = compile_ts(source_ts, JsonB(opts.clone()));
-        let (compiled_js, diagnostics, _compiler_fingerprint) =
-            rows.next().expect("compile_ts must always return one row");
+        let compiled = compile_source_ts(source_ts, &opts);
 
-        if contains_error_diagnostics(&diagnostics.0) {
+        if contains_error_diagnostics(&compiled.diagnostics) {
             let error_message = format!(
                 "plts.compile_and_store aborted due to TypeScript diagnostics: {}",
-                diagnostics.0
+                compiled.diagnostics
             );
             record_compile_error(started_at, classify_compile_error(error_message.as_str()));
             log_warn("plts.compile_and_store failed due to diagnostics");
             error!("{error_message}");
         }
 
-        let artifact_hash = upsert_artifact(source_ts, &compiled_js, JsonB(opts));
+        let artifact_hash = upsert_artifact(source_ts, &compiled.compiled_js, JsonB(opts));
         record_compile_success(started_at);
-        log_info(&format!("plts.compile_and_store success artifact_hash={artifact_hash}"));
+        if should_log_info() {
+            log_info(&format!("plts.compile_and_store success artifact_hash={artifact_hash}"));
+        }
         artifact_hash
     }
 
