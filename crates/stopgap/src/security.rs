@@ -32,27 +32,27 @@ fn ensure_supported_deploy_workflow_permissions(from_schema: &str) -> Result<(),
     }
 
     let can_execute_compile = Spi::get_one::<bool>(
-        "SELECT has_function_privilege(session_user, 'plts.compile_and_store(text, jsonb)', 'EXECUTE')",
+        "SELECT has_function_privilege(session_user, 'plts.compile_ts_checked(text, jsonb)', 'EXECUTE')",
     )
-    .map_err(|e| format!("failed to check plts.compile_and_store execute privilege: {e}"))?
+    .map_err(|e| format!("failed to check plts.compile_ts_checked execute privilege: {e}"))?
     .unwrap_or(false);
 
     if !can_execute_compile {
         return Err(
-            "permission denied for stopgap deploy: TS-first deploy requires EXECUTE on plts.compile_and_store(text, jsonb)"
+            "permission denied for stopgap deploy: TS-first deploy requires EXECUTE on plts.compile_ts_checked(text, jsonb)"
                 .to_string(),
         );
     }
 
-    let can_execute_typecheck = Spi::get_one::<bool>(
-        "SELECT has_function_privilege(session_user, 'plts.typecheck_ts(text, jsonb)', 'EXECUTE')",
+    let can_execute_upsert = Spi::get_one::<bool>(
+        "SELECT has_function_privilege(session_user, 'plts.upsert_artifact(text, text, jsonb)', 'EXECUTE')",
     )
-    .map_err(|e| format!("failed to check plts.typecheck_ts execute privilege: {e}"))?
+    .map_err(|e| format!("failed to check plts.upsert_artifact execute privilege: {e}"))?
     .unwrap_or(false);
 
-    if !can_execute_typecheck {
+    if !can_execute_upsert {
         return Err(
-            "permission denied for stopgap deploy: TS-first deploy requires EXECUTE on plts.typecheck_ts(text, jsonb)"
+            "permission denied for stopgap deploy: TS-first deploy requires EXECUTE on plts.upsert_artifact(text, text, jsonb)"
                 .to_string(),
         );
     }

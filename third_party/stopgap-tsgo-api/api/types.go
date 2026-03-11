@@ -8,6 +8,12 @@ type Diagnostic struct {
 	Column   *int   `json:"column,omitempty"`
 }
 
+const (
+	OperationTypecheck      = "typecheck"
+	OperationTranspile      = "transpile"
+	OperationCompileChecked = "compile_checked"
+)
+
 type VirtualDeclaration struct {
 	FileName string `json:"file_name"`
 	Content  string `json:"content"`
@@ -29,6 +35,19 @@ type TranspileRequest struct {
 }
 
 type TranspileResponse struct {
+	CompiledJS  string       `json:"compiled_js"`
+	Diagnostics []Diagnostic `json:"diagnostics"`
+	Backend     string       `json:"backend"`
+}
+
+type RequestEnvelope struct {
+	Operation    string               `json:"operation"`
+	SourceTS     string               `json:"source_ts"`
+	SourceMap    bool                 `json:"source_map,omitempty"`
+	Declarations []VirtualDeclaration `json:"declarations,omitempty"`
+}
+
+type ResponseEnvelope struct {
 	CompiledJS  string       `json:"compiled_js"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
 	Backend     string       `json:"backend"`

@@ -30,6 +30,48 @@ type unsupportedAppImport struct {
 	column    int
 }
 
+func HandleRequest(req RequestEnvelope) ResponseEnvelope {
+	switch req.Operation {
+	case OperationTypecheck:
+		result := Typecheck(TypecheckRequest{
+			SourceTS:     req.SourceTS,
+			Declarations: req.Declarations,
+		})
+		return ResponseEnvelope{Diagnostics: result.Diagnostics, Backend: "typescript-go"}
+	case OperationTranspile:
+		result := Transpile(TranspileRequest{
+			SourceTS:     req.SourceTS,
+			SourceMap:    req.SourceMap,
+			Declarations: req.Declarations,
+		})
+		return ResponseEnvelope{
+			CompiledJS:  result.CompiledJS,
+			Diagnostics: result.Diagnostics,
+			Backend:     result.Backend,
+		}
+	case OperationCompileChecked:
+		result := CompileChecked(TranspileRequest{
+			SourceTS:     req.SourceTS,
+			SourceMap:    req.SourceMap,
+			Declarations: req.Declarations,
+		})
+		return ResponseEnvelope{
+			CompiledJS:  result.CompiledJS,
+			Diagnostics: result.Diagnostics,
+			Backend:     result.Backend,
+		}
+	default:
+		return ResponseEnvelope{
+			Diagnostics: []Diagnostic{{
+				Severity: "error",
+				Phase:    "protocol",
+				Message:  fmt.Sprintf("unknown operation %q; expected typecheck, transpile, or compile_checked", req.Operation),
+			}},
+			Backend: "typescript-go",
+		}
+	}
+}
+
 func Typecheck(req TypecheckRequest) TypecheckResponse {
 	if strings.TrimSpace(req.SourceTS) == "" {
 		return TypecheckResponse{Diagnostics: []Diagnostic{}}
@@ -89,6 +131,61 @@ func Transpile(req TranspileRequest) TranspileResponse {
 	}
 }
 
+func CompileChecked(req TranspileRequest) TranspileResponse {
+	if strings.TrimSpace(req.SourceTS) == "" {
+		return TranspileResponse{CompiledJS: "", Diagnostics: []Diagnostic{}, Backend: "typescript-go"}
+	}
+
+	program, entryFile, buildErr := buildCompileCheckedProgram(req)
+	if buildErr != nil {
+		return TranspileResponse{
+			CompiledJS: "",
+			Diagnostics: []Diagnostic{{
+				Severity: "error",
+				Phase:    "semantic",
+				Message:  buildErr.Error(),
+			}},
+			Backend: "typescript-go",
+		}
+	}
+
+	ctx := context.Background()
+	diagnostics := collectTypecheckDiagnostics(ctx, program, entryFile)
+	if diagnosticsContainErrors(diagnostics) {
+		return TranspileResponse{
+			CompiledJS:  "",
+			Diagnostics: diagnostics,
+			Backend:     "typescript-go",
+		}
+	}
+
+	compiledJS := ""
+	emitResult := program.Emit(ctx, compiler.EmitOptions{
+		TargetSourceFile: entryFile,
+		WriteFile: func(fileName string, text string, _ bool, _ *compiler.WriteFileData) error {
+			if strings.HasSuffix(fileName, ".js") {
+				compiledJS = text
+			}
+			return nil
+		},
+	})
+
+	emitDiagnostics := encodeDiagnostics(
+		compiler.SortAndDeduplicateDiagnostics(emitResult.Diagnostics),
+		"transpile",
+	)
+	diagnostics = dedupeDiagnostics(append(diagnostics, emitDiagnostics...))
+	if diagnosticsContainErrors(diagnostics) {
+		compiledJS = ""
+	}
+
+	return TranspileResponse{
+		CompiledJS:  compiledJS,
+		Diagnostics: diagnostics,
+		Backend:     "typescript-go",
+	}
+}
+
 func buildTypecheckProgram(req TypecheckRequest) (*compiler.Program, *ast.SourceFile, error) {
 	return buildProgram(req.SourceTS, req.Declarations, typecheckCompilerOptions())
 }
@@ -106,6 +203,20 @@ func buildTranspileProgram(req TranspileRequest) (*compiler.Program, *ast.Source
 		OutDir:           transpileOutDir,
 		RootDir:          transpileRootDir,
 	}
+	if req.SourceMap {
+		compilerOptions.InlineSourceMap = core.TSTrue
+		compilerOptions.InlineSources = core.TSTrue
+	}
+
+	return buildProgram(req.SourceTS, req.Declarations, compilerOptions)
+}
+
+func buildCompileCheckedProgram(req TranspileRequest) (*compiler.Program, *ast.SourceFile, error) {
+	compilerOptions := typecheckCompilerOptions()
+	compilerOptions.NoEmit = core.TSFalse
+	compilerOptions.NoEmitOnError = core.TSTrue
+	compilerOptions.OutDir = transpileOutDir
+	compilerOptions.RootDir = transpileRootDir
 	if req.SourceMap {
 		compilerOptions.InlineSourceMap = core.TSTrue
 		compilerOptions.InlineSources = core.TSTrue
@@ -340,6 +451,15 @@ func dedupeDiagnostics(diagnostics []Diagnostic) []Diagnostic {
 		deduped = append(deduped, diagnostic)
 	}
 	return deduped
+}
+
+func diagnosticsContainErrors(diagnostics []Diagnostic) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Severity == "error" {
+			return true
+		}
+	}
+	return false
 }
 
 func encodeDiagnostics(diags []*ast.Diagnostic, phase string) []Diagnostic {

@@ -44,7 +44,19 @@ cargo check
 - The validator enforces semantic TypeScript checks; fix reported diagnostics first.
 - If errors mention checker/transpiler execution, confirm runtime package dependencies are installed (`pnpm --dir packages/runtime install --frozen-lockfile`) and retry.
 - Use `SELECT plts.typecheck_ts($$...$$);` to inspect diagnostics directly before deploy.
+- For single-pass checked compile behavior, use `SELECT * FROM plts.compile_ts_checked($$...$$);`.
 - Typecheck/transpile internals already run through embedded TSGo WASM; failures here usually mean bad source input, TSGo runtime/cache issues, or local build-tooling setup problems.
+
+## `plts compiler service unavailable`
+
+- Compile/typecheck SQL APIs now require `shared_preload_libraries = 'plts'`.
+- If you see `plts compiler service unavailable: plts must be loaded via shared_preload_libraries and PostgreSQL must be restarted`, add:
+
+```conf
+shared_preload_libraries = 'plts'
+```
+
+- Then restart PostgreSQL before retrying the compile/typecheck path.
 
 ## `pnpm` is installed, but Cargo/build.rs still says it is missing
 

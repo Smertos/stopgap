@@ -6,6 +6,7 @@ Status note (Mar 2026): user-facing product workflow is being course-corrected t
 
 Compiler backend note: `plts` typecheck and default transpile now run through the embedded TSGo WASM backend. Rust builds still depend on runtime package build tooling because `crates/plts/build.rs` refreshes the embedded `@stopgap/runtime` artifact from `packages/runtime`.
 PATH note: the build script invokes `pnpm` non-interactively, so `pnpm` must be available on `PATH` for non-interactive/build-tool shells as well as your normal interactive terminal.
+Preload note: compile/typecheck SQL APIs now require `shared_preload_libraries = 'plts'` because the TSGo compiler runs in a shared background worker with a persistent Wasm reactor.
 
 ## Prerequisites
 
@@ -27,6 +28,12 @@ git submodule update --init --recursive
 
 ```bash
 cargo pgrx init
+```
+
+Make sure the generated test/dev Postgres config includes:
+
+```conf
+shared_preload_libraries = 'plts'
 ```
 
 3. Build workspace dependencies:

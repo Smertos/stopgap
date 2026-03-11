@@ -114,7 +114,7 @@ Near-term structure direction:
 
 ### Runtime/config
 - `plts.version() -> text`
-- `plts.metrics() -> jsonb` (backend-process counters for compile/execute calls + errors, latency aggregates, and error-class buckets)
+- `plts.metrics() -> jsonb` (backend-process counters for compile/execute calls, shared compiler-service queue/reactor state, latency aggregates, and error-class buckets)
 - GUCs (implemented):
   - `plts.max_runtime_ms`
   - `plts.max_heap_mb`
@@ -128,6 +128,8 @@ Near-term structure direction:
 You want a **stable SQL API** stopgap can call:
 
 - `plts.compile_ts(source_ts text, compiler_opts jsonb default '{}'::jsonb)`
+  - returns: `(compiled_js text, diagnostics jsonb, compiler_fingerprint text)`
+- `plts.compile_ts_checked(source_ts text, compiler_opts jsonb default '{}'::jsonb)`
   - returns: `(compiled_js text, diagnostics jsonb, compiler_fingerprint text)`
 - `plts.typecheck_ts(source_ts text, compiler_opts jsonb default '{}'::jsonb)`
   - returns: `diagnostics jsonb`

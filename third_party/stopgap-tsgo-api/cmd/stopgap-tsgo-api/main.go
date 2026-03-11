@@ -11,7 +11,7 @@ import (
 
 func main() {
 	if len(os.Args) != 2 {
-		fail("usage: stopgap-tsgo-api <typecheck|transpile>")
+		fail("usage: stopgap-tsgo-api <typecheck|transpile|compile_checked>")
 	}
 
 	raw, err := io.ReadAll(os.Stdin)
@@ -32,8 +32,14 @@ func main() {
 			fail("failed to decode transpile request: %v", err)
 		}
 		writeJSON(api.Transpile(req))
+	case "compile_checked":
+		var req api.TranspileRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			fail("failed to decode compile_checked request: %v", err)
+		}
+		writeJSON(api.CompileChecked(req))
 	default:
-		fail("unknown command %q; expected typecheck or transpile", os.Args[1])
+		fail("unknown command %q; expected typecheck, transpile, or compile_checked", os.Args[1])
 	}
 }
 

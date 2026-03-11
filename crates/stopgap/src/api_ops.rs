@@ -192,20 +192,11 @@ pub(crate) fn run_deploy_flow(
         let override_meta = export_overrides.get(item.fn_name.as_str());
         let export_meta = resolve_export_metadata(item.fn_name.as_str(), override_meta);
         let compiler_opts = compiler_opts_for_export(override_meta);
-
-        enforce_typescript_typecheck(item.prosrc.as_str(), item.fn_name.as_str(), &compiler_opts)?;
-
-        let artifact_hash = Spi::get_one_with_args::<String>(
-            "SELECT plts.compile_and_store($1::text, $2::jsonb)",
-            &[item.prosrc.as_str().into(), JsonB(compiler_opts.clone()).into()],
-        )
-        .map_err(|e| format!("compile_and_store SPI error for {}: {e}", item.fn_name))?
-        .ok_or_else(|| {
-            format!(
-                "compile_and_store returned no artifact hash for {}.{}",
-                from_schema, item.fn_name
-            )
-        })?;
+        let artifact_hash = compile_checked_artifact_hash(
+            item.prosrc.as_str(),
+            item.fn_name.as_str(),
+            &compiler_opts,
+        )?;
 
         run_sql_with_args(
             "
@@ -463,45 +454,46 @@ fn compile_candidate_functions(from_schema: &str) -> Result<Vec<CandidateFn>, St
 
     for item in deployables {
         let compiler_opts = json!({});
-        enforce_typescript_typecheck(item.prosrc.as_str(), item.fn_name.as_str(), &compiler_opts)?;
-
-        let artifact_hash = Spi::get_one_with_args::<String>(
-            "SELECT plts.compile_and_store($1::text, $2::jsonb)",
-            &[item.prosrc.as_str().into(), JsonB(compiler_opts).into()],
-        )
-        .map_err(|e| format!("compile_and_store SPI error for {}: {e}", item.fn_name))?
-        .ok_or_else(|| {
-            format!(
-                "compile_and_store returned no artifact hash for {}.{}",
-                from_schema, item.fn_name
-            )
-        })?;
+        let artifact_hash = compile_checked_artifact_hash(
+            item.prosrc.as_str(),
+            item.fn_name.as_str(),
+            &compiler_opts,
+        )?;
         out.push(CandidateFn { fn_name: item.fn_name, artifact_hash });
     }
 
     Ok(out)
 }
 
-fn enforce_typescript_typecheck(
+fn compile_checked_artifact_hash(
     source_ts: &str,
     fn_name: &str,
     compiler_opts: &Value,
-) -> Result<(), String> {
-    let diagnostics = Spi::get_one_with_args::<JsonB>(
-        "SELECT plts.typecheck_ts($1::text, $2::jsonb)",
+) -> Result<String, String> {
+    let compiled_row = Spi::get_one_with_args::<JsonB>(
+        "SELECT to_jsonb(t) FROM plts.compile_ts_checked($1::text, $2::jsonb) AS t",
         &[source_ts.into(), JsonB(compiler_opts.clone()).into()],
     )
-    .map_err(|e| format!("typecheck_ts SPI error for {fn_name}: {e}"))?
+    .map_err(|e| format!("compile_ts_checked SPI error for {fn_name}: {e}"))?
     .map(|value| value.0)
-    .unwrap_or_else(|| json!([]));
+    .ok_or_else(|| format!("compile_ts_checked returned no row for {fn_name}"))?;
+
+    let compiled_js =
+        compiled_row.get("compiled_js").and_then(Value::as_str).unwrap_or_default().to_string();
+    let diagnostics = compiled_row.get("diagnostics").cloned().unwrap_or_else(|| json!([]));
 
     let has_error = diagnostics.as_array().is_some_and(|items| {
         items.iter().any(|entry| entry.get("severity").and_then(Value::as_str) == Some("error"))
     });
 
     if has_error {
-        return Err(format!("TypeScript typecheck failed for {}: {}", fn_name, diagnostics));
+        return Err(format!("TypeScript checked compile failed for {}: {}", fn_name, diagnostics));
     }
 
-    Ok(())
+    Spi::get_one_with_args::<String>(
+        "SELECT plts.upsert_artifact($1::text, $2::text, $3::jsonb)",
+        &[source_ts.into(), compiled_js.into(), JsonB(compiler_opts.clone()).into()],
+    )
+    .map_err(|e| format!("upsert_artifact SPI error for {fn_name}: {e}"))?
+    .ok_or_else(|| format!("upsert_artifact returned no artifact hash for {fn_name}"))
 }

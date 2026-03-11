@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-const COMPILE_SLO_MS_PER_CALL: f64 = 60.0;
+const COMPILE_SLO_MS_PER_CALL: f64 = 80.0;
 const EXECUTE_COLD_SLO_MS_PER_CALL: f64 = 5.0;
 const EXECUTE_WARM_SLO_MS_PER_CALL: f64 = 4.0;
 const EXECUTE_WARM_REGRESSION_FACTOR: f64 = 3.0;

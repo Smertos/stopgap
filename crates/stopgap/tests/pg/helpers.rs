@@ -39,11 +39,45 @@ fn ensure_mock_plts_runtime() {
         END;
         $$;
 
+        CREATE OR REPLACE FUNCTION plts.compile_ts_checked(
+            source_ts text,
+            compiler_opts jsonb DEFAULT '{}'::jsonb
+        )
+        RETURNS TABLE(compiled_js text, diagnostics jsonb, compiler_fingerprint text)
+        LANGUAGE sql
+        AS $$
+            SELECT source_ts, '[]'::jsonb, 'mock-fingerprint'
+        $$;
+
         CREATE OR REPLACE FUNCTION plts.typecheck_ts(source_ts text, compiler_opts jsonb DEFAULT '{}'::jsonb)
         RETURNS jsonb
         LANGUAGE sql
         AS $$
             SELECT '[]'::jsonb
+        $$;
+
+        CREATE OR REPLACE FUNCTION plts.upsert_artifact(
+            source_ts text,
+            compiled_js text,
+            compiler_opts jsonb DEFAULT '{}'::jsonb
+        )
+        RETURNS text
+        LANGUAGE plpgsql
+        AS $$
+        DECLARE
+            hash text;
+        BEGIN
+            hash := 'sha256:' || md5(COALESCE(source_ts, '') || COALESCE(compiler_opts::text, ''));
+
+            INSERT INTO plts.artifact(artifact_hash, source_ts, compiled_js, compiler_opts)
+            VALUES (hash, source_ts, compiled_js, compiler_opts)
+            ON CONFLICT (artifact_hash) DO UPDATE
+            SET source_ts = EXCLUDED.source_ts,
+                compiled_js = EXCLUDED.compiled_js,
+                compiler_opts = EXCLUDED.compiler_opts;
+
+            RETURN hash;
+        END;
         $$;
         ",
     )

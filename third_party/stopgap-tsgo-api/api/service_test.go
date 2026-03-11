@@ -186,6 +186,39 @@ func TestTranspileSupportsInlineSourceMaps(t *testing.T) {
 	}
 }
 
+func TestCompileCheckedBlocksEmitOnSemanticErrors(t *testing.T) {
+	result := CompileChecked(TranspileRequest{
+		SourceTS: "import { query, v } from '@stopgap/runtime';\n" +
+			"export default query(v.object({ id: v.int() }), async (args, _ctx) => {\n" +
+			"  return { bad: args.id.toUpperCase() };\n" +
+			"});\n",
+		Declarations: runtimeDeclarations(),
+	})
+	if result.CompiledJS != "" {
+		t.Fatalf("expected checked compile to suppress JS emit on semantic errors, got %q", result.CompiledJS)
+	}
+	if len(result.Diagnostics) == 0 {
+		t.Fatalf("expected semantic diagnostics from checked compile")
+	}
+}
+
+func TestHandleRequestRoutesCompileCheckedEnvelope(t *testing.T) {
+	result := HandleRequest(RequestEnvelope{
+		Operation:    OperationCompileChecked,
+		SourceTS:     "export const value: number = 1;",
+		Declarations: runtimeDeclarations(),
+	})
+	if result.Backend != "typescript-go" {
+		t.Fatalf("unexpected backend: %s", result.Backend)
+	}
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("unexpected diagnostics: %+v", result.Diagnostics)
+	}
+	if result.CompiledJS == "" {
+		t.Fatalf("expected compile_checked envelope to emit JS for valid input")
+	}
+}
+
 func TestTranspilePreservesBareImportsWithoutResolutionErrors(t *testing.T) {
 	result := Transpile(TranspileRequest{
 		SourceTS:     "import { query } from '@stopgap/runtime';\nexport default query(async () => null);\n",

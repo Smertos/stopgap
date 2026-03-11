@@ -1,4 +1,5 @@
 use pgrx::GucSetting;
+use pgrx::pg_sys;
 use pgrx::prelude::*;
 #[cfg(not(test))]
 use pgrx::{GucContext, GucFlags, GucRegistry};
@@ -8,6 +9,7 @@ mod arg_mapping;
 mod compiler;
 #[cfg(test)]
 mod compiler_core;
+mod compiler_service;
 mod function_program;
 #[cfg(test)]
 mod function_program_core;
@@ -25,11 +27,15 @@ pub(crate) static ISOLATE_REUSE_GUC: GucSetting<bool> = GucSetting::<bool>::new(
 pub(crate) static ISOLATE_POOL_SIZE_GUC: GucSetting<i32> = GucSetting::<i32>::new(2);
 pub(crate) static ISOLATE_MAX_AGE_S_GUC: GucSetting<i32> = GucSetting::<i32>::new(120);
 pub(crate) static ISOLATE_MAX_INVOCATIONS_GUC: GucSetting<i32> = GucSetting::<i32>::new(250);
+pub(crate) static COMPILER_REACTOR_MAX_REQUESTS_GUC: GucSetting<i32> = GucSetting::<i32>::new(1000);
+pub(crate) static COMPILER_REACTOR_MAX_AGE_S_GUC: GucSetting<i32> = GucSetting::<i32>::new(300);
+pub(crate) static COMPILER_REQUEST_TIMEOUT_MS_GUC: GucSetting<i32> = GucSetting::<i32>::new(30_000);
 
 #[cfg(not(test))]
 #[allow(non_snake_case)]
 #[pg_guard]
 pub extern "C-unwind" fn _PG_init() {
+    let preloading = unsafe { pg_sys::process_shared_preload_libraries_in_progress };
     GucRegistry::define_bool_guc(
         c"plts.isolate_reuse",
         c"Enable backend-local pooled runtime reuse for the V8 runtime.",
@@ -68,7 +74,43 @@ pub extern "C-unwind" fn _PG_init() {
         GucContext::Userset,
         GucFlags::default(),
     );
-    runtime::bootstrap_v8_isolate();
+    if preloading {
+        GucRegistry::define_int_guc(
+            c"plts.compiler_reactor_max_requests",
+            c"Maximum number of requests served by the shared TSGo reactor before recycling.",
+            c"Controls how many compile/typecheck requests the shared plts TSGo reactor handles before it is replaced.",
+            &COMPILER_REACTOR_MAX_REQUESTS_GUC,
+            1,
+            1_000_000,
+            GucContext::Postmaster,
+            GucFlags::default(),
+        );
+        GucRegistry::define_int_guc(
+            c"plts.compiler_reactor_max_age_s",
+            c"Maximum age in seconds for the shared TSGo reactor before recycling.",
+            c"Older shared TSGo reactors are retired before reuse to keep compiler-side state bounded.",
+            &COMPILER_REACTOR_MAX_AGE_S_GUC,
+            0,
+            86_400,
+            GucContext::Postmaster,
+            GucFlags::default(),
+        );
+        GucRegistry::define_int_guc(
+            c"plts.compiler_request_timeout_ms",
+            c"Timeout in milliseconds for shared compiler-service requests.",
+            c"Controls queueing and message transport timeouts for plts shared TSGo compile/typecheck requests.",
+            &COMPILER_REQUEST_TIMEOUT_MS_GUC,
+            100,
+            300_000,
+            GucContext::Postmaster,
+            GucFlags::default(),
+        );
+        compiler_service::mark_compiler_service_preloaded();
+        compiler_service::init_compiler_service_shared_memory();
+        compiler_service::register_compiler_service_worker();
+    } else {
+        runtime::bootstrap_v8_isolate();
+    }
 }
 
 pub(crate) fn isolate_reuse_enabled() -> bool {
@@ -85,6 +127,18 @@ pub(crate) fn isolate_max_age_seconds() -> u64 {
 
 pub(crate) fn isolate_max_invocations() -> u64 {
     ISOLATE_MAX_INVOCATIONS_GUC.get().max(1) as u64
+}
+
+pub(crate) fn compiler_reactor_max_requests() -> u64 {
+    COMPILER_REACTOR_MAX_REQUESTS_GUC.get().max(1) as u64
+}
+
+pub(crate) fn compiler_reactor_max_age_seconds() -> u64 {
+    COMPILER_REACTOR_MAX_AGE_S_GUC.get().max(0) as u64
+}
+
+pub(crate) fn compiler_request_timeout_ms() -> i32 {
+    COMPILER_REQUEST_TIMEOUT_MS_GUC.get().max(100)
 }
 
 extension_sql!(
@@ -151,6 +205,6 @@ pub mod pg_test {
 
     #[must_use]
     pub fn postgresql_conf_options() -> Vec<&'static str> {
-        vec![]
+        vec!["shared_preload_libraries = 'plts'"]
     }
 }

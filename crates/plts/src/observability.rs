@@ -1,6 +1,8 @@
 use pgrx::prelude::*;
+use pgrx::pg_sys;
 use serde_json::Value;
 use serde_json::json;
+use std::ffi::CStr;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -56,6 +58,43 @@ static TSGO_WASM_CACHE_MANUAL_MISSES: AtomicU64 = AtomicU64::new(0);
 static TSGO_WASM_CACHE_FALLBACK_COMPILES: AtomicU64 = AtomicU64::new(0);
 static TSGO_WASM_CACHE_CONFIG_ERRORS: AtomicU64 = AtomicU64::new(0);
 static TSGO_WASM_CACHE_DESERIALIZE_ERRORS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_CALLS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_TYPECHECK: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_TRANSPILE: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_COMPILE_CHECKED: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_QUEUE_DEPTH_LAST: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_QUEUE_WAIT_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_QUEUE_WAIT_LAST_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_QUEUE_WAIT_MAX_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_REQUEST_BYTES_TOTAL: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_REQUEST_BYTES_LAST: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_REQUEST_BYTES_MAX: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_RESPONSE_BYTES_TOTAL: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_RESPONSE_BYTES_LAST: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_RESPONSE_BYTES_MAX: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_REACTOR_INIT_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_REACTOR_INIT_LAST_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_REACTOR_INIT_MAX_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_REACTOR_RESTARTS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_RESTART_MAX_REQUESTS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_RESTART_MAX_AGE: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_RESTART_TRAP: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_RESTART_TIMEOUT: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_RESTART_PROTOCOL: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_EXEC_TYPECHECK_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_EXEC_TYPECHECK_LAST_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_EXEC_TYPECHECK_MAX_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_EXEC_TRANSPILE_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_EXEC_TRANSPILE_LAST_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_EXEC_TRANSPILE_MAX_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_EXEC_COMPILE_CHECKED_TOTAL_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_EXEC_COMPILE_CHECKED_LAST_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_EXEC_COMPILE_CHECKED_MAX_MS: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_ERROR_QUEUE_TIMEOUT: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_ERROR_WORKER_DEAD: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_ERROR_REACTOR_TRAP: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_ERROR_PROTOCOL: AtomicU64 = AtomicU64::new(0);
+static COMPILER_SERVICE_ERROR_DECODE: AtomicU64 = AtomicU64::new(0);
 static LOG_LEVEL: OnceLock<LogLevel> = OnceLock::new();
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -78,18 +117,20 @@ fn parse_log_level(raw: &str) -> LogLevel {
     }
 }
 
-fn read_log_level_from_spi() -> LogLevel {
-    let raw = Spi::get_one::<String>(
-        "SELECT COALESCE(current_setting('plts.log_level', true), 'warn')::text",
-    )
-    .ok()
-    .flatten()
-    .unwrap_or_else(|| "warn".to_string());
-    parse_log_level(raw.as_str())
+fn read_log_level_from_guc() -> LogLevel {
+    let raw = unsafe { pg_sys::GetConfigOptionByName(c"plts.log_level".as_ptr(), std::ptr::null_mut(), true) };
+    if raw.is_null() {
+        return LogLevel::Warn;
+    }
+    let raw = unsafe { CStr::from_ptr(raw) };
+    match raw.to_str() {
+        Ok(value) => parse_log_level(value),
+        Err(_) => LogLevel::Warn,
+    }
 }
 
 fn current_log_level() -> LogLevel {
-    *LOG_LEVEL.get_or_init(read_log_level_from_spi)
+    *LOG_LEVEL.get_or_init(read_log_level_from_guc)
 }
 
 pub(crate) fn should_log_info() -> bool {
@@ -256,6 +297,113 @@ pub(crate) fn record_tsgo_wasm_cache_event(event: &str) {
     }
 }
 
+pub(crate) fn record_compiler_service_request(kind: crate::compiler_service::CompilerRequestKind) {
+    COMPILER_SERVICE_CALLS.fetch_add(1, Ordering::Relaxed);
+    match kind {
+        crate::compiler_service::CompilerRequestKind::Typecheck => {
+            COMPILER_SERVICE_TYPECHECK.fetch_add(1, Ordering::Relaxed);
+        }
+        crate::compiler_service::CompilerRequestKind::Transpile => {
+            COMPILER_SERVICE_TRANSPILE.fetch_add(1, Ordering::Relaxed);
+        }
+        crate::compiler_service::CompilerRequestKind::CompileChecked => {
+            COMPILER_SERVICE_COMPILE_CHECKED.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+pub(crate) fn record_compiler_service_queue_depth(depth: u64) {
+    COMPILER_SERVICE_QUEUE_DEPTH_LAST.store(depth, Ordering::Relaxed);
+}
+
+pub(crate) fn record_compiler_service_queue_wait(elapsed_ms: u64) {
+    COMPILER_SERVICE_QUEUE_WAIT_TOTAL_MS.fetch_add(elapsed_ms, Ordering::Relaxed);
+    COMPILER_SERVICE_QUEUE_WAIT_LAST_MS.store(elapsed_ms, Ordering::Relaxed);
+    update_max(&COMPILER_SERVICE_QUEUE_WAIT_MAX_MS, elapsed_ms);
+}
+
+pub(crate) fn record_compiler_service_transport(request_bytes: u64, response_bytes: u64) {
+    COMPILER_SERVICE_REQUEST_BYTES_TOTAL.fetch_add(request_bytes, Ordering::Relaxed);
+    COMPILER_SERVICE_REQUEST_BYTES_LAST.store(request_bytes, Ordering::Relaxed);
+    update_max(&COMPILER_SERVICE_REQUEST_BYTES_MAX, request_bytes);
+    COMPILER_SERVICE_RESPONSE_BYTES_TOTAL.fetch_add(response_bytes, Ordering::Relaxed);
+    COMPILER_SERVICE_RESPONSE_BYTES_LAST.store(response_bytes, Ordering::Relaxed);
+    update_max(&COMPILER_SERVICE_RESPONSE_BYTES_MAX, response_bytes);
+}
+
+pub(crate) fn record_compiler_service_reactor_init(elapsed_ms: u64) {
+    COMPILER_SERVICE_REACTOR_INIT_TOTAL_MS.fetch_add(elapsed_ms, Ordering::Relaxed);
+    COMPILER_SERVICE_REACTOR_INIT_LAST_MS.store(elapsed_ms, Ordering::Relaxed);
+    update_max(&COMPILER_SERVICE_REACTOR_INIT_MAX_MS, elapsed_ms);
+}
+
+pub(crate) fn record_compiler_service_restart(reason: &str) {
+    COMPILER_SERVICE_REACTOR_RESTARTS.fetch_add(1, Ordering::Relaxed);
+    match reason {
+        "max_requests" => {
+            COMPILER_SERVICE_RESTART_MAX_REQUESTS.fetch_add(1, Ordering::Relaxed);
+        }
+        "max_age" => {
+            COMPILER_SERVICE_RESTART_MAX_AGE.fetch_add(1, Ordering::Relaxed);
+        }
+        "timeout" => {
+            COMPILER_SERVICE_RESTART_TIMEOUT.fetch_add(1, Ordering::Relaxed);
+        }
+        "protocol" => {
+            COMPILER_SERVICE_RESTART_PROTOCOL.fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {
+            COMPILER_SERVICE_RESTART_TRAP.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+pub(crate) fn record_compiler_service_exec(
+    kind: crate::compiler_service::CompilerRequestKind,
+    elapsed_ms: u64,
+) {
+    let (total, last, max) = match kind {
+        crate::compiler_service::CompilerRequestKind::Typecheck => (
+            &COMPILER_SERVICE_EXEC_TYPECHECK_TOTAL_MS,
+            &COMPILER_SERVICE_EXEC_TYPECHECK_LAST_MS,
+            &COMPILER_SERVICE_EXEC_TYPECHECK_MAX_MS,
+        ),
+        crate::compiler_service::CompilerRequestKind::Transpile => (
+            &COMPILER_SERVICE_EXEC_TRANSPILE_TOTAL_MS,
+            &COMPILER_SERVICE_EXEC_TRANSPILE_LAST_MS,
+            &COMPILER_SERVICE_EXEC_TRANSPILE_MAX_MS,
+        ),
+        crate::compiler_service::CompilerRequestKind::CompileChecked => (
+            &COMPILER_SERVICE_EXEC_COMPILE_CHECKED_TOTAL_MS,
+            &COMPILER_SERVICE_EXEC_COMPILE_CHECKED_LAST_MS,
+            &COMPILER_SERVICE_EXEC_COMPILE_CHECKED_MAX_MS,
+        ),
+    };
+    total.fetch_add(elapsed_ms, Ordering::Relaxed);
+    last.store(elapsed_ms, Ordering::Relaxed);
+    update_max(max, elapsed_ms);
+}
+
+pub(crate) fn record_compiler_service_error(class: &str) {
+    match class {
+        "queue_timeout" => {
+            COMPILER_SERVICE_ERROR_QUEUE_TIMEOUT.fetch_add(1, Ordering::Relaxed);
+        }
+        "worker_dead" => {
+            COMPILER_SERVICE_ERROR_WORKER_DEAD.fetch_add(1, Ordering::Relaxed);
+        }
+        "decode" => {
+            COMPILER_SERVICE_ERROR_DECODE.fetch_add(1, Ordering::Relaxed);
+        }
+        "protocol" => {
+            COMPILER_SERVICE_ERROR_PROTOCOL.fetch_add(1, Ordering::Relaxed);
+        }
+        _ => {
+            COMPILER_SERVICE_ERROR_REACTOR_TRAP.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
 pub(crate) fn classify_compile_error(message: &str) -> &'static str {
     let lowered = message.to_ascii_lowercase();
     if lowered.contains("diagnostic") || lowered.contains("typescript") {
@@ -363,6 +511,75 @@ pub(crate) fn metrics_json() -> Value {
                 "fallback_compiles": TSGO_WASM_CACHE_FALLBACK_COMPILES.load(Ordering::Relaxed),
                 "config_errors": TSGO_WASM_CACHE_CONFIG_ERRORS.load(Ordering::Relaxed),
                 "deserialize_errors": TSGO_WASM_CACHE_DESERIALIZE_ERRORS.load(Ordering::Relaxed)
+            }
+        },
+        "compiler_service": {
+            "requests": {
+                "calls": COMPILER_SERVICE_CALLS.load(Ordering::Relaxed),
+                "typecheck": COMPILER_SERVICE_TYPECHECK.load(Ordering::Relaxed),
+                "transpile": COMPILER_SERVICE_TRANSPILE.load(Ordering::Relaxed),
+                "compile_checked": COMPILER_SERVICE_COMPILE_CHECKED.load(Ordering::Relaxed)
+            },
+            "queue": {
+                "depth": {
+                    "last": COMPILER_SERVICE_QUEUE_DEPTH_LAST.load(Ordering::Relaxed)
+                },
+                "wait_ms": {
+                    "total": COMPILER_SERVICE_QUEUE_WAIT_TOTAL_MS.load(Ordering::Relaxed),
+                    "last": COMPILER_SERVICE_QUEUE_WAIT_LAST_MS.load(Ordering::Relaxed),
+                    "max": COMPILER_SERVICE_QUEUE_WAIT_MAX_MS.load(Ordering::Relaxed)
+                }
+            },
+            "transport": {
+                "request_bytes": {
+                    "total": COMPILER_SERVICE_REQUEST_BYTES_TOTAL.load(Ordering::Relaxed),
+                    "last": COMPILER_SERVICE_REQUEST_BYTES_LAST.load(Ordering::Relaxed),
+                    "max": COMPILER_SERVICE_REQUEST_BYTES_MAX.load(Ordering::Relaxed)
+                },
+                "response_bytes": {
+                    "total": COMPILER_SERVICE_RESPONSE_BYTES_TOTAL.load(Ordering::Relaxed),
+                    "last": COMPILER_SERVICE_RESPONSE_BYTES_LAST.load(Ordering::Relaxed),
+                    "max": COMPILER_SERVICE_RESPONSE_BYTES_MAX.load(Ordering::Relaxed)
+                }
+            },
+            "reactor": {
+                "init_ms": {
+                    "total": COMPILER_SERVICE_REACTOR_INIT_TOTAL_MS.load(Ordering::Relaxed),
+                    "last": COMPILER_SERVICE_REACTOR_INIT_LAST_MS.load(Ordering::Relaxed),
+                    "max": COMPILER_SERVICE_REACTOR_INIT_MAX_MS.load(Ordering::Relaxed)
+                },
+                "restarts": COMPILER_SERVICE_REACTOR_RESTARTS.load(Ordering::Relaxed),
+                "restart_reasons": {
+                    "max_requests": COMPILER_SERVICE_RESTART_MAX_REQUESTS.load(Ordering::Relaxed),
+                    "max_age": COMPILER_SERVICE_RESTART_MAX_AGE.load(Ordering::Relaxed),
+                    "trap": COMPILER_SERVICE_RESTART_TRAP.load(Ordering::Relaxed),
+                    "timeout": COMPILER_SERVICE_RESTART_TIMEOUT.load(Ordering::Relaxed),
+                    "protocol": COMPILER_SERVICE_RESTART_PROTOCOL.load(Ordering::Relaxed)
+                }
+            },
+            "exec_ms": {
+                "typecheck": {
+                    "total": COMPILER_SERVICE_EXEC_TYPECHECK_TOTAL_MS.load(Ordering::Relaxed),
+                    "last": COMPILER_SERVICE_EXEC_TYPECHECK_LAST_MS.load(Ordering::Relaxed),
+                    "max": COMPILER_SERVICE_EXEC_TYPECHECK_MAX_MS.load(Ordering::Relaxed)
+                },
+                "transpile": {
+                    "total": COMPILER_SERVICE_EXEC_TRANSPILE_TOTAL_MS.load(Ordering::Relaxed),
+                    "last": COMPILER_SERVICE_EXEC_TRANSPILE_LAST_MS.load(Ordering::Relaxed),
+                    "max": COMPILER_SERVICE_EXEC_TRANSPILE_MAX_MS.load(Ordering::Relaxed)
+                },
+                "compile_checked": {
+                    "total": COMPILER_SERVICE_EXEC_COMPILE_CHECKED_TOTAL_MS.load(Ordering::Relaxed),
+                    "last": COMPILER_SERVICE_EXEC_COMPILE_CHECKED_LAST_MS.load(Ordering::Relaxed),
+                    "max": COMPILER_SERVICE_EXEC_COMPILE_CHECKED_MAX_MS.load(Ordering::Relaxed)
+                }
+            },
+            "errors": {
+                "queue_timeout": COMPILER_SERVICE_ERROR_QUEUE_TIMEOUT.load(Ordering::Relaxed),
+                "worker_dead": COMPILER_SERVICE_ERROR_WORKER_DEAD.load(Ordering::Relaxed),
+                "reactor_trap": COMPILER_SERVICE_ERROR_REACTOR_TRAP.load(Ordering::Relaxed),
+                "protocol": COMPILER_SERVICE_ERROR_PROTOCOL.load(Ordering::Relaxed),
+                "decode": COMPILER_SERVICE_ERROR_DECODE.load(Ordering::Relaxed)
             }
         }
     })

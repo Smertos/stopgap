@@ -298,6 +298,6 @@ pub mod pg_test {
 
     #[must_use]
     pub fn postgresql_conf_options() -> Vec<&'static str> {
-        vec![]
+        vec!["shared_preload_libraries = 'plts'"]
     }
 }

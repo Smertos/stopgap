@@ -1,6 +1,6 @@
 use crate::compiler::{
-    compile_source_ts, compiler_fingerprint, compute_artifact_hash, contains_error_diagnostics,
-    maybe_extract_source_map, semantic_typecheck_typescript,
+    compile_source_ts, compile_source_ts_checked, compiler_fingerprint, compute_artifact_hash,
+    contains_error_diagnostics, maybe_extract_source_map, semantic_typecheck_typescript,
 };
 use crate::observability::{
     classify_compile_error, log_info, log_warn, metrics_json, record_compile_error,
@@ -48,6 +48,26 @@ mod plts {
     #[pg_extern]
     fn typecheck_ts(source_ts: &str, compiler_opts: default!(JsonB, "'{}'::jsonb")) -> JsonB {
         JsonB(semantic_typecheck_typescript(source_ts, &compiler_opts.0))
+    }
+
+    #[pg_extern]
+    fn compile_ts_checked(
+        source_ts: &str,
+        compiler_opts: default!(JsonB, "'{}'::jsonb"),
+    ) -> TableIterator<
+        'static,
+        (
+            name!(compiled_js, String),
+            name!(diagnostics, JsonB),
+            name!(compiler_fingerprint, String),
+        ),
+    > {
+        let compiled = compile_source_ts_checked(source_ts, &compiler_opts.0);
+        TableIterator::once((
+            compiled.compiled_js,
+            JsonB(compiled.diagnostics),
+            compiler_fingerprint().to_string(),
+        ))
     }
 
     #[pg_extern]
