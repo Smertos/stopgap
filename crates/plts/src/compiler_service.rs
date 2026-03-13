@@ -1,6 +1,4 @@
 use crate::compiler::{TsgoServiceResponse, decode_tsgo_service_response, tsgo_wasm_runtime};
-#[cfg(feature = "v8_runtime")]
-use crate::compiler::execute_tsgo_wasm_command_once;
 use crate::observability::{
     log_info, log_warn, record_compiler_service_error, record_compiler_service_exec,
     record_compiler_service_queue_depth, record_compiler_service_queue_wait,
@@ -516,6 +514,9 @@ fn send_bytes_with_timeout(
 ) -> Result<(), String> {
     let started = Instant::now();
     loop {
+        if compiler_worker_shutdown_requested() {
+            return Err(format!("compiler service {stage} interrupted by worker shutdown"));
+        }
         maybe_process_interrupts();
         let result = unsafe {
             pg_sys::shm_mq_send(
@@ -554,6 +555,9 @@ fn receive_bytes_with_timeout(
 ) -> Result<Vec<u8>, String> {
     let started = Instant::now();
     loop {
+        if compiler_worker_shutdown_requested() {
+            return Err(format!("compiler service {stage} interrupted by worker shutdown"));
+        }
         maybe_process_interrupts();
         let mut nbytes = 0usize;
         let mut datap = ptr::null_mut();
@@ -590,6 +594,11 @@ fn wait_for_latch_slice(timeout_ms: i32) {
             pg_sys::ResetLatch(pg_sys::MyLatch);
         }
     }
+}
+
+fn compiler_worker_shutdown_requested() -> bool {
+    let worker_pid = COMPILER_SERVICE_STATE.share().worker_pid;
+    worker_pid > 0 && unsafe { pg_sys::MyProcPid == worker_pid } && BackgroundWorker::sigterm_received()
 }
 
 fn maybe_process_interrupts() {
@@ -644,15 +653,6 @@ fn execute_request_locally(
     Ok(response_json)
 }
 
-#[cfg(feature = "v8_runtime")]
-fn execute_local_tsgo_request(
-    request_kind: CompilerRequestKind,
-    request_json: &[u8],
-) -> Result<Vec<u8>, String> {
-    execute_tsgo_wasm_command_once(request_kind, request_json)
-}
-
-#[cfg(not(feature = "v8_runtime"))]
 fn execute_local_tsgo_request(
     request_kind: CompilerRequestKind,
     request_json: &[u8],
@@ -846,7 +846,10 @@ pub extern "C-unwind" fn plts_compiler_worker_main(_arg: pg_sys::Datum) {
             continue;
         }
 
-        BackgroundWorker::wait_latch(Some(Duration::from_millis(200)));
+        if !BackgroundWorker::wait_latch(Some(Duration::from_millis(200))) {
+            log_info("plts compiler worker exiting after postmaster shutdown signal");
+            break;
+        }
     }
 
     let mut state = COMPILER_SERVICE_STATE.exclusive();

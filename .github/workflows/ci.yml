@@ -114,12 +114,12 @@ jobs:
       - name: Initialize cargo-pgrx
         run: cargo pgrx init --pg17 /usr/lib/postgresql/17/bin/pg_config
 
-      - name: Run pgrx tests
-        run: cargo pgrx test pg17 -p ${{ matrix.package }} --no-default-features --features pg17
-
-      - name: Install plts extension for stopgap regress
+      - name: Install plts extension for preloaded pg tests
         if: matrix.package == 'stopgap'
         run: cargo pgrx install -p plts --pg-config /usr/lib/postgresql/17/bin/pg_config --no-default-features --features pg17
+
+      - name: Run pgrx tests
+        run: cargo pgrx test pg17 -p ${{ matrix.package }} --no-default-features --features pg17
 
       - name: Run stopgap pg_regress
         if: matrix.package == 'stopgap'
